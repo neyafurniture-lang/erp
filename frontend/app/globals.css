@@ -443,6 +443,13 @@ body {
   .mail-shell {
     @apply flex flex-col bg-white border border-neya-border overflow-hidden;
     min-height: min(72vh, 720px);
+    max-height: calc(100dvh - var(--mobile-nav-h) - 6rem);
+  }
+
+  @media (min-width: 1024px) {
+    .mail-shell {
+      max-height: none;
+    }
   }
 
   .mail-toolbar {
@@ -450,7 +457,7 @@ body {
   }
 
   .mail-search {
-    @apply flex items-center gap-2 flex-1 min-w-[200px] max-w-xl bg-white border border-neya-border rounded px-3 py-1.5 focus-within:border-neya-ink/40 focus-within:ring-1 focus-within:ring-neya-ink/10;
+    @apply flex items-center gap-2 flex-1 min-w-0 sm:min-w-[200px] max-w-xl bg-white border border-neya-border rounded px-3 py-1.5 focus-within:border-neya-ink/40 focus-within:ring-1 focus-within:ring-neya-ink/10;
   }
 
   .mail-search input {
@@ -502,7 +509,7 @@ body {
   }
 
   .mail-reading {
-    @apply flex-1 flex flex-col min-w-0 bg-white;
+    @apply flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden bg-white;
   }
 
   .mail-reading-header {
@@ -510,7 +517,7 @@ body {
   }
 
   .mail-body {
-    @apply flex-1 overflow-y-auto px-4 sm:px-5 py-4 text-sm leading-relaxed text-neya-ink whitespace-pre-wrap;
+    @apply flex-1 overflow-y-auto overflow-x-hidden px-4 sm:px-5 py-4 text-sm leading-relaxed text-neya-ink whitespace-pre-wrap break-words;
   }
 
   .mail-compose {
@@ -518,7 +525,7 @@ body {
   }
 
   .mail-erp-panel {
-    @apply border-t md:border-t-0 md:border-l border-neya-border bg-neya-surface/50 w-full md:w-72 lg:w-80 shrink-0 flex flex-col overflow-hidden;
+    @apply border-t lg:border-t-0 lg:border-l border-neya-border bg-neya-surface/50 w-full lg:w-80 shrink-0 flex flex-col overflow-hidden max-h-[min(45vh,420px)] lg:max-h-none;
   }
 
   .mail-icon-btn {
