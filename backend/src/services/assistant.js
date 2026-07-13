@@ -64,11 +64,16 @@ async function enrichPageContext(ctx) {
       'SELECT id, title, status, sort_order, type FROM tasks WHERE project_id = $1 ORDER BY sort_order, id',
       [ctx.id]
     );
+    const projectMeta = typeof rows[0].meta === 'string'
+      ? (() => { try { return JSON.parse(rows[0].meta || '{}'); } catch { return {}; } })()
+      : (rows[0].meta || {});
+    const products = Array.isArray(projectMeta.products) ? projectMeta.products : [];
     return {
       ...ctx,
       label: rows[0].name,
       project: rows[0],
       tasks,
+      products,
       isCustom: !rows[0].standard_id,
       meta: { ...(ctx.meta || {}), ...(pointed ? { element: pointed } : {}) },
     };
@@ -142,7 +147,8 @@ function contextPrefix(ctx) {
   if (ctx.type === 'project') {
     const custom = ctx.isCustom ? ' (checklist atelier)' : ' (fiche catalogue)';
     const pending = ctx.tasks?.filter(t => t.status !== 'done').length ?? 0;
-    return `[Contexte page : projet « ${ctx.label} »${custom}${pending ? ` — ${pending} tâche(s) en cours` : ''}${elNote}]\n`;
+    const productNote = ctx.products?.length ? ` — ${ctx.products.length} SKU catalogue` : '';
+    return `[Contexte page : projet « ${ctx.label} »${custom}${productNote}${pending ? ` — ${pending} tâche(s) en cours` : ''}${elNote}]\n`;
   }
   if (ctx.type === 'client') return `[Contexte page : client « ${ctx.label} »${elNote}]\n`;
   if (ctx.type === 'standard') return `[Contexte page : fiche « ${ctx.label} »${ctx.sku ? ` (${ctx.sku})` : ''}${elNote}]\n`;

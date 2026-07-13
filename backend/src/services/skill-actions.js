@@ -578,11 +578,17 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
         [id]
       );
       const taskLines = tasks.slice(0, 20).map(t => `${t.status === 'done' ? '✓' : '○'} ${t.title}`).join('\n');
-      actions.push({ type: 'get_project', data: { ...p, tasks } });
+      const meta = typeof p.meta === 'string' ? (() => { try { return JSON.parse(p.meta || '{}'); } catch { return {}; } })() : (p.meta || {});
+      const products = Array.isArray(meta.products) ? meta.products : [];
+      const productLines = products.slice(0, 20).map(pr =>
+        `• ${pr.sku} — ${pr.dimensions || '—'} — ${pr.model || '—'} (qté ${pr.qty ?? 0})`
+      ).join('\n');
+      actions.push({ type: 'get_project', data: { ...p, tasks, products } });
       return {
         reply: `Projet #${p.id} « ${p.name} » [${p.status}]${p.client_name ? ` — ${p.client_name}` : ''}\n`
           + `Deadline: ${p.deadline || '—'} | Budget: ${p.budget_estimated || 0}$\n`
           + `Notes: ${p.notes || '(aucune)'}\n`
+          + (productLines ? `Catalogue SKU:\n${productLines}\n` : '')
           + (taskLines ? `Tâches:\n${taskLines}` : 'Aucune tâche.'),
         actions,
       };
@@ -810,19 +816,26 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
       if (notes != null && params.append_notes && p.notes) {
         notes = `${p.notes}\n${notes}`;
       }
+      let metaClause = '';
+      const sqlParams = [
+        name || p.name,
+        status || p.status,
+        deadline ? (deadline instanceof Date ? deadline.toISOString().slice(0, 10) : String(deadline).slice(0, 10)) : p.deadline,
+        budget != null && (params.budget_estimated != null || /budget/i.test(msg)) ? budget : p.budget_estimated,
+        notes != null ? notes : p.notes,
+      ];
+      if (Array.isArray(params.products)) {
+        metaClause = `, meta = COALESCE(meta, '{}'::jsonb) || $${sqlParams.length + 1}::jsonb`;
+        sqlParams.push(JSON.stringify({ products: params.products }));
+      }
+      sqlParams.push(id);
       const { rows } = await pool.query(
-        `UPDATE projects SET name=$1, status=$2, deadline=$3, budget_estimated=$4, notes=$5 WHERE id=$6 RETURNING *`,
-        [
-          name || p.name,
-          status || p.status,
-          deadline ? (deadline instanceof Date ? deadline.toISOString().slice(0, 10) : String(deadline).slice(0, 10)) : p.deadline,
-          budget != null && (params.budget_estimated != null || /budget/i.test(msg)) ? budget : p.budget_estimated,
-          notes != null ? notes : p.notes,
-          id,
-        ]
+        `UPDATE projects SET name=$1, status=$2, deadline=$3, budget_estimated=$4, notes=$5${metaClause} WHERE id=$${sqlParams.length} RETURNING *`,
+        sqlParams
       );
       actions.push({ type: 'update_project', data: rows[0] });
-      return { reply: `Projet « ${rows[0].name} » mis à jour${notes != null ? ' (notes/descriptif)' : ''}.`, actions };
+      const productNote = Array.isArray(params.products) ? ` (${params.products.length} SKU)` : '';
+      return { reply: `Projet « ${rows[0].name} » mis à jour${notes != null ? ' (notes/descriptif)' : ''}${productNote}.`, actions };
     }
 
     case 'update_client': {

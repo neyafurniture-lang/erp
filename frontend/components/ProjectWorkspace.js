@@ -12,9 +12,11 @@ import Viewer3D from './Viewer3D';
 import DriveExplorer from './DriveExplorer';
 import GmailInbox from './GmailInbox';
 import InstallationBillingPanel from './InstallationBillingPanel';
+import ProjectProductsPanel from './ProjectProductsPanel';
 
 const MODULES = [
   { id: 'overview', label: 'Vue d\'ensemble' },
+  { id: 'products', label: 'Produits' },
   { id: 'installation', label: 'Installation' },
   { id: 'tasks', label: 'Tâches' },
   { id: 'materials', label: 'Matériaux' },
@@ -453,6 +455,10 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
 
       {tab === 'mail' && (
         <GmailInbox projectId={project.id} linkProjectId={project.id} />
+      )}
+
+      {tab === 'products' && (
+        <ProjectProductsPanel project={project} onReload={onReload} />
       )}
 
       {tab === 'installation' && (
