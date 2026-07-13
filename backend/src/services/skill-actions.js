@@ -15,7 +15,8 @@ export const ACTION_TYPES = [
   'create_fabrication_plan',
   'list_skills', 'create_skill', 'update_skill',
   'create_quote', 'create_invoice', 'convert_quote', 'send_quote', 'send_invoice',
-  'list_quotes', 'list_invoices', 'delete_project', 'delete_client', 'delete_expense',
+  'list_quotes', 'list_invoices', 'update_quote', 'get_quote',
+  'delete_project', 'delete_client', 'delete_expense',
   'update_standard', 'sync_wordpress', 'sync_web_orders', 'list_web_orders', 'sync_web_photos',
   'ui_edit_mode', 'ui_add_todo_list', 'ui_move_section', 'ui_hide_section', 'ui_show_section', 'ui_reset_layout',
   'erp_manual',
@@ -1116,16 +1117,183 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
     }
 
     case 'create_quote': {
-      const clientId = pageContext?.type === 'client' ? pageContext.id : null;
-      if (!clientId) return { reply: 'Ouvrez la fiche client ou précisez le client.', actions };
-      const title = extractQuotedText(message) || extractAfterKeyword(message, ['devis', 'quote']) || 'Devis';
-      const amount = extractAmount(message);
-      const lines = amount
-        ? [{ description: title, qty: 1, price: amount }]
-        : [{ description: title, qty: 1, price: 0 }];
-      const quote = await createQuoteRecord({ client_id: clientId, title, lines });
+      const clientIdForQuote = pageContext?.type === 'client'
+        ? pageContext.id
+        : pageContext?.type === 'quote'
+          ? pageContext.client_id
+          : params.client_id || null;
+      if (!clientIdForQuote) return { reply: 'Ouvrez la fiche client ou un devis, ou précisez le client.', actions };
+      const title = params.title || extractQuotedText(msg) || extractAfterKeyword(msg, ['devis', 'quote']) || 'Devis';
+      const amount = params.amount != null ? Number(params.amount) : extractAmount(msg);
+      const lines = Array.isArray(params.lines) && params.lines.length
+        ? params.lines
+        : amount
+          ? [{ description: title, qty: 1, price: amount }]
+          : [{ description: title, qty: 1, price: 0 }];
+      const quote = await createQuoteRecord({
+        client_id: clientIdForQuote,
+        project_id: params.project_id || pageContext?.project_id || null,
+        title,
+        lines,
+        notes: params.notes || null,
+      });
       actions.push({ type: 'create_quote', data: quote });
-      return { reply: `Devis ${quote.quote_number} créé pour « ${pageContext?.label || 'client'} »`, actions };
+      return { reply: `Devis ${quote.quote_number} créé`, actions };
+    }
+
+    case 'get_quote': {
+      let qid = params.quote_id || (pageContext?.type === 'quote' ? pageContext.id : null);
+      if (!qid && params.quote_number) {
+        const { rows } = await pool.query('SELECT id FROM quotes WHERE quote_number ILIKE $1 LIMIT 1', [params.quote_number]);
+        qid = rows[0]?.id;
+      }
+      if (!qid) {
+        const { rows } = await pool.query('SELECT id FROM quotes ORDER BY created_at DESC LIMIT 1');
+        qid = rows[0]?.id;
+      }
+      if (!qid) return { reply: 'Aucun devis trouvé.', actions };
+      const { rows } = await pool.query(`
+        SELECT q.*, c.name AS client_name, p.name AS project_name
+        FROM quotes q
+        LEFT JOIN clients c ON c.id = q.client_id
+        LEFT JOIN projects p ON p.id = q.project_id
+        WHERE q.id = $1
+      `, [qid]);
+      const q = rows[0];
+      if (!q) return { reply: 'Devis introuvable.', actions };
+      const lines = typeof q.lines === 'string' ? JSON.parse(q.lines || '[]') : (q.lines || []);
+      const list = lines.map((l, i) => `${i + 1}. ${l.description || '—'} — ${l.qty || 0} × ${Number(l.price || 0).toFixed(2)} $`).join('\n');
+      actions.push({ type: 'get_quote', data: { ...q, lines } });
+      return {
+        reply: `Devis ${q.quote_number} — ${q.title || 'sans titre'} [${q.status}]\nClient : ${q.client_name || '—'}\nProjet : ${q.project_name || '—'}\nTotal : ${Number(q.total || 0).toFixed(2)} $\n\nLignes :\n${list || '(vide)'}`,
+        actions,
+      };
+    }
+
+    case 'update_quote': {
+      let qid = params.quote_id || (pageContext?.type === 'quote' ? pageContext.id : null);
+      if (!qid && params.quote_number) {
+        const { rows } = await pool.query('SELECT id FROM quotes WHERE quote_number ILIKE $1 LIMIT 1', [String(params.quote_number)]);
+        qid = rows[0]?.id;
+      }
+      if (!qid) return { reply: 'Ouvrez un devis ou précisez quote_id / numéro.', actions };
+
+      const { rows: existing } = await pool.query('SELECT * FROM quotes WHERE id = $1', [qid]);
+      const q = existing[0];
+      if (!q) return { reply: 'Devis introuvable.', actions };
+
+      let lines = typeof q.lines === 'string' ? JSON.parse(q.lines || '[]') : (q.lines || []);
+      if (!Array.isArray(lines)) lines = [];
+
+      // Remplacement complet des lignes
+      if (Array.isArray(params.lines) && params.lines.length) {
+        lines = params.lines.map(l => ({
+          description: String(l.description || '').trim(),
+          qty: Number(l.qty) || 0,
+          price: Number(l.price) || 0,
+        }));
+      }
+
+      // Ajouter une ligne
+      const addDesc = params.add_line || params.line_description
+        || (/ajoute|ajouter|nouvelle ligne/i.test(msg)
+          ? (extractQuotedText(msg) || extractAfterKeyword(msg, ['ligne', 'ajoute', 'ajouter', 'item']))
+          : null);
+      if (addDesc && !Array.isArray(params.lines)) {
+        const qty = params.qty != null ? Number(params.qty) : (Number(msg.match(/(\d+(?:[.,]\d+)?)\s*[x×]/i)?.[1]?.replace(',', '.')) || 1);
+        const price = params.price != null ? Number(params.price) : (extractAmount(msg) || 0);
+        lines.push({ description: String(addDesc).slice(0, 300), qty, price });
+      }
+
+      // Modifier une ligne existante (par index 1-based ou par texte)
+      if (params.update_line || params.line_index || /change|modifie|mets|met\s|prix de/i.test(msg)) {
+        let idx = params.line_index != null ? Number(params.line_index) - 1 : -1;
+        const needle = params.line_match || params.item
+          || extractQuotedText(msg)
+          || extractAfterKeyword(msg, ['ligne', 'prix de', 'change', 'modifie', 'mets']);
+        if (idx < 0 && needle) {
+          idx = lines.findIndex(l => String(l.description || '').toLowerCase().includes(String(needle).toLowerCase().slice(0, 40)));
+        }
+        if (idx >= 0 && idx < lines.length) {
+          if (params.price != null || /prix|\$|dollar/i.test(msg)) {
+            const price = params.price != null ? Number(params.price) : extractAmount(msg);
+            if (price != null) lines[idx] = { ...lines[idx], price };
+          }
+          if (params.qty != null) lines[idx] = { ...lines[idx], qty: Number(params.qty) };
+          if (params.new_description) lines[idx] = { ...lines[idx], description: String(params.new_description) };
+        }
+      }
+
+      // Supprimer une ligne
+      if (params.remove_line || (/supprime|retire|enlève|enleve/.test(msg) && /ligne|item/i.test(msg))) {
+        const needle = params.remove_line || extractQuotedText(msg);
+        if (needle) {
+          lines = lines.filter(l => !String(l.description || '').toLowerCase().includes(String(needle).toLowerCase()));
+        } else if (params.line_index != null) {
+          const i = Number(params.line_index) - 1;
+          if (i >= 0) lines.splice(i, 1);
+        }
+      }
+
+      const title = params.title
+        || (/titre|renommer|appeler/i.test(msg) ? (extractQuotedText(msg) || extractAfterKeyword(msg, ['titre', 'renommer', 'appeler'])) : null)
+        || q.title;
+      const notes = params.notes != null
+        ? (params.append_notes && q.notes ? `${q.notes}\n${params.notes}` : params.notes)
+        : (/note/i.test(msg) ? (extractAfterKeyword(msg, ['note', 'notes']) || q.notes) : q.notes);
+      const status = params.status
+        || (/brouillon|draft/i.test(msg) ? 'draft' : null)
+        || (/envoyé|envoye|sent/i.test(msg) && !/envoyer|mail/i.test(msg) ? 'sent' : null)
+        || (/accepté|accepte|accepted/i.test(msg) ? 'accepted' : null)
+        || (/refusé|refuse|rejected/i.test(msg) ? 'rejected' : null)
+        || q.status;
+
+      const subtotal = lines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.price) || 0), 0);
+      const total = Math.round(subtotal * 1.14975 * 100) / 100;
+
+      const { rows } = await pool.query(
+        `UPDATE quotes SET
+          title = $1, notes = $2, status = $3, lines = $4,
+          subtotal = $5, total = $6,
+          project_id = COALESCE($7, project_id)
+         WHERE id = $8 RETURNING *`,
+        [
+          title,
+          notes,
+          status,
+          JSON.stringify(lines),
+          subtotal,
+          total,
+          params.project_id || null,
+          qid,
+        ]
+      );
+
+      // Mémoire devis : retenir un fait si demandé dans le même message
+      if (/retiens|mémorise|memorise/i.test(msg)) {
+        try {
+          const { saveMemory } = await import('./assistant-memory.js');
+          const fact = extractAfterKeyword(msg, ['retiens que', 'retiens', 'mémorise que', 'mémorise', 'memorise'])
+            || extractQuotedText(msg);
+          if (fact) {
+            await saveMemory({
+              content: fact,
+              category: 'quote',
+              quoteId: qid,
+              clientId: rows[0].client_id,
+              projectId: rows[0].project_id,
+              source: 'assistant',
+            });
+          }
+        } catch { /* optional */ }
+      }
+
+      actions.push({ type: 'update_quote', data: { ...rows[0], lines } });
+      const preview = lines.slice(0, 8).map((l, i) => `${i + 1}. ${l.description} — ${l.qty}×${Number(l.price).toFixed(2)}$`).join('\n');
+      return {
+        reply: `Devis ${rows[0].quote_number} mis à jour (${lines.length} lignes, total ${total.toFixed(2)} $).\n${preview}`,
+        actions,
+      };
     }
 
     case 'create_invoice': {
@@ -1144,12 +1312,12 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
     }
 
     case 'convert_quote': {
-      let quoteId = null;
-      if (pageContext?.type === 'client' && pageContext.client?.quotes?.[0]) {
+      let quoteId = params.quote_id || (pageContext?.type === 'quote' ? pageContext.id : null);
+      if (!quoteId && pageContext?.type === 'client' && pageContext.client?.quotes?.[0]) {
         quoteId = pageContext.client.quotes[0].id;
       }
-      const pctMatch = message.match(/(\d+)\s*%/);
-      const deposit = pctMatch ? Number(pctMatch[1]) : 100;
+      const pctMatch = msg.match(/(\d+)\s*%/);
+      const deposit = params.deposit_percent != null ? Number(params.deposit_percent) : (pctMatch ? Number(pctMatch[1]) : 100);
       if (!quoteId) {
         const { rows } = await pool.query(
           "SELECT id FROM quotes WHERE status IN ('draft','sent') ORDER BY created_at DESC LIMIT 1"
@@ -1165,14 +1333,16 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
     case 'send_quote':
     case 'send_invoice': {
       const isQuote = actionType === 'send_quote';
-      let docId = null;
-      if (isQuote && pageContext?.type === 'client') {
+      let docId = params.quote_id || params.invoice_id || null;
+      if (!docId && isQuote && pageContext?.type === 'quote') docId = pageContext.id;
+      if (!docId && isQuote && pageContext?.type === 'client') {
         const { rows } = await pool.query(
           'SELECT id FROM quotes WHERE client_id=$1 ORDER BY created_at DESC LIMIT 1', [pageContext.id]
         );
         docId = rows[0]?.id;
       }
-      if (!isQuote && pageContext?.type === 'client') {
+      if (!docId && !isQuote && pageContext?.type === 'invoice') docId = pageContext.id;
+      if (!docId && !isQuote && pageContext?.type === 'client') {
         const { rows } = await pool.query(
           'SELECT id FROM invoices WHERE client_id=$1 ORDER BY created_at DESC LIMIT 1', [pageContext.id]
         );

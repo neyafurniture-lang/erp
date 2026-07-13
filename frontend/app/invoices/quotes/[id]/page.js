@@ -9,6 +9,7 @@ import EasyTable from '../../../../components/EasyTable';
 import {
   api, formatMoney, formatDate, QUOTE_STATUS, downloadPdf, calcTaxes, calcLineSubtotal,
 } from '../../../../lib/api';
+import { useRegisterChatContext } from '../../../../lib/chat-context';
 
 function parseLines(lines) {
   if (!lines) return [];
@@ -50,6 +51,29 @@ export default function QuoteDetailPage() {
   }
 
   useEffect(() => { load(); }, [id]);
+
+  useRegisterChatContext(quote ? {
+    type: 'quote',
+    id: quote.id,
+    label: quote.title || quote.quote_number,
+    meta: {
+      quote_number: quote.quote_number,
+      client_name: quote.client_name,
+      status: quote.status,
+      total: quote.total,
+    },
+  } : null);
+
+  useEffect(() => {
+    const onAction = (e) => {
+      const types = (e.detail || []).map(a => a.type);
+      if (types.some(t => ['update_quote', 'create_quote', 'send_quote', 'convert_quote', 'memory_saved'].includes(t))) {
+        load();
+      }
+    };
+    window.addEventListener('neya:assistant-action', onAction);
+    return () => window.removeEventListener('neya:assistant-action', onAction);
+  }, [id]);
 
   function showToast(msg) {
     setToast(msg);

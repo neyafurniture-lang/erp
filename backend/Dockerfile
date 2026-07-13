@@ -1,6 +1,8 @@
 FROM node:22-alpine
 WORKDIR /app
-RUN apk add --no-cache git openssh-client
+RUN apk add --no-cache git openssh-client \
+  && git config --global --add safe.directory /workspace \
+  && git config --global --add safe.directory '*'
 COPY backend/package*.json ./
 RUN npm ci --omit=dev
 COPY backend/ ./

@@ -373,6 +373,8 @@ CREATE TABLE IF NOT EXISTS assistant_memories (
   content TEXT NOT NULL,
   source TEXT DEFAULT 'user',
   project_id INT REFERENCES projects(id) ON DELETE CASCADE,
+  client_id INT REFERENCES clients(id) ON DELETE CASCADE,
+  quote_id INT REFERENCES quotes(id) ON DELETE CASCADE,
   confidence NUMERIC(3,2) DEFAULT 0.8,
   active BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -543,6 +545,8 @@ CREATE INDEX IF NOT EXISTS idx_supplier_invoices_status ON supplier_invoice_emai
 CREATE INDEX IF NOT EXISTS idx_inventory_category ON inventory_items(category);
 CREATE INDEX IF NOT EXISTS idx_shifts_employee ON shifts(employee_id, start_at);
 CREATE INDEX IF NOT EXISTS idx_memories_project ON assistant_memories(project_id);
+CREATE INDEX IF NOT EXISTS idx_memories_client ON assistant_memories(client_id);
+CREATE INDEX IF NOT EXISTS idx_memories_quote ON assistant_memories(quote_id);
 
 -- Admin créé au démarrage via init.js (ADMIN_PASSWORD)
 

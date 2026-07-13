@@ -2,7 +2,32 @@ import { execFileSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
+/** Évite « fatal: detected dubious ownership » (volume Docker monté). */
+const ensuredSafeDirs = new Set();
+
+function ensureSafeDirectory(cwd) {
+  if (!cwd || ensuredSafeDirs.has(cwd)) return;
+  try {
+    execFileSync('git', ['config', '--global', '--add', 'safe.directory', cwd], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch {
+    /* ignore */
+  }
+  try {
+    execFileSync('git', ['config', '--global', '--add', 'safe.directory', '*'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch {
+    /* ignore */
+  }
+  ensuredSafeDirs.add(cwd);
+}
+
 function run(cwd, args, timeout = 120000) {
+  ensureSafeDirectory(cwd);
   try {
     const stdout = execFileSync('git', args, {
       cwd,

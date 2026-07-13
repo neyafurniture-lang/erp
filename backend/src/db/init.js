@@ -277,6 +277,10 @@ export async function initDb() {
   `);
 
   await pool.query(`ALTER TABLE admin_tasks ADD COLUMN IF NOT EXISTS priority_tier TEXT NOT NULL DEFAULT 'p2'`);
+  await pool.query(`ALTER TABLE assistant_memories ADD COLUMN IF NOT EXISTS client_id INT REFERENCES clients(id) ON DELETE CASCADE`);
+  await pool.query(`ALTER TABLE assistant_memories ADD COLUMN IF NOT EXISTS quote_id INT REFERENCES quotes(id) ON DELETE CASCADE`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_memories_client ON assistant_memories(client_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_memories_quote ON assistant_memories(quote_id)`);
 
   await seedV2Extensions();
 
