@@ -1,0 +1,365 @@
+import {
+  getAnthropicKey,
+  getOpenAIKey,
+  getSetting,
+  isAssistantAiEnabled,
+} from './settings.js';
+
+function parseJsonReply(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return { reply: '', action: { type: null, params: {} } };
+
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = (fenced ? fenced[1].trim() : raw);
+
+  try {
+    const parsed = JSON.parse(candidate);
+    if (typeof parsed === 'string') {
+      return { reply: parsed, action: { type: null, params: {} } };
+    }
+    return {
+      reply: parsed.reply || parsed.message || raw,
+      action: parsed.action || { type: null, params: {} },
+    };
+  } catch {
+    const embedded = candidate.match(/\{[\s\S]*"reply"[\s\S]*\}/);
+    if (embedded) {
+      try {
+        const parsed = JSON.parse(embedded[0]);
+        return {
+          reply: parsed.reply || raw,
+          action: parsed.action || { type: null, params: {} },
+        };
+      } catch { /* fallthrough */ }
+    }
+    // Claude a répondu en texte libre — on l'utilise quand même
+    return { reply: raw, action: { type: null, params: {} } };
+  }
+}
+
+const HISTORY_LIMIT = 12;
+
+async function buildErpContextSnapshot(pageContext) {
+  const pool = (await import('../db/pool.js')).default;
+
+  const [{ rows: projects }, { rows: clients }, { rows: memories }] = await Promise.all([
+    pool.query(`
+      SELECT p.id, p.name, p.status, p.notes, p.deadline, c.name AS client_name,
+        (SELECT COUNT(*)::int FROM tasks t WHERE t.project_id = p.id AND t.status != 'done') AS tasks_open,
+        (SELECT COUNT(*)::int FROM tasks t WHERE t.project_id = p.id AND t.status = 'done') AS tasks_done
+      FROM projects p
+      LEFT JOIN clients c ON c.id = p.client_id
+      ORDER BY CASE WHEN p.status = 'active' THEN 0 ELSE 1 END, p.created_at DESC
+      LIMIT 30
+    `),
+    pool.query('SELECT id, name, email FROM clients ORDER BY name LIMIT 25'),
+    pool.query(`
+      SELECT category, content, project_id FROM assistant_memories
+      WHERE active = true
+      ORDER BY confidence DESC, updated_at DESC
+      LIMIT 25
+    `).catch(() => ({ rows: [] })),
+  ]);
+
+  const lines = [];
+  const active = projects.filter(p => p.status === 'active');
+  const done = projects.filter(p => p.status === 'done');
+  if (active.length) {
+    lines.push('Projets EN COURS (cherche ici d\'abord) :');
+    for (const p of active) {
+      const notes = p.notes ? ` | notes: ${String(p.notes).slice(0, 100)}` : '';
+      lines.push(`- #${p.id} « ${p.name} »${p.client_name ? ` — ${p.client_name}` : ''} (${p.tasks_done || 0}✓/${(p.tasks_done || 0) + (p.tasks_open || 0)})${notes}`);
+    }
+  }
+  if (done.length) {
+    lines.push('Projets TERMINÉS (anciens, toujours accessibles) :');
+    for (const p of done.slice(0, 12)) {
+      lines.push(`- #${p.id} « ${p.name} » [${p.status}]${p.client_name ? ` — ${p.client_name}` : ''}`);
+    }
+  }
+  if (clients.length) {
+    lines.push('Clients :');
+    for (const c of clients) {
+      lines.push(`- #${c.id} « ${c.name} »${c.email ? ` (${c.email})` : ''}`);
+    }
+  }
+  if (memories.length) {
+    lines.push('Mémoire atelier (faits retenus) :');
+    for (const m of memories.slice(0, 15)) {
+      lines.push(`- [${m.category}] ${m.content}${m.project_id ? ` (projet #${m.project_id})` : ''}`);
+    }
+  }
+  if (pageContext?.type === 'project') {
+    const allTasks = pageContext.tasks || [];
+    lines.push(`Projet OUVERT maintenant : #${pageContext.id} « ${pageContext.label} »`);
+    if (pageContext.project?.notes) {
+      lines.push(`Descriptif/notes : ${String(pageContext.project.notes).slice(0, 300)}`);
+    }
+    if (allTasks.length) {
+      lines.push('Toutes les tâches (cocher / modifier avec complete_task ou update_task) :');
+      for (const t of allTasks.slice(0, 20)) {
+        lines.push(`- #${t.id} [${t.status}] ${t.title}`);
+      }
+    }
+  }
+  return lines.length ? `\nDonnées ERP actuelles (requête base) :\n${lines.join('\n')}` : '';
+}
+
+async function buildSystemPrompt(pageContext) {
+  const pool = (await import('../db/pool.js')).default;
+  const { formatMemoriesForPrompt } = await import('./assistant-memory.js');
+  const { ACTION_TYPES } = await import('./skill-actions.js');
+  const { getManualPromptBlock } = await import('../content/erp-manual.js');
+
+  const { rows: skills } = await pool.query(
+    'SELECT name, description, action_type FROM assistant_skills WHERE enabled = true'
+  );
+  const ctxNote = pageContext
+    ? `\nContexte page : ${JSON.stringify({ type: pageContext.type, id: pageContext.id, label: pageContext.label, isCustom: pageContext.isCustom })}.`
+    : '';
+  const memoryBlock = await formatMemoriesForPrompt(pageContext?.id || null);
+  const manualBlock = `\n${getManualPromptBlock()}`;
+  const erpBlock = await buildErpContextSnapshot(pageContext);
+  let driveBlock = '';
+  try {
+    const { getGoogleTokenRow } = await import('./google-oauth.js');
+    const { getFolderTree } = await import('./google-drive.js');
+    const row = await getGoogleTokenRow();
+    if (row?.access_token) {
+      const tree = await getFolderTree('root', 2);
+      driveBlock = `\nArborescence Drive (racine, profondeur 2): ${JSON.stringify(tree).slice(0, 4000)}`;
+    }
+  } catch { /* Drive optionnel */ }
+
+  let mailBlock = '';
+  try {
+    const { getGoogleTokenRow } = await import('./google-oauth.js');
+    const row = await getGoogleTokenRow();
+    if (row?.access_token) {
+      const gmail = await import('./google-gmail.js');
+      const { enrichInboxMessages } = await import('./mail-sort.js');
+      const { messages: raw } = await gmail.listMessages({ label: 'INBOX', max: 8 });
+      const { messages } = await enrichInboxMessages(raw || []);
+      if (messages.length) {
+        const lines = messages.map(m => {
+          const unread = m.isUnread ? '[non lu] ' : '';
+          return `- ${unread}${m.from || '?'} | ${m.subject || '(sans objet)'} [${m.mailCategory || '?'}] id=${m.id}`;
+        });
+        mailBlock = `\nCourriels INBOX récents (Gmail connecté — utilise list_emails / search_emails / get_email pour plus) :\n${lines.join('\n')}`;
+      } else {
+        mailBlock = '\nGmail connecté — boîte vide. Actions : list_emails, search_emails, get_email, list_mail_threads.';
+      }
+    } else {
+      mailBlock = '\nGmail NON connecté — si l\'utilisateur demande des mails, indique Paramètres → Intégrations.';
+    }
+  } catch {
+    mailBlock = '\nGmail indisponible pour le moment. Actions mail : list_emails, search_emails, get_email.';
+  }
+
+  return `Tu es Lia, l'assistant NEYA ERP (atelier meubles Neya Furniture).
+IMPORTANT: ta réponse doit être UNIQUEMENT un objet JSON valide, sans markdown, sans texte avant/après.
+Skills: ${JSON.stringify(skills)}
+Actions: ${ACTION_TYPES.join('|')}
+Format exact: {"reply":"texte court pour l'utilisateur","action":{"type":"nom_action_ou_null","params":{}}}
+
+AUTONOMIE — tu DOIS agir seule sans demander de cliquer dans l'ERP :
+1. Cherche d'abord dans le bloc Données ERP / Mémoire ci-dessous.
+2. Si le projet n'y est pas, utilise search_projects ou get_project avec params {"query":"nom"} ou {"project_id":123}.
+3. Pour cocher : complete_task avec {"project_name":"…","task_title":"finition"} ou {"project_id":1,"task_title":"…"}.
+4. Pour modifier une tâche : update_task avec {"task_title":"…","new_title":"…"} ou {"status":"done"|"todo"}.
+5. Pour le descriptif / notes du projet : update_project avec {"project_name":"…","notes":"texte"} ou {"append_notes":true,"notes":"ajout"}.
+6. Pour le statut projet : update_project {"status":"done"|"active","project_id":…}.
+7. Mémoire atelier : search_memory {"query":"…"}. L'utilisateur peut aussi dire « retiens que … ».
+8. list_project_tasks {"project_name":"Olive"} pour lister les tâches d'un projet non ouvert.
+9. COURRIEL — tu as accès à Gmail. Ne dis JAMAIS que tu n'as pas accès au mail.
+   - list_emails {"max":15} ou {"category":"clients"|"fournisseurs"|"a_repondre"|"projets"}
+   - search_emails {"query":"from:client@… OR facture"}
+   - get_email {"message_id":"…"} ou {"index":1} pour le 1er de la boîte
+   - list_mail_threads pour les fils déjà liés ERP
+10. FICHIERS / PLAN FABRICATION — si l'utilisateur joint un mail/PDF/plan et demande de lier / créer des étapes :
+   - create_fabrication_plan {"project_name":"Olive","steps":[{"title":"Débitage","type":"debitage","estimated_minutes":90}],"notes":"…"}
+   - Ne réponds PAS seulement « j'ai reçu le fichier » : exécute l'action.
+
+Exemples params :
+- {"type":"complete_task","params":{"project_name":"Banc Olive","task_title":"finition"}}
+- {"type":"update_project","params":{"project_id":12,"notes":"Livraison semaine prochaine"}}
+- {"type":"search_projects","params":{"query":"olive"}}
+- {"type":"get_project","params":{"project_id":12}}
+- {"type":"list_emails","params":{"max":10}}
+- {"type":"search_emails","params":{"query":"facture Home Depot"}}
+- {"type":"get_email","params":{"index":1}}
+- {"type":"create_fabrication_plan","params":{"project_name":"Banc Olive","steps":[{"title":"Débitage","type":"debitage"},{"title":"Assemblage","type":"assemblage"},{"title":"Finition","type":"finition"}],"notes":"Infos du mail client"}}
+
+Mémoire conversation : utilise l'historique (« oui », « celui-là », « ce projet »). Ne redemande pas ce qui est déjà dit.
+Ne dis JAMAIS « ouvrez le projet » si tu peux le trouver par nom. Exécute l'action.
+Si l'utilisateur mentionne un fichier sans pièce jointe, demande le bouton 📎.
+Pour « comment faire », renvoie vers /manual.${memoryBlock}${manualBlock}${erpBlock}${driveBlock}${mailBlock}${ctxNote}`;
+}
+
+async function callOpenAI({ systemPrompt, history, message }) {
+  const apiKey = await getOpenAIKey();
+  if (!apiKey) return null;
+
+  const model = (await getSetting('openai_model')) || 'gpt-4o-mini';
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        ...history.slice(-HISTORY_LIMIT).map(h => ({ role: h.role, content: h.content })),
+        { role: 'user', content: message },
+      ],
+      response_format: { type: 'json_object' },
+    }),
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return parseJsonReply(data.choices[0].message.content);
+}
+
+function buildClaudeMessages(history, message) {
+  const messages = [];
+  for (const h of history.slice(-HISTORY_LIMIT)) {
+    const role = h.role === 'assistant' ? 'assistant' : 'user';
+    const content = String(h.content || '').trim();
+    if (!content) continue;
+    if (messages.length && messages[messages.length - 1].role === role) {
+      messages[messages.length - 1].content += `\n${content}`;
+    } else {
+      messages.push({ role, content });
+    }
+  }
+  if (messages.length && messages[messages.length - 1].role === 'user') {
+    messages[messages.length - 1].content += `\n${message}`;
+  } else {
+    messages.push({ role: 'user', content: message });
+  }
+  if (messages[0]?.role === 'assistant') messages.shift();
+  return messages;
+}
+
+async function callClaude({ systemPrompt, history, message }) {
+  const apiKey = await getAnthropicKey();
+  if (!apiKey) return null;
+
+  const model = (await getSetting('anthropic_model')) || 'claude-sonnet-5';
+  const messages = buildClaudeMessages(history, message);
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 2048,
+      system: systemPrompt,
+      messages,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.text().catch(() => '');
+    console.warn('Claude API:', res.status, err.slice(0, 300));
+    return null;
+  }
+  const data = await res.json();
+  const text = data.content?.find(b => b.type === 'text')?.text;
+  if (!text) return null;
+  return parseJsonReply(text);
+}
+
+export async function getActiveAiProvider() {
+  const preferred = (await getSetting('ai_provider')) || 'anthropic';
+  const hasClaude = Boolean(await getAnthropicKey());
+  const hasOpenai = Boolean(await getOpenAIKey());
+
+  if (preferred === 'anthropic' && hasClaude) return 'anthropic';
+  if (preferred === 'openai' && hasOpenai) return 'openai';
+  if (hasClaude) return 'anthropic';
+  if (hasOpenai) return 'openai';
+  return null;
+}
+
+export async function callAssistantLLM(message, history, pageContext) {
+  if (!(await isAssistantAiEnabled())) return null;
+
+  const provider = await getActiveAiProvider();
+  if (!provider) return null;
+
+  try {
+    const systemPrompt = await buildSystemPrompt(pageContext);
+    if (provider === 'anthropic') {
+      return await callClaude({ systemPrompt, history, message });
+    }
+    return await callOpenAI({ systemPrompt, history, message });
+  } catch (err) {
+    console.warn('Assistant LLM:', err.message);
+    return null;
+  }
+}
+
+/** Appel LLM générique — retourne l'objet JSON brut (planification). */
+export async function callRawLLM({ systemPrompt, message, history = [] }) {
+  if (!(await isAssistantAiEnabled())) return null;
+  const provider = await getActiveAiProvider();
+  if (!provider) return null;
+  try {
+    let text = null;
+    if (provider === 'anthropic') {
+      const apiKey = await getAnthropicKey();
+      if (!apiKey) return null;
+      const model = (await getSetting('anthropic_model')) || 'claude-sonnet-5';
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 2048,
+          system: systemPrompt,
+          messages: buildClaudeMessages(history, message),
+        }),
+      });
+      if (!res.ok) {
+        console.warn('Claude API (raw):', res.status, (await res.text()).slice(0, 200));
+        return null;
+      }
+      const data = await res.json();
+      text = data.content?.find(b => b.type === 'text')?.text;
+    } else {
+      const apiKey = await getOpenAIKey();
+      if (!apiKey) return null;
+      const model = (await getSetting('openai_model')) || 'gpt-4o-mini';
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            ...history.slice(-HISTORY_LIMIT).map(h => ({ role: h.role, content: h.content })),
+            { role: 'user', content: message },
+          ],
+          response_format: { type: 'json_object' },
+        }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      text = data.choices[0].message.content;
+    }
+    if (!text) return null;
+    const fenced = String(text).match(/```(?:json)?\s*([\s\S]*?)```/i);
+    const candidate = fenced ? fenced[1].trim() : String(text).trim();
+    return JSON.parse(candidate);
+  } catch (err) {
+    console.warn('Raw LLM:', err.message);
+    return null;
+  }
+}

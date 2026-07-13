@@ -1,0 +1,201 @@
+# NEYA ERP — production (déploiement Git + Docker)
+
+# Copier vers .env.production sur le serveur : cp deploy/.env.production.example .env.production
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+
+  db:
+
+    image: postgres:15-alpine
+
+    restart: unless-stopped
+    logging: *default-logging
+
+    environment:
+
+      POSTGRES_USER: neya
+
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+      POSTGRES_DB: neya_db
+
+    volumes:
+
+      - neya_pg:/var/lib/postgresql/data
+
+    healthcheck:
+
+      test: ['CMD-SHELL', 'pg_isready -U neya -d neya_db']
+
+      interval: 10s
+
+      timeout: 5s
+
+      retries: 5
+
+
+
+  backend:
+
+    logging: *default-logging
+
+    build:
+
+      context: .
+
+      dockerfile: backend/Dockerfile
+
+      args:
+
+        APP_VERSION: ${APP_VERSION:-0.0.0}
+
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+
+        BUILT_AT: ${BUILT_AT:-}
+
+    restart: unless-stopped
+
+    environment:
+
+      DATABASE_URL: postgresql://neya:${POSTGRES_PASSWORD}@db:5432/neya_db
+
+      JWT_SECRET: ${JWT_SECRET}
+
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+
+      PORT: 4000
+
+      NODE_ENV: production
+
+      FRONTEND_URL: ${FRONTEND_URL}
+
+      WORDPRESS_URL: ${WORDPRESS_URL:-https://neyafurniture.ca}
+
+      WOOCOMMERCE_KEY: ${WOOCOMMERCE_KEY:-}
+
+      WOOCOMMERCE_SECRET: ${WOOCOMMERCE_SECRET:-}
+
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI}
+
+      APP_VERSION: ${APP_VERSION:-0.0.0}
+
+      GIT_COMMIT: ${GIT_COMMIT:-unknown}
+
+      CURSOR_API_KEY: ${CURSOR_API_KEY:-}
+
+      CURSOR_RUNTIME: ${CURSOR_RUNTIME:-local}
+
+      CURSOR_AGENT_CWD: /workspace
+
+      CURSOR_REPO_URL: ${CURSOR_REPO_URL:-}
+
+    depends_on:
+
+      db:
+
+        condition: service_healthy
+
+    volumes:
+
+      - neya_uploads:/app/uploads
+      # Code ERP sur l'hôte — passerelle Cursor Agent (édite / déploie via Git)
+      - /opt/neya-erp:/workspace
+
+    healthcheck:
+
+      test: ['CMD', 'node', '-e', "fetch('http://localhost:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+
+      interval: 15s
+
+      timeout: 5s
+
+      retries: 5
+
+      start_period: 40s
+
+
+
+  frontend:
+
+    logging: *default-logging
+
+    build:
+
+      context: ./frontend
+
+      args:
+
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+
+    restart: unless-stopped
+
+    environment:
+
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+
+    depends_on:
+
+      backend:
+
+        condition: service_healthy
+
+
+
+  caddy:
+
+    image: caddy:2-alpine
+
+    restart: unless-stopped
+    logging: *default-logging
+
+    ports:
+
+      - '80:80'
+
+      - '443:443'
+
+    environment:
+
+      ERP_DOMAIN: ${ERP_DOMAIN}
+
+      ACME_EMAIL: ${ACME_EMAIL:-}
+
+    volumes:
+
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+
+      - caddy_data:/data
+
+      - caddy_config:/config
+
+    depends_on:
+
+      - frontend
+
+      - backend
+
+
+
+volumes:
+
+  neya_pg:
+
+  neya_uploads:
+
+  caddy_data:
+
+  caddy_config:
+
