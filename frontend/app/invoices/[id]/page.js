@@ -138,7 +138,6 @@ export default function InvoiceDetailPage() {
       showToast('Facture enregistrée');
     } catch (err) {
       showToast(err.message);
-      throw err;
     } finally {
       setSaving(false);
     }

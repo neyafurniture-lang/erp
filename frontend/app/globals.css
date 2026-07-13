@@ -1015,6 +1015,14 @@ body {
   @apply leading-relaxed;
 }
 
+.doc-lines-block {
+  @apply mb-2;
+}
+
+.doc-lines-table .text-neya-orange {
+  @apply text-neya-ink;
+}
+
 .doc-lines {
   @apply w-full text-sm border-t border-neya-border;
 }

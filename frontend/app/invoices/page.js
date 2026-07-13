@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
 import InvoicePaymentModal from '../../components/InvoicePaymentModal';
@@ -24,6 +25,7 @@ const EMPTY_FORM = {
 };
 
 export default function InvoicesPage() {
+  const router = useRouter();
   const [invoices, setInvoices] = useState([]);
   const [quotes, setQuotes] = useState([]);
   const [clients, setClients] = useState([]);
@@ -114,23 +116,23 @@ export default function InvoicesPage() {
         )}
 
         {/* Workflow guide */}
-        <div className="card mb-6 bg-neya-cream/50 border-neya-orange/30">
+        <div className="border border-neya-border bg-neya-surface px-4 py-3 mb-6">
           <p className="text-sm text-neya-muted">
-            <span className="font-medium text-neya-orange">1. Devis</span> → créer et envoyer au client
-            <span className="mx-2">→</span>
-            <span className="font-medium text-neya-orange">2. Convertir</span> en facture (complète ou acompte 50%)
-            <span className="mx-2">→</span>
-            <span className="font-medium text-neya-orange">3. PDF</span> + paiement
+            <span className="font-medium text-neya-ink">1. Devis</span> → créer et envoyer au client
+            <span className="mx-2 text-neya-border">·</span>
+            <span className="font-medium text-neya-ink">2. Convertir</span> en facture (complète ou acompte)
+            <span className="mx-2 text-neya-border">·</span>
+            <span className="font-medium text-neya-ink">3. PDF</span> + paiement
           </p>
         </div>
 
-        <div className="flex gap-4 mb-6">
+        <div className="flex gap-2 mb-6 border-b border-neya-border">
           <button onClick={() => { setTab('quotes'); setShowForm(false); }}
-            className={`px-4 py-2 rounded-lg text-sm ${tab === 'quotes' ? 'bg-neya-orange text-white' : 'bg-white border'}`}>
+            className={`px-4 py-2 text-sm border-b-2 -mb-px ${tab === 'quotes' ? 'border-neya-ink text-neya-ink font-medium' : 'border-transparent text-neya-muted hover:text-neya-ink'}`}>
             Devis ({quotes.length})
           </button>
           <button onClick={() => { setTab('invoices'); setShowForm(false); }}
-            className={`px-4 py-2 rounded-lg text-sm ${tab === 'invoices' ? 'bg-neya-orange text-white' : 'bg-white border'}`}>
+            className={`px-4 py-2 text-sm border-b-2 -mb-px ${tab === 'invoices' ? 'border-neya-ink text-neya-ink font-medium' : 'border-transparent text-neya-muted hover:text-neya-ink'}`}>
             Factures ({invoices.length})
           </button>
           <div className="flex-1" />
@@ -236,14 +238,14 @@ export default function InvoicesPage() {
                     className="border-b border-neya-border hover:bg-neya-surface cursor-pointer"
                     onClick={(e) => {
                       if (e.target.closest('button, select, a')) return;
-                      window.location.href = detailHref;
+                      router.push(detailHref);
                     }}
                   >
                     <td className="py-3 pr-4 font-medium">
-                      <Link href={detailHref} className="text-neya-orange hover:underline">{num}</Link>
+                      <Link href={detailHref} className="text-neya-ink hover:underline">{num}</Link>
                     </td>
                     <td className="py-3 pr-4">
-                      <Link href={detailHref} className="hover:text-neya-orange">
+                      <Link href={detailHref} className="hover:underline">
                         <p className="font-medium">{item.title || item.project_name || '—'}</p>
                       </Link>
                       <p className="text-xs text-neya-muted">{item.client_name}</p>
@@ -274,7 +276,7 @@ export default function InvoicesPage() {
                     <td className="py-3">
                       <div className="flex gap-2 flex-wrap items-center">
                         <button onClick={() => openPdf(item.id, tab === 'quotes' ? 'quote' : 'invoice')}
-                          className="text-xs bg-neya-cream hover:bg-neya-cream-dark px-2 py-1 rounded text-neya-orange">
+                          className="text-xs border border-neya-border hover:bg-neya-surface px-2 py-1 text-neya-ink">
                           PDF
                         </button>
                         {tab === 'quotes' && (
