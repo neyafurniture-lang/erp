@@ -1,5 +1,11 @@
 import { Router } from 'express';
 import pool from '../db/pool.js';
+import {
+  getInstallationBilling,
+  scanProjectInstallationDates,
+  saveInstallationBilling,
+  syncInstallationInvoice,
+} from '../services/installation-billing.js';
 
 const router = Router();
 
@@ -97,16 +103,55 @@ router.post('/from-standard/:standardId', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   try {
-    const { name, client_id, status, deadline, budget_estimated, budget_real, notes } = req.body;
+    const { name, client_id, status, deadline, budget_estimated, budget_real, notes, meta } = req.body;
+    let metaClause = '';
+    const params = [name, client_id, status, deadline, budget_estimated, budget_real, notes];
+    if (meta != null && typeof meta === 'object') {
+      metaClause = `, meta = COALESCE(meta, '{}'::jsonb) || $${params.length + 1}::jsonb`;
+      params.push(JSON.stringify(meta));
+    }
+    params.push(req.params.id);
     const { rows } = await pool.query(
       `UPDATE projects SET name=$1, client_id=$2, status=$3, deadline=$4,
-       budget_estimated=$5, budget_real=$6, notes=$7 WHERE id=$8 RETURNING *`,
-      [name, client_id, status, deadline, budget_estimated, budget_real, notes, req.params.id]
+       budget_estimated=$5, budget_real=$6, notes=$7${metaClause} WHERE id=$${params.length} RETURNING *`,
+      params
     );
     if (!rows[0]) return res.status(404).json({ error: 'Projet introuvable' });
     res.json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/:id/installation-billing', async (req, res) => {
+  try {
+    res.json(await getInstallationBilling(req.params.id));
+  } catch (err) {
+    res.status(err.message === 'Projet introuvable' ? 404 : 500).json({ error: err.message });
+  }
+});
+
+router.post('/:id/installation-billing/scan', async (req, res) => {
+  try {
+    res.json(await scanProjectInstallationDates(req.params.id));
+  } catch (err) {
+    res.status(err.message === 'Projet introuvable' ? 404 : 500).json({ error: err.message });
+  }
+});
+
+router.put('/:id/installation-billing', async (req, res) => {
+  try {
+    res.json(await saveInstallationBilling(req.params.id, req.body));
+  } catch (err) {
+    res.status(err.message === 'Projet introuvable' ? 404 : 500).json({ error: err.message });
+  }
+});
+
+router.post('/:id/installation-billing/sync-invoice', async (req, res) => {
+  try {
+    res.json(await syncInstallationInvoice(req.params.id));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 
