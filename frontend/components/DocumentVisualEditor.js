@@ -227,15 +227,6 @@ export default function DocumentVisualEditor({
         <div className="doc-lines-block">
           <div className="flex items-center justify-between gap-2 mb-2">
             <p className="doc-label mb-0">Lignes</p>
-            {!readOnly && !editingLines && (
-              <button
-                type="button"
-                className="text-[11px] text-neya-muted hover:text-neya-ink"
-                onClick={() => setFocusKey('lines')}
-              >
-                Modifier le tableau
-              </button>
-            )}
             {editingLines && (
               <button
                 type="button"
@@ -258,6 +249,7 @@ export default function DocumentVisualEditor({
             <table
               className={`doc-lines ${readOnly ? '' : 'doc-editable'}`}
               onClick={() => !readOnly && setFocusKey('lines')}
+              title={readOnly ? undefined : 'Cliquer pour modifier les lignes'}
             >
               <thead>
                 <tr>
@@ -273,7 +265,15 @@ export default function DocumentVisualEditor({
                   const hasContent = line.description || line.qty !== 1 || line.price;
                   if (!hasContent && i === draft.lines.length - 1 && draft.lines.length > 1) return null;
                   return (
-                    <tr key={i}>
+                    <tr
+                      key={i}
+                      className={readOnly ? '' : 'doc-line-row'}
+                      onClick={(e) => {
+                        if (readOnly) return;
+                        e.stopPropagation();
+                        setFocusKey('lines');
+                      }}
+                    >
                       <td>{line.description || '—'}</td>
                       <td className="text-right text-neya-muted tabular-nums">{line.qty}</td>
                       <td className="text-right tabular-nums">{formatMoney(line.price)}</td>

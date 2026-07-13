@@ -1,6 +1,12 @@
 import pool from '../db/pool.js';
 import { tryMemoryCommand } from './assistant-memory.js';
 import {
+  resolveAssistantRoute,
+  validateLlmAction,
+  isExplicitCursorRequest,
+  formatRoutingLog,
+} from './ai-router.js';
+import {
   ACTION_TYPES,
   extractAmount,
   extractQuotedText,
@@ -264,21 +270,27 @@ async function handleUpdateSkillFromChat(message) {
   };
 }
 
-async function tryOpenAI(message, history, pageContext = null) {
+async function tryOpenAI(message, history, pageContext = null, { validateActions = true } = {}) {
   const { callAssistantLLM } = await import('./ai-chat.js');
-  const { ACTION_TYPES } = await import('./skill-actions.js');
 
   const parsed = await callAssistantLLM(message, history, pageContext);
   if (!parsed) return null;
 
   let actionType = parsed.action?.type || parsed.action_type || null;
   let actionParams = parsed.action?.params || parsed.params || {};
-  // Compat si le modèle renvoie "actions": [{ type }]
   if (!actionType && Array.isArray(parsed.actions) && parsed.actions[0]) {
     actionType = parsed.actions[0].type || parsed.actions[0].action_type;
     actionParams = parsed.actions[0].params || {};
   }
   if (actionType === 'null' || actionType === 'none') actionType = null;
+
+  if (actionType && validateActions) {
+    const check = validateLlmAction(actionType, message, pageContext);
+    if (!check.valid) {
+      return { reply: parsed.reply || 'OK', actions: [], _rejectedAction: actionType, _rejectReason: check.reason };
+    }
+    if (check.redirected) actionType = check.actionType;
+  }
 
   if (actionType && ACTION_TYPES.includes(actionType)) {
     const fakeSkill = { action_type: actionType, name: actionType };
@@ -325,29 +337,7 @@ function needsHistoryContext(message) {
   return /^(crée|creer|ajoute|cocher|modifier|supprime|envoie|planifie)\b/i.test(m) && m.length < 60;
 }
 
-/** Demande de feature / UI / code → Cursor VPS, pas une skill métier (ex. create_invoice). */
-export function isErpCodeChangeRequest(message = '') {
-  const m = String(message);
-  if (
-    /demande\s*(à\s*)?cursor|lance\s*cursor|modifie\s*(l['']?)?(erp|interface|code)|change\s*(l['']?)?(interface|code)|améliore\s*(l['']?)?(erp|interface)|planification\s*des\s*d[eé]parts|pr[eé]-?r[eé]ponses?|crée\s*une\s*passerelle|fais\s*[eé]voluer|développe\s*(le\s*)?(module|feature|écran)/i.test(m)
-  ) {
-    return true;
-  }
-  // UX produit : éditeur, clic pour voir/modifier, visualisation document
-  if (
-    /[eé]diteur\s*visuel|[eé]dition\s*visuelle|visualiser\s*(les\s*)?(facture|devis)|en\s*cliquant|cliquer\s*(dessus|pour)|modifier\s*directement|depuis\s*l['']?[eé]diteur|preview\s*(facture|devis)|aper[cç]u\s*(facture|devis)|wysiwyg|document\s*[eé]ditable/i.test(m)
-  ) {
-    return true;
-  }
-  // « j’aimerais qu’on puisse … » / « il faudrait pouvoir … » = feature, pas création métier
-  if (
-    /(j['’]aimerais|on\s+pourrait|il\s+faudrait|fais\s+en\s+sorte|ajoute\s+(la\s+)?possibilit|rends?\s+(possible|cliquable)|pouvoir\s+(visualiser|modifier|cliquer))/i.test(m)
-    && /(interface|page|écran|écran|bouton|facture|devis|dashboard|mail|module|ui)/i.test(m)
-  ) {
-    return true;
-  }
-  return false;
-}
+export { isExplicitCursorRequest, isExplicitCursorRequest as isErpCodeChangeRequest } from './ai-router.js';
 
 function enrichMessageWithHistory(message, history) {
   if (!history?.length || !needsHistoryContext(message)) return message;
@@ -485,23 +475,22 @@ export async function processMessage(message, attachments = [], rawContext = nul
     return fab;
   }
 
-  async function runKeywordActions(msg = message) {
+  async function runKeywordActions(msg = message, { skipCursor = false } = {}) {
     if (isDayPlanMessage(msg)) {
       return runSkillAction('plan_day', msg, pageContext);
     }
-    // Feature / UI / éditeur → Cursor VPS (AVANT matchSkill : sinon « facture » vole la demande)
-    if (isErpCodeChangeRequest(msg)) {
+    if (!skipCursor && isExplicitCursorRequest(msg, pageContext)) {
       return runSkillAction('demande_modification_erp', msg, pageContext);
     }
     const skill = await matchSkill(msg);
-    if (skill?.action_type === 'demande_modification_erp') {
+    if (!skipCursor && skill?.action_type === 'demande_modification_erp') {
       return executeSkill(skill, msg, pageContext);
     }
-    // Ne jamais créer une facture ERP quand l'utilisateur parle d'éditeur / UX / code
-    if (skill?.action_type === 'create_invoice' && isErpCodeChangeRequest(msg)) {
-      return runSkillAction('demande_modification_erp', msg, pageContext);
+    if (skill?.action_type === 'demande_modification_erp') {
+      // skipCursor : ignorer le skill Cursor, chercher une autre correspondance
+    } else if (skill) {
+      return executeSkill(skill, msg, pageContext);
     }
-    if (skill) return executeSkill(skill, msg, pageContext);
     if (/cocher|marquer|termin|fait|complét/i.test(msg) && /tâche|étape|finition|débitage|assemblage|projet|sur /i.test(msg)) {
       return runSkillAction('complete_task', msg, pageContext);
     }
@@ -546,22 +535,42 @@ export async function processMessage(message, attachments = [], rawContext = nul
     return null;
   }
 
-  let result = await tryOpenAI(contextualMessage, chronHistory, pageContext);
+  const route = await resolveAssistantRoute({
+    message: contextualMessage,
+    pageContext,
+    attachments,
+    matchSkillFn: matchSkill,
+    isDayPlanFn: isDayPlanMessage,
+  });
+  console.log(formatRoutingLog(route));
 
-  // Si Claude répond sans action ERP, tenter les skills (liste projets, cocher, etc.)
-  if (result && (!result.actions || result.actions.length === 0)) {
-    const skillResult = await runKeywordActions(contextualMessage);
-    if (skillResult?.actions?.length) {
-      result = {
-        reply: skillResult.reply || result.reply,
-        actions: skillResult.actions,
-        attachments: skillResult.attachments,
-      };
+  let result = null;
+
+  if (route.channel === 'skill_only') {
+    result = await runKeywordActions(contextualMessage, { skipCursor: true });
+    if (!result && route.skill) {
+      result = await executeSkill(route.skill, contextualMessage, pageContext);
+    }
+  } else if (route.channel === 'cursor') {
+    result = await runSkillAction('demande_modification_erp', contextualMessage, pageContext);
+  } else if (route.channel === 'llm_only') {
+    result = await tryOpenAI(contextualMessage, chronHistory, pageContext, { validateActions: false });
+  } else {
+    result = await tryOpenAI(contextualMessage, chronHistory, pageContext);
+    if (result && (!result.actions || result.actions.length === 0)) {
+      const skillResult = await runKeywordActions(contextualMessage, { skipCursor: true });
+      if (skillResult?.actions?.length) {
+        result = {
+          reply: skillResult.reply || result.reply,
+          actions: skillResult.actions,
+          attachments: skillResult.attachments,
+        };
+      }
     }
   }
 
   if (!result) {
-    result = await runKeywordActions(contextualMessage);
+    result = await runKeywordActions(contextualMessage, { skipCursor: true });
     if (!result) {
       if (pageContext) {
         result = {

@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
 import InvoicePaymentModal from '../../components/InvoicePaymentModal';
@@ -25,7 +25,20 @@ const EMPTY_FORM = {
 };
 
 export default function InvoicesPage() {
+  return (
+    <AuthGuard>
+      <AppShell title="Facturation">
+        <Suspense fallback={<p className="text-neya-muted">Chargement…</p>}>
+          <InvoicesContent />
+        </Suspense>
+      </AppShell>
+    </AuthGuard>
+  );
+}
+
+function InvoicesContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [invoices, setInvoices] = useState([]);
   const [quotes, setQuotes] = useState([]);
   const [clients, setClients] = useState([]);
@@ -44,6 +57,18 @@ export default function InvoicesPage() {
 
   useEffect(() => { load(); }, []);
 
+  useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    if (tabParam === 'invoices' || tabParam === 'quotes') setTab(tabParam);
+    if (searchParams.get('new') !== '1') return;
+    const clientName = searchParams.get('client');
+    if (clientName && clients.length) {
+      const match = clients.find(c => c.name.toLowerCase().includes(clientName.toLowerCase()));
+      if (match) setForm(prev => ({ ...prev, client_id: String(match.id) }));
+    }
+    setShowForm(true);
+  }, [searchParams, clients]);
+
   function showToast(msg) {
     setToast(msg);
     setTimeout(() => setToast(''), 4000);
@@ -57,11 +82,15 @@ export default function InvoicesPage() {
   async function createDoc(e) {
     e.preventDefault();
     const endpoint = tab === 'quotes' ? '/invoices/quotes' : '/invoices';
-    await api(endpoint, { method: 'POST', body: JSON.stringify(form) });
+    const created = await api(endpoint, { method: 'POST', body: JSON.stringify(form) });
     setShowForm(false);
     setForm({ ...EMPTY_FORM });
     showToast(tab === 'quotes' ? 'Devis créé' : 'Facture créée');
     load();
+    const detailHref = tab === 'quotes'
+      ? `/invoices/quotes/${created.id}`
+      : `/invoices/${created.id}`;
+    router.push(detailHref);
   }
 
   async function updateQuoteStatus(id, status) {
@@ -107,8 +136,7 @@ export default function InvoicesPage() {
   const preview = calcTaxes(calcLineSubtotal(form.lines));
 
   return (
-    <AuthGuard>
-      <AppShell title="Facturation">
+    <>
         {toast && (
           <div className="fixed top-4 right-4 z-50 bg-neya-ink text-white px-4 py-2 rounded-lg shadow-lg text-sm">
             {toast}
@@ -387,7 +415,6 @@ export default function InvoicesPage() {
             onSubmit={submitPayment}
           />
         )}
-      </AppShell>
-    </AuthGuard>
+    </>
   );
 }

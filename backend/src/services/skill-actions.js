@@ -15,7 +15,7 @@ export const ACTION_TYPES = [
   'create_fabrication_plan',
   'list_skills', 'create_skill', 'update_skill',
   'create_quote', 'create_invoice', 'convert_quote', 'send_quote', 'send_invoice',
-  'list_quotes', 'list_invoices', 'update_quote', 'get_quote',
+  'list_quotes', 'list_invoices', 'update_quote', 'update_invoice', 'get_quote',
   'delete_project', 'delete_client', 'delete_expense',
   'update_standard', 'sync_wordpress', 'sync_web_orders', 'list_web_orders', 'sync_web_photos',
   'ui_edit_mode', 'ui_add_todo_list', 'ui_move_section', 'ui_hide_section', 'ui_show_section', 'ui_reset_layout',
@@ -1298,6 +1298,78 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
       };
     }
 
+    case 'update_invoice': {
+      let iid = params.invoice_id || (pageContext?.type === 'invoice' ? pageContext.id : null);
+      if (!iid && params.invoice_number) {
+        const { rows } = await pool.query('SELECT id FROM invoices WHERE invoice_number ILIKE $1 LIMIT 1', [String(params.invoice_number)]);
+        iid = rows[0]?.id;
+      }
+      if (!iid) return { reply: 'Ouvrez une facture ou précisez invoice_id / numéro.', actions };
+
+      const { rows: existing } = await pool.query('SELECT * FROM invoices WHERE id = $1', [iid]);
+      const inv = existing[0];
+      if (!inv) return { reply: 'Facture introuvable.', actions };
+
+      let lines = typeof inv.lines === 'string' ? JSON.parse(inv.lines || '[]') : (inv.lines || []);
+      if (!Array.isArray(lines)) lines = [];
+
+      if (Array.isArray(params.lines) && params.lines.length) {
+        lines = params.lines.map(l => ({
+          description: String(l.description || '').trim(),
+          qty: Number(l.qty) || 0,
+          price: Number(l.price) || 0,
+        }));
+      }
+
+      const addDesc = params.add_line || params.line_description;
+      if (addDesc && !Array.isArray(params.lines)) {
+        const qty = params.qty != null ? Number(params.qty) : 1;
+        const price = params.price != null ? Number(params.price) : (extractAmount(msg) || 0);
+        lines.push({ description: String(addDesc).slice(0, 300), qty, price });
+      }
+
+      if (params.update_line || params.line_index || /change|modifie|mets|met\s|prix de/i.test(msg)) {
+        let idx = params.line_index != null ? Number(params.line_index) - 1 : -1;
+        const needle = params.line_match || params.item || extractQuotedText(msg);
+        if (idx < 0 && needle) {
+          idx = lines.findIndex(l => String(l.description || '').toLowerCase().includes(String(needle).toLowerCase().slice(0, 40)));
+        }
+        if (idx >= 0 && idx < lines.length) {
+          if (params.price != null || /prix|\$|dollar/i.test(msg)) {
+            const price = params.price != null ? Number(params.price) : extractAmount(msg);
+            if (price != null) lines[idx] = { ...lines[idx], price };
+          }
+          if (params.qty != null) lines[idx] = { ...lines[idx], qty: Number(params.qty) };
+          if (params.new_description) lines[idx] = { ...lines[idx], description: String(params.new_description) };
+        }
+      }
+
+      const title = params.title || inv.title;
+      const subtitle = params.subtitle != null ? params.subtitle : inv.subtitle;
+      const notes = params.notes != null ? params.notes : inv.notes;
+      const order_summary = params.order_summary != null ? params.order_summary : (inv.order_summary || inv.notes);
+      const due_date = params.due_date != null ? params.due_date : inv.due_date;
+
+      const subtotal = lines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.price) || 0), 0);
+      const total = Math.round(subtotal * 1.14975 * 100) / 100;
+
+      const { rows } = await pool.query(
+        `UPDATE invoices SET
+          title = $1, subtitle = $2, notes = $3, order_summary = $4,
+          due_date = COALESCE($5, due_date), lines = $6,
+          subtotal = $7, total = $8
+         WHERE id = $9 RETURNING *`,
+        [title, subtitle, notes, order_summary, due_date, JSON.stringify(lines), subtotal, total, iid]
+      );
+
+      actions.push({ type: 'update_invoice', data: { ...rows[0], lines } });
+      const preview = lines.slice(0, 8).map((l, i) => `${i + 1}. ${l.description} — ${l.qty}×${Number(l.price).toFixed(2)}$`).join('\n');
+      return {
+        reply: `Facture #${rows[0].invoice_number} mise à jour (${lines.length} lignes, total ${total.toFixed(2)} $).\n${preview}`,
+        actions,
+      };
+    }
+
     case 'create_invoice': {
       let clientId = pageContext?.type === 'client' ? pageContext.id : (params.client_id || null);
       if (!clientId && pageContext?.type === 'project' && pageContext.project?.client_id) {
@@ -1316,7 +1388,7 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
       }
       if (!clientId) {
         return {
-          reply: 'Pour créer une facture métier : précisez le client (« nouvelle facture pour Dupont ») ou ouvrez sa fiche. Si vous vouliez une feature UI (éditeur, clic…), redites-le — je lance Cursor.',
+          reply: 'Précisez le client (« nouvelle facture pour Dupont ») ou ouvrez sa fiche client.',
           actions: [],
         };
       }
