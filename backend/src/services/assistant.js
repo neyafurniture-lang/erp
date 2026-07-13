@@ -67,6 +67,46 @@ async function enrichPageContext(ctx) {
     return { ...ctx, label: rows[0].name, standard: rows[0], sku: meta?.sku };
   }
 
+  if (ctx.type === 'quote') {
+    const { rows } = await pool.query(`
+      SELECT q.*, c.name AS client_name, c.email AS client_email, p.name AS project_name
+      FROM quotes q
+      LEFT JOIN clients c ON c.id = q.client_id
+      LEFT JOIN projects p ON p.id = q.project_id
+      WHERE q.id = $1
+    `, [ctx.id]);
+    if (!rows[0]) return null;
+    const q = rows[0];
+    const lines = typeof q.lines === 'string' ? JSON.parse(q.lines || '[]') : (q.lines || []);
+    return {
+      ...ctx,
+      label: q.title || q.quote_number || `Devis #${q.id}`,
+      quote: { ...q, lines },
+      client_id: q.client_id,
+      project_id: q.project_id,
+    };
+  }
+
+  if (ctx.type === 'invoice') {
+    const { rows } = await pool.query(`
+      SELECT i.*, c.name AS client_name, p.name AS project_name
+      FROM invoices i
+      LEFT JOIN clients c ON c.id = i.client_id
+      LEFT JOIN projects p ON p.id = i.project_id
+      WHERE i.id = $1
+    `, [ctx.id]);
+    if (!rows[0]) return null;
+    const inv = rows[0];
+    const lines = typeof inv.lines === 'string' ? JSON.parse(inv.lines || '[]') : (inv.lines || []);
+    return {
+      ...ctx,
+      label: inv.title || inv.invoice_number || `Facture #${inv.id}`,
+      invoice: { ...inv, lines },
+      client_id: inv.client_id,
+      project_id: inv.project_id,
+    };
+  }
+
   return ctx;
 }
 
@@ -79,6 +119,14 @@ function contextPrefix(ctx) {
   }
   if (ctx.type === 'client') return `[Contexte page : client « ${ctx.label} »]\n`;
   if (ctx.type === 'standard') return `[Contexte page : fiche « ${ctx.label} »${ctx.sku ? ` (${ctx.sku})` : ''}]\n`;
+  if (ctx.type === 'quote') {
+    const q = ctx.quote;
+    const n = Array.isArray(q?.lines) ? q.lines.length : 0;
+    return `[Contexte page : devis « ${ctx.label} » (${q?.quote_number || '#' + ctx.id}) — ${q?.status || '?'} — ${n} ligne(s) — ${q?.client_name || 'sans client'}]\n`;
+  }
+  if (ctx.type === 'invoice') {
+    return `[Contexte page : facture « ${ctx.label} » (${ctx.invoice?.invoice_number || '#' + ctx.id})]\n`;
+  }
   return '';
 }
 
@@ -224,7 +272,10 @@ function contextExamples(ctx) {
     return '• « Cocher finition »\n• « Demain finition banc olive, mail client »\n• « Dépense 120$ matériaux »\n• « Liste tâches »';
   }
   if (ctx.type === 'client') {
-    return '• « Nouveau projet »\n• « Email client@exemple.com »\n• « Liste projets »';
+    return '• « Nouveau projet »\n• « Email client@exemple.com »\n• « Liste projets »\n• « Créer devis »';
+  }
+  if (ctx.type === 'quote') {
+    return '• « Ajoute une ligne caissons 2400$ »\n• « Change le prix de la table à 1800 »\n• « Titre Devis ENNS v2 »\n• « Retiens que le client veut livraison en août »\n• « Envoyer devis »';
   }
   return '• « Créer projet depuis cette fiche »';
 }
@@ -352,7 +403,11 @@ export async function processMessage(message, attachments = [], rawContext = nul
     chronHistory
   );
 
-  const memoryResult = await tryMemoryCommand(message, pageContext?.id || null);
+  const memoryResult = await tryMemoryCommand(message, {
+    projectId: pageContext?.type === 'project' ? pageContext.id : pageContext?.project_id || null,
+    clientId: pageContext?.type === 'client' ? pageContext.id : pageContext?.client_id || null,
+    quoteId: pageContext?.type === 'quote' ? pageContext.id : null,
+  });
   if (memoryResult.handled) {
     await pool.query(
       'INSERT INTO assistant_messages (role, content, actions_taken) VALUES ($1,$2,$3)',
@@ -418,6 +473,16 @@ export async function processMessage(message, attachments = [], rawContext = nul
     }
     if (pageContext?.type === 'standard' && /projet|créer|depuis/i.test(msg)) {
       return createProjectFromStandard(pageContext, msg);
+    }
+    if (pageContext?.type === 'quote') {
+      if (/envoie|envoyer|mail devis/i.test(msg)) return runSkillAction('send_quote', msg, pageContext);
+      if (/convertir|facturer|acompte/i.test(msg)) return runSkillAction('convert_quote', msg, pageContext);
+      if (/montre|voir|détail|contenu|lignes du devis|lis le devis/i.test(msg)) {
+        return runSkillAction('get_quote', msg, pageContext);
+      }
+      if (/ajoute|ajouter|ligne|prix|change|modifie|titre|note|supprime|retire|status|statut|brouillon|accept/i.test(msg)) {
+        return runSkillAction('update_quote', msg, pageContext);
+      }
     }
     if (attachments.length > 0) {
       return handleAttachments(msg, attachments, pageContext);
@@ -731,6 +796,21 @@ export async function seedDefaultSkills() {
         'étapes atelier', 'à partir du fichier', 'à partir du mail', 'linker dans le projet',
       ],
       action: 'create_fabrication_plan',
+    },
+    {
+      name: 'update_quote',
+      description: 'Modifier un devis (lignes, prix, titre, notes, statut)',
+      triggers: [
+        'modifier devis', 'ajoute une ligne', 'ajouter ligne devis', 'change le prix',
+        'prix de la', 'titre devis', 'notes devis', 'update quote',
+      ],
+      action: 'update_quote',
+    },
+    {
+      name: 'get_quote',
+      description: 'Lire le devis ouvert / détail devis',
+      triggers: ['voir devis', 'détail devis', 'lignes du devis', 'montre le devis', 'lis le devis'],
+      action: 'get_quote',
     },
   ];
   for (const s of extraSkills) {

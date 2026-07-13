@@ -23,3 +23,8 @@ tmp-*.json
 *.sql.gz
 .cursor/projects/
 frontend/.next/
+
+# Deploy packages (generated)
+deploy/neya-erp-deploy.zip
+deploy/*.zip
+

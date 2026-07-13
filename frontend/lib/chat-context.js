@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
-/** @typedef {{ type: 'project'|'client'|'standard', id: number, label: string, meta?: Record<string, unknown> }} ChatPageContext */
+/** @typedef {{ type: 'project'|'client'|'standard'|'quote'|'invoice', id: number, label: string, meta?: Record<string, unknown> }} ChatPageContext */
 
 let currentContext = null;
 const listeners = new Set();

@@ -14,7 +14,7 @@ export const ACTION_TYPES = [
   'ui_edit_mode', 'ui_add_todo_list', 'ui_move_section', 'ui_hide_section', 'ui_show_section', 'ui_reset_layout',
   'erp_manual', 'search_projects', 'search_memory', 'get_project',
   'list_emails', 'search_emails', 'get_email', 'list_mail_threads',
-  'create_fabrication_plan',
+  'create_fabrication_plan', 'update_quote', 'get_quote',
 ];
 
 export default function SkillsManager({ compact = false }) {

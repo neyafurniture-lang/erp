@@ -12,11 +12,26 @@ function parseEmailAddress(raw) {
 
 function parseParticipants(msg) {
   const emails = new Set();
-  for (const field of [msg.from, msg.to]) {
+  for (const field of [msg.from, msg.to, msg.cc]) {
     const matches = String(field || '').match(/[\w.+-]+@[\w.-]+\.\w+/gi) || [];
     matches.forEach(e => emails.add(e.toLowerCase()));
   }
   return [...emails];
+}
+
+async function getOwnEmailsForMatch() {
+  const set = new Set();
+  try {
+    const { getGoogleTokenRow } = await import('./google-oauth.js');
+    const row = await getGoogleTokenRow();
+    if (row?.account_email) set.add(String(row.account_email).toLowerCase());
+  } catch { /* optional */ }
+  try {
+    const { getCompanyConfig } = await import('./company-config.js');
+    const company = await getCompanyConfig();
+    if (company?.email) set.add(String(company.email).toLowerCase());
+  } catch { /* optional */ }
+  return set;
 }
 
 function parseMessageDate(msg) {
@@ -31,7 +46,14 @@ function parseDisplayName(raw) {
   return name.length >= 2 ? name : null;
 }
 
-export async function guessClientAndProject({ subject, snippet, body, participants = [], fromRaw = null }) {
+export async function guessClientAndProject({
+  subject,
+  snippet,
+  body,
+  participants = [],
+  fromRaw = null,
+  toRaw = null,
+}) {
   const keywords = extractKeywords(subject, snippet, body);
   let client_id = null;
   let client_name = null;
@@ -40,8 +62,13 @@ export async function guessClientAndProject({ subject, snippet, body, participan
   let link_source = null;
   let link_confidence = 0;
 
-  // 1) Match exact email client
-  for (const email of participants) {
+  const ownEmails = await getOwnEmailsForMatch();
+  const externalParticipants = (participants || [])
+    .map(e => String(e || '').toLowerCase())
+    .filter(e => e.includes('@') && !ownEmails.has(e));
+
+  // 1) Match exact email client (From OU To — crucial pour les mails envoyés)
+  for (const email of externalParticipants) {
     const { rows } = await pool.query(
       `SELECT id, name FROM clients
        WHERE email IS NOT NULL AND LOWER(TRIM(email)) = $1
@@ -57,10 +84,11 @@ export async function guessClientAndProject({ subject, snippet, body, participan
     }
   }
 
-  // 2) Match nom client dans sujet / expéditeur (Jean Tremblay <…>)
+  // 2) Match nom client dans sujet / expéditeur / destinataire
   if (!client_id) {
-    const display = parseDisplayName(fromRaw);
-    const hay = `${subject || ''} ${display || ''} ${snippet || ''}`.toLowerCase();
+    const fromDisplay = parseDisplayName(fromRaw);
+    const toDisplay = parseDisplayName(toRaw);
+    const hay = `${subject || ''} ${fromDisplay || ''} ${toDisplay || ''} ${snippet || ''} ${toRaw || ''}`.toLowerCase();
     const { rows: allClients } = await pool.query(
       `SELECT id, name, email FROM clients WHERE LENGTH(TRIM(name)) >= 3 ORDER BY LENGTH(name) DESC LIMIT 200`
     );
@@ -73,7 +101,6 @@ export async function guessClientAndProject({ subject, snippet, body, participan
         link_confidence = 0.75;
         break;
       }
-      // prénom + nom partiels (au moins 2 tokens)
       const parts = n.split(/\s+/).filter(p => p.length >= 3);
       if (parts.length >= 2 && parts.every(p => hay.includes(p))) {
         client_id = c.id;
@@ -174,6 +201,7 @@ export async function syncGmailThread(gmailThreadId, hints = {}) {
       body: last.body,
       participants,
       fromRaw: last.from || first.from,
+      toRaw: last.to || first.to,
     });
   }
 
@@ -471,12 +499,17 @@ export async function synthesizeThread(threadId) {
         .map(m => `${m.snippet || ''} ${m.body_text || ''}`)
         .join(' ')
         .slice(0, 4000);
+      const lastOutbound = [...(detail.messages || [])].reverse().find(m => m.is_outbound);
+      const lastInbound = [...(detail.messages || [])].reverse().find(m => !m.is_outbound);
       const guess = await guessClientAndProject({
         subject: detail.subject,
         snippet: allText || lastMsg?.snippet,
         body: lastMsg?.body_text,
         participants,
-        fromRaw: lastMsg?.from_email,
+        fromRaw: lastInbound?.from_email || lastMsg?.from_email,
+        toRaw: Array.isArray(lastOutbound?.to_emails)
+          ? lastOutbound.to_emails.join(', ')
+          : (Array.isArray(lastMsg?.to_emails) ? lastMsg.to_emails.join(', ') : null),
       });
       if (guess.client_id || guess.project_id) {
         await linkThread(threadId, {

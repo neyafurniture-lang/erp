@@ -53,6 +53,7 @@ export function formatMessage(msg) {
     subject: getHeader(headers, 'Subject') || '(sans objet)',
     from: getHeader(headers, 'From'),
     to: getHeader(headers, 'To'),
+    cc: getHeader(headers, 'Cc'),
     date: getHeader(headers, 'Date'),
     snippet: msg.snippet,
     labelIds: msg.labelIds || [],
@@ -72,9 +73,9 @@ export async function listMessages({ label = 'INBOX', max = 30, pageToken = null
 
   const messages = await Promise.all(
     list.messages.slice(0, max).map(m =>
-      gmailFetch(`/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`)
+      gmailFetch(`/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Date`)
         .then(formatMessage)
-        .catch(() => ({ id: m.id, subject: '(erreur)', from: '', snippet: '' }))
+        .catch(() => ({ id: m.id, subject: '(erreur)', from: '', to: '', snippet: '' }))
     )
   );
   return { messages, nextPageToken: list.nextPageToken || null };

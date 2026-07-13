@@ -474,10 +474,12 @@ export default function ChatAssistant() {
   const suggestions = pageContext?.type === 'project'
     ? ['Cocher finition', 'Demain finition, mail client', 'Ajouter étape', 'Liste tâches']
     : pageContext?.type === 'client'
-      ? ['Nouveau projet', 'Email client@exemple.com', 'Liste projets']
-      : pageContext?.type === 'standard'
-        ? ['Créer projet depuis cette fiche', 'Liste skills']
-        : ['Demain finition banc olive, mail The NNS', 'Tâches du jour', 'Tâches demain', 'Liste projets'];
+      ? ['Nouveau projet', 'Créer devis', 'Liste projets']
+      : pageContext?.type === 'quote'
+        ? ['Ajoute une ligne', 'Change le prix', 'Voir le devis', 'Retiens que…', 'Envoyer devis']
+        : pageContext?.type === 'standard'
+          ? ['Créer projet depuis cette fiche', 'Liste skills']
+          : ['Demain finition banc olive, mail The NNS', 'Tâches du jour', 'Tâches demain', 'Liste projets'];
 
   const contextBadge = pageContext ? (
     <span className="text-[10px] px-1.5 py-0.5 border border-neya-border bg-neya-surface text-neya-muted truncate max-w-[200px]">

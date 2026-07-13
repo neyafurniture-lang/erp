@@ -87,20 +87,56 @@ const CLIENT_INTENTS = new Set(['devis', 'suivi', 'plainte', 'confirmation']);
 
 let clientEmailCache = null;
 let clientEmailCacheAt = 0;
+let ownEmailCache = null;
+let ownEmailCacheAt = 0;
 
 async function getClientEmailSet() {
   if (clientEmailCache && Date.now() - clientEmailCacheAt < 60_000) return clientEmailCache;
   const { rows } = await pool.query(
-    'SELECT LOWER(email) AS email FROM clients WHERE email IS NOT NULL AND email <> \'\''
+    'SELECT LOWER(TRIM(email)) AS email FROM clients WHERE email IS NOT NULL AND TRIM(email) <> \'\''
   );
   clientEmailCache = new Set(rows.map(r => r.email));
   clientEmailCacheAt = Date.now();
   return clientEmailCache;
 }
 
-function parseFromEmail(from = '') {
+async function getOwnEmailSet() {
+  if (ownEmailCache && Date.now() - ownEmailCacheAt < 300_000) return ownEmailCache;
+  const set = new Set();
+  try {
+    const { getGoogleTokenRow } = await import('./google-oauth.js');
+    const row = await getGoogleTokenRow();
+    if (row?.account_email) set.add(String(row.account_email).toLowerCase());
+  } catch { /* optional */ }
+  try {
+    const { getCompanyConfig } = await import('./company-config.js');
+    const company = await getCompanyConfig();
+    if (company?.email) set.add(String(company.email).toLowerCase());
+  } catch { /* optional */ }
+  ownEmailCache = set;
+  ownEmailCacheAt = Date.now();
+  return set;
+}
+
+export function extractEmailsFromField(raw = '') {
+  const matches = String(raw || '').match(/[\w.+-]+@[\w.-]+\.\w+/gi) || [];
+  return matches.map(e => e.toLowerCase());
+}
+
+export function parseFromEmail(from = '') {
   const m = String(from).match(/<([^>]+)>/);
   return (m ? m[1] : from).trim().toLowerCase();
+}
+
+function collectAddresses({ from = '', to = '', cc = '', participants = [] } = {}, ownEmails = null) {
+  const own = ownEmails || new Set();
+  const all = [
+    ...extractEmailsFromField(from),
+    ...extractEmailsFromField(to),
+    ...extractEmailsFromField(cc),
+    ...(participants || []).map(e => String(e || '').toLowerCase()),
+  ];
+  return [...new Set(all.filter(e => e && e.includes('@') && !own.has(e)))];
 }
 
 function isPromotion(from, subject, snippet) {
@@ -110,48 +146,114 @@ function isPromotion(from, subject, snippet) {
 
 /**
  * Classe un message dans une section unique (priorité haute → basse).
+ * Les mails envoyés sont classés via le destinataire client (To/Cc), pas seulement From.
  */
 export function classifyMailMessage({
   from = '',
+  to = '',
+  cc = '',
   subject = '',
   snippet = '',
   isUnread = false,
+  isOutbound = false,
   thread = null,
   clientEmails = null,
+  ownEmails = null,
 }) {
   if (thread?.mail_category) return thread.mail_category;
 
-  const fromEmail = parseFromEmail(from);
   const emails = clientEmails || new Set();
-  const hasClient = Boolean(thread?.client_id) || (fromEmail && emails.has(fromEmail));
+  const addresses = collectAddresses(
+    { from, to, cc, participants: thread?.participant_emails },
+    ownEmails
+  );
+  const matchedClientEmail = addresses.some(e => emails.has(e));
+  const hasClient = Boolean(thread?.client_id) || matchedClientEmail;
   const hasProject = Boolean(thread?.project_id);
-  const needsResponse = thread?.needs_response === true
-    || thread?.latest_needs_response === true;
+  const needsResponse = !isOutbound && (
+    thread?.needs_response === true || thread?.latest_needs_response === true
+  );
   const clientIntent = thread?.client_intent || thread?.latest_client_intent;
   const supplier = detectSupplier(from, subject, snippet);
   const isSupplier = looksLikeSupplierInvoice(from, subject, snippet) || Boolean(supplier);
 
   if (isSupplier) return 'fournisseurs';
-  if (needsResponse || (isUnread && hasClient)) return 'a_repondre';
+  if (needsResponse || (isUnread && hasClient && !isOutbound)) return 'a_repondre';
   if (hasProject) return 'projets';
   if (hasClient || CLIENT_INTENTS.has(clientIntent)) return 'clients';
   if (isPromotion(from, subject, snippet)) return 'promotions';
   return 'autres';
 }
 
-export function computeMailCategoryForThread(threadRow, synthesis = null) {
+export async function findClientByEmails(emails = []) {
+  const cleaned = [...new Set(
+    (emails || []).map(e => String(e || '').trim().toLowerCase()).filter(e => e.includes('@'))
+  )];
+  if (!cleaned.length) return null;
+
+  const { rows } = await pool.query(
+    `SELECT id, name, LOWER(TRIM(email)) AS email FROM clients
+     WHERE email IS NOT NULL AND LOWER(TRIM(email)) = ANY($1)
+     LIMIT 1`,
+    [cleaned]
+  );
+  return rows[0] || null;
+}
+
+export function computeMailCategoryForThread(threadRow, synthesis = null, { ownEmails = null, clientEmails = null } = {}) {
+  const participants = threadRow.participant_emails || [];
   return classifyMailMessage({
-    from: threadRow.participant_emails?.[0] || '',
+    from: participants[0] || '',
+    to: participants.join(', '),
     subject: threadRow.subject || '',
     snippet: '',
     isUnread: false,
+    isOutbound: false,
     thread: {
       client_id: threadRow.client_id,
       project_id: threadRow.project_id,
       needs_response: synthesis?.needs_response,
       client_intent: synthesis?.client_intent,
+      participant_emails: participants,
     },
+    clientEmails,
+    ownEmails,
   });
+}
+
+/**
+ * Si le fil n'a pas de client mais qu'une adresse connue apparaît (From/To/Cc), le lier automatiquement.
+ */
+export async function autoLinkThreadFromAddresses(threadRow, addresses = []) {
+  if (!threadRow?.id || threadRow.client_id) return threadRow;
+
+  const client = await findClientByEmails(addresses);
+  if (!client) return threadRow;
+
+  let project_id = threadRow.project_id || null;
+  if (!project_id) {
+    const { rows } = await pool.query(
+      `SELECT id FROM projects
+       WHERE client_id = $1 AND status = 'active'
+       ORDER BY created_at DESC LIMIT 1`,
+      [client.id]
+    );
+    project_id = rows[0]?.id || null;
+  }
+
+  const { rows } = await pool.query(
+    `UPDATE email_threads SET
+       client_id = $1,
+       project_id = COALESCE($2, project_id),
+       link_source = 'client_email_auto',
+       link_confidence = 0.95,
+       updated_at = NOW()
+     WHERE id = $3 AND client_id IS NULL
+     RETURNING *`,
+    [client.id, project_id, threadRow.id]
+  );
+
+  return rows[0] ? { ...threadRow, ...rows[0], client_name: client.name } : threadRow;
 }
 
 export async function enrichInboxMessages(messages = []) {
@@ -160,7 +262,7 @@ export async function enrichInboxMessages(messages = []) {
   }
 
   const threadIds = [...new Set(messages.map(m => m.threadId).filter(Boolean))];
-  const clientEmails = await getClientEmailSet();
+  const [clientEmails, ownEmails] = await Promise.all([getClientEmailSet(), getOwnEmailSet()]);
 
   let threadMap = {};
   if (threadIds.length) {
@@ -180,25 +282,53 @@ export async function enrichInboxMessages(messages = []) {
     threadMap = Object.fromEntries(rows.map(r => [r.gmail_thread_id, r]));
   }
 
-  const enriched = messages.map(m => {
-    const thread = threadMap[m.threadId] || null;
+  const enriched = [];
+  for (const m of messages) {
+    let thread = threadMap[m.threadId] || null;
+    const fromEmail = parseFromEmail(m.from);
+    const isOutbound = Boolean(fromEmail && ownEmails.has(fromEmail));
+    const addresses = collectAddresses(
+      {
+        from: m.from,
+        to: m.to,
+        cc: m.cc,
+        participants: thread?.participant_emails,
+      },
+      ownEmails
+    );
+
+    // Auto-lier au client connu (surtout pour les mails envoyés : destinataire = client)
+    if (thread?.id && !thread.client_id && addresses.length) {
+      const linked = await autoLinkThreadFromAddresses(thread, addresses);
+      if (linked?.client_id) {
+        thread = { ...thread, ...linked };
+        threadMap[m.threadId] = thread;
+      }
+    }
+
     const mailCategory = classifyMailMessage({
       from: m.from,
+      to: m.to,
+      cc: m.cc,
       subject: m.subject,
       snippet: m.snippet,
       isUnread: m.isUnread || m.unread,
+      isOutbound,
       thread,
       clientEmails,
+      ownEmails,
     });
-    return {
+
+    enriched.push({
       ...m,
       mailCategory,
+      isOutbound,
       client_id: thread?.client_id || null,
       project_id: thread?.project_id || null,
       client_name: thread?.client_name || null,
       project_name: thread?.project_name || null,
-    };
-  });
+    });
+  }
 
   const counts = {};
   for (const s of MAIL_SECTIONS) {
@@ -235,19 +365,31 @@ export async function classifyAndStoreThread(threadDbId) {
   );
   if (!rows[0]) return null;
 
-  const category = computeMailCategoryForThread(rows[0], {
-    needs_response: rows[0].needs_response,
-    client_intent: rows[0].client_intent,
-  });
+  let threadRow = rows[0];
+  const [clientEmails, ownEmails] = await Promise.all([getClientEmailSet(), getOwnEmailSet()]);
+  const addresses = collectAddresses(
+    { participants: threadRow.participant_emails },
+    ownEmails
+  );
+
+  if (!threadRow.client_id && addresses.length) {
+    threadRow = await autoLinkThreadFromAddresses(threadRow, addresses);
+  }
+
+  const category = computeMailCategoryForThread(
+    threadRow,
+    { needs_response: rows[0].needs_response, client_intent: rows[0].client_intent },
+    { ownEmails, clientEmails }
+  );
 
   await pool.query(
     'UPDATE email_threads SET mail_category = $1, updated_at = NOW() WHERE id = $2',
     [category, threadDbId]
   );
 
-  if (rows[0].gmail_thread_id) {
+  if (threadRow.gmail_thread_id) {
     try {
-      await applyGmailCategoryLabel(rows[0].gmail_thread_id, category);
+      await applyGmailCategoryLabel(threadRow.gmail_thread_id, category);
     } catch (err) {
       console.warn('Gmail label:', err.message);
     }

@@ -102,6 +102,19 @@ async function buildErpContextSnapshot(pageContext) {
       }
     }
   }
+  if (pageContext?.type === 'quote' && pageContext.quote) {
+    const q = pageContext.quote;
+    lines.push(`DEVIS OUVERT : #${q.id} ${q.quote_number} « ${q.title || ''} » [${q.status}]`);
+    lines.push(`Client : ${q.client_name || '—'} | Projet : ${q.project_name || '—'} | Total : ${Number(q.total || 0).toFixed(2)} $`);
+    if (q.notes) lines.push(`Notes devis : ${String(q.notes).slice(0, 300)}`);
+    const ql = Array.isArray(q.lines) ? q.lines : [];
+    if (ql.length) {
+      lines.push('Lignes du devis (modifiables via update_quote) :');
+      ql.slice(0, 25).forEach((l, i) => {
+        lines.push(`- ${i + 1}. ${l.description || '—'} | qty ${l.qty || 0} | ${Number(l.price || 0).toFixed(2)} $`);
+      });
+    }
+  }
   return lines.length ? `\nDonnées ERP actuelles (requête base) :\n${lines.join('\n')}` : '';
 }
 
@@ -117,7 +130,11 @@ async function buildSystemPrompt(pageContext) {
   const ctxNote = pageContext
     ? `\nContexte page : ${JSON.stringify({ type: pageContext.type, id: pageContext.id, label: pageContext.label, isCustom: pageContext.isCustom })}.`
     : '';
-  const memoryBlock = await formatMemoriesForPrompt(pageContext?.id || null);
+  const memoryBlock = await formatMemoriesForPrompt({
+    projectId: pageContext?.type === 'project' ? pageContext.id : pageContext?.project_id || null,
+    clientId: pageContext?.type === 'client' ? pageContext.id : pageContext?.client_id || null,
+    quoteId: pageContext?.type === 'quote' ? pageContext.id : null,
+  });
   const manualBlock = `\n${getManualPromptBlock()}`;
   const erpBlock = await buildErpContextSnapshot(pageContext);
   let driveBlock = '';
@@ -179,6 +196,14 @@ AUTONOMIE — tu DOIS agir seule sans demander de cliquer dans l'ERP :
 10. FICHIERS / PLAN FABRICATION — si l'utilisateur joint un mail/PDF/plan et demande de lier / créer des étapes :
    - create_fabrication_plan {"project_name":"Olive","steps":[{"title":"Débitage","type":"debitage","estimated_minutes":90}],"notes":"…"}
    - Ne réponds PAS seulement « j'ai reçu le fichier » : exécute l'action.
+11. DEVIS — si la page est un devis (contexte quote), tu PEUX le modifier :
+   - get_quote {} pour relire le devis ouvert
+   - update_quote {"add_line":"Caissons","qty":1,"price":2400}
+   - update_quote {"line_match":"table","price":1800}
+   - update_quote {"title":"Devis ENNS v2","notes":"…"}
+   - update_quote {"status":"sent"|"draft"|"accepted"}
+   - send_quote {} pour envoyer le devis ouvert
+   - Utilise la mémoire devis/client. « Retiens que… » sauvegarde une préférence.
 
 Exemples params :
 - {"type":"complete_task","params":{"project_name":"Banc Olive","task_title":"finition"}}
@@ -189,6 +214,9 @@ Exemples params :
 - {"type":"search_emails","params":{"query":"facture Home Depot"}}
 - {"type":"get_email","params":{"index":1}}
 - {"type":"create_fabrication_plan","params":{"project_name":"Banc Olive","steps":[{"title":"Débitage","type":"debitage"},{"title":"Assemblage","type":"assemblage"},{"title":"Finition","type":"finition"}],"notes":"Infos du mail client"}}
+- {"type":"update_quote","params":{"add_line":"Caissons chêne","qty":1,"price":2400}}
+- {"type":"update_quote","params":{"line_match":"table","price":1800}}
+- {"type":"get_quote","params":{}}
 
 Mémoire conversation : utilise l'historique (« oui », « celui-là », « ce projet »). Ne redemande pas ce qui est déjà dit.
 Ne dis JAMAIS « ouvrez le projet » si tu peux le trouver par nom. Exécute l'action.
