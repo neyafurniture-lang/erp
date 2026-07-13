@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import multer from 'multer';
 import pool from '../db/pool.js';
 import {
   getInstallationBilling,
@@ -6,8 +7,18 @@ import {
   saveInstallationBilling,
   syncInstallationInvoice,
 } from '../services/installation-billing.js';
+import { splitPdfForProject } from '../services/project-plans.js';
 
 const router = Router();
+
+const pdfUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = file.mimetype === 'application/pdf' || /\.pdf$/i.test(file.originalname || '');
+    cb(ok ? null : new Error('Fichier PDF uniquement'), ok);
+  },
+});
 
 router.get('/', async (req, res) => {
   try {
@@ -152,6 +163,33 @@ router.post('/:id/installation-billing/sync-invoice', async (req, res) => {
     res.json(await syncInstallationInvoice(req.params.id));
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/:id/plans/import', pdfUpload.single('pdf'), async (req, res) => {
+  try {
+    if (!req.file?.buffer?.length) {
+      return res.status(400).json({ error: 'Fichier PDF requis' });
+    }
+    const projectId = Number(req.params.id);
+    const { rows: existing } = await pool.query('SELECT id, meta FROM projects WHERE id = $1', [projectId]);
+    if (!existing[0]) return res.status(404).json({ error: 'Projet introuvable' });
+
+    const sourceName = req.file.originalname || 'plan.pdf';
+    const newPlans = await splitPdfForProject(projectId, req.file.buffer, sourceName);
+    const prevMeta = typeof existing[0].meta === 'string'
+      ? JSON.parse(existing[0].meta || '{}')
+      : (existing[0].meta || {});
+    const prevPlans = Array.isArray(prevMeta.plans) ? prevMeta.plans : [];
+    const plans = [...prevPlans, ...newPlans];
+
+    const { rows } = await pool.query(
+      `UPDATE projects SET meta = COALESCE(meta, '{}'::jsonb) || $1::jsonb WHERE id = $2 RETURNING *`,
+      [JSON.stringify({ plans }), projectId]
+    );
+    res.json({ project: rows[0], plans, imported: newPlans.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

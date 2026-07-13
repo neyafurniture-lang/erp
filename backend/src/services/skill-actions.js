@@ -580,9 +580,10 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
       const taskLines = tasks.slice(0, 20).map(t => `${t.status === 'done' ? '✓' : '○'} ${t.title}`).join('\n');
       const meta = typeof p.meta === 'string' ? (() => { try { return JSON.parse(p.meta || '{}'); } catch { return {}; } })() : (p.meta || {});
       const products = Array.isArray(meta.products) ? meta.products : [];
-      const productLines = products.slice(0, 20).map(pr =>
-        `• ${pr.sku} — ${pr.dimensions || '—'} — ${pr.model || '—'} (qté ${pr.qty ?? 0})`
-      ).join('\n');
+      const productLines = products.slice(0, 20).map(pr => {
+        const mark = pr.validated ? '✓' : '○';
+        return `${mark} ${pr.sku} — ${pr.dimensions || '—'} — ${pr.model || '—'} (qté ${pr.qty ?? 0})`;
+      }).join('\n');
       actions.push({ type: 'get_project', data: { ...p, tasks, products } });
       return {
         reply: `Projet #${p.id} « ${p.name} » [${p.status}]${p.client_name ? ` — ${p.client_name}` : ''}\n`

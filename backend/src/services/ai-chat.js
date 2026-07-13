@@ -103,9 +103,10 @@ async function buildErpContextSnapshot(pageContext) {
     }
     const products = pageContext.products || [];
     if (products.length) {
-      lines.push('Catalogue produits du projet (onglet Produits — SKU, dimensions, modèle, qté) :');
+      lines.push('Catalogue produits du projet (onglet Produits — SKU, dimensions, modèle, qté, validé) :');
       for (const p of products.slice(0, 30)) {
-        lines.push(`- ${p.sku} | ${p.dimensions || '—'} | ${p.model || '—'} | qté ${p.qty ?? 0}`);
+        const mark = p.validated ? '✓' : '○';
+        lines.push(`${mark} ${p.sku} | ${p.dimensions || '—'} | ${p.model || '—'} | qté ${p.qty ?? 0}`);
       }
     }
   }
@@ -202,7 +203,7 @@ AUTONOMIE — tu DOIS agir seule sans demander de cliquer dans l'ERP :
 4. Pour modifier une tâche : update_task avec {"task_title":"…","new_title":"…"} ou {"status":"done"|"todo"}.
 5. Pour le descriptif / notes du projet : update_project avec {"project_name":"…","notes":"texte"} ou {"append_notes":true,"notes":"ajout"}.
 6. Pour le statut projet : update_project {"status":"done"|"active","project_id":…}.
-6b. Pour le catalogue SKU du projet (onglet Produits) : update_project {"project_id":…,"products":[{"sku":"H2013","dimensions":"20\\" x 13\\"","model":"Underbench","qty":20},…]}.
+6b. Pour le catalogue SKU du projet (onglet Produits) : update_project {"project_id":…,"products":[{"sku":"H2013","dimensions":"20\\" x 13\\"","model":"Underbench","qty":20,"validated":false},…]}.
     Réponds aux questions sur les SKU, quantités et modèles à partir de ce catalogue — ne crée pas de tâches pour ça.
 7. Mémoire atelier : search_memory {"query":"…"}. L'utilisateur peut aussi dire « retiens que … ».
 8. list_project_tasks {"project_name":"Olive"} pour lister les tâches d'un projet non ouvert.

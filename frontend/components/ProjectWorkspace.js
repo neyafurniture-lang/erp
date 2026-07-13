@@ -13,6 +13,8 @@ import DriveExplorer from './DriveExplorer';
 import GmailInbox from './GmailInbox';
 import InstallationBillingPanel from './InstallationBillingPanel';
 import ProjectProductsPanel from './ProjectProductsPanel';
+import ProjectPlansPanel from './ProjectPlansPanel';
+import { getProjectProducts } from '../lib/project-products';
 
 const MODULES = [
   { id: 'overview', label: 'Vue d\'ensemble' },
@@ -50,6 +52,7 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
   const stageInfo = PRODUCTION_STAGES[stage] || PRODUCTION_STAGES.queued;
   const nextTasks = project.tasks?.filter(t => t.status !== 'done').slice(0, 4) || [];
   const { done, total, pct } = checklistProgress(project.tasks);
+  const projectProducts = getProjectProducts(project);
 
   useEffect(() => {
     const t = searchParams.get('tab');
@@ -261,6 +264,15 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
             </div>
           </div>
 
+          {projectProducts.length > 0 && (
+            <ProjectProductsPanel
+              project={project}
+              onReload={onReload}
+              mode="overview"
+              onEditTab={() => changeTab('products')}
+            />
+          )}
+
           <div className="grid md:grid-cols-2 gap-4">
             <div className="card-flat">
               <div className="flex items-center justify-between mb-3">
@@ -446,7 +458,13 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
       )}
 
       {tab === 'plans' && (
-        <Viewer3D url={model3dUrl} title={project.name} />
+        <div className="space-y-8">
+          <ProjectPlansPanel project={project} onReload={onReload} />
+          <div>
+            <p className="text-sm font-semibold text-neya-ink mb-3">Modèle 3D</p>
+            <Viewer3D url={model3dUrl} title={project.name} />
+          </div>
+        </div>
       )}
 
       {tab === 'drive' && (
