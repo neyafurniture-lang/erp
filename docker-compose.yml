@@ -1,0 +1,11 @@
+
+version: '3.8'
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: neya
+      POSTGRES_PASSWORD: neya
+      POSTGRES_DB: neya_db
+    ports:
+      - "5432:5432"

@@ -1,0 +1,10 @@
+{
+  "brand": "NEYA Furniture",
+  "version": "1.0.0-mvp",
+  "description": "Starter kit complet NEYA ERP — ERP artisanal pour atelier bois",
+  "modules": ["dashboard", "projects", "calendar", "invoices", "expenses", "standards", "clients", "assistant"],
+  "defaultCredentials": {
+    "email": "admin@neya.local",
+    "password": "neya2024"
+  }
+}

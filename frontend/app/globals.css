@@ -1,0 +1,556 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-geist: 'Inter', system-ui, sans-serif;
+  --mobile-nav-h: 3.85rem;
+  --chat-bar-h: 3.6rem;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --sidebar-w: 17.5rem;
+  /* +12% taille de base (surtout mobile) */
+  --ui-scale: 1.12;
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --mobile-nav-h: 0px;
+  }
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+  scroll-behavior: smooth;
+  font-size: calc(16px * var(--ui-scale, 1.12));
+}
+
+@media (min-width: 1024px) {
+  html {
+    font-size: calc(16px * 1.06);
+  }
+}
+
+body {
+  @apply bg-white text-neya-ink font-body antialiased;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  letter-spacing: -0.01em;
+  /* Cibles tactiles un peu plus grandes sur mobile */
+  -webkit-text-size-adjust: 100%;
+}
+
+@layer components {
+  .pb-shell {
+    padding-bottom: calc(var(--mobile-nav-h) + var(--safe-bottom) + 0.5rem);
+  }
+
+  @media (min-width: 1024px) {
+    .pb-shell {
+      padding-bottom: 0.5rem;
+    }
+  }
+
+  /* ── Voice Orb : halo néon centré, expansion uniforme ── */
+  .voice-orb-container {
+    pointer-events: none;
+  }
+
+  .voice-orb-container > * {
+    pointer-events: auto;
+  }
+
+  .voice-orb-core {
+    isolation: isolate;
+  }
+
+  .voice-orb-halo {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    border-radius: 50%;
+    pointer-events: none;
+    transform: translate(-50%, -50%) scale(1);
+    transform-origin: center center;
+  }
+
+  .voice-orb-halo--outer {
+    width: 130%;
+    height: 130%;
+    background: radial-gradient(circle, rgba(0, 0, 0, 0.04) 0%, transparent 70%);
+    filter: blur(8px);
+    opacity: 0.5;
+  }
+
+  .voice-orb-halo--inner {
+    display: none;
+  }
+
+  .voice-orb-halo--active.voice-orb-halo--outer,
+  .voice-orb-halo--active.voice-orb-halo--inner {
+    animation: none;
+    opacity: 0.7;
+  }
+
+  /* Opération IA en cours */
+  .voice-orb-halo--processing.voice-orb-halo--outer {
+    background: radial-gradient(circle, rgba(0, 0, 0, 0.06) 0%, transparent 70%);
+    animation: none;
+  }
+
+  .voice-orb-halo--processing.voice-orb-halo--inner {
+    display: none;
+  }
+
+  .voice-orb-busy-pill {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    right: 0;
+    white-space: nowrap;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: #525252;
+    background: #fff;
+    border: 1px solid #E5E5E5;
+    border-radius: 4px;
+    padding: 4px 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    pointer-events: none;
+  }
+
+  .voice-orb-glow {
+    display: none;
+  }
+
+  .voice-orb-disc {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 3rem;
+    height: 3rem;
+    border-radius: 6px;
+    transform: translate(-50%, -50%);
+    background: #fff;
+    border: 1px solid #E5E5E5;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+
+  .voice-orb-disc--active {
+    background: #0A0A0A;
+    border-color: #0A0A0A;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  }
+
+  .voice-orb-disc--busy {
+    background: #FAFAFA;
+    border-color: #D4D4D4;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  }
+
+  .voice-orb-btn {
+    background: #fff;
+    border: 1px solid #E5E5E5;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  }
+
+  .voice-orb-btn--listening {
+    background: #0A0A0A;
+    border-color: #0A0A0A;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  }
+
+  .voice-orb-disc--active .neya-picto-mask {
+    background-color: #fff;
+  }
+
+  .voice-orb-ring {
+    display: none;
+  }
+
+  .voice-orb-ring--2 { display: none; }
+  .voice-orb-ring--3 { display: none; }
+
+  .neya-picto-mask {
+    display: block;
+    background-color: #0A0A0A;
+    -webkit-mask-image: url('/brand/picto-orange.png');
+    mask-image: url('/brand/picto-orange.png');
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-position: center;
+  }
+
+  .voice-response-card {
+    background: #fff;
+    border: 1px solid #E5E5E5;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  }
+
+  .voice-dots span {
+    display: block;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: #737373;
+    animation: voice-dot-bounce 1.2s ease-in-out infinite;
+  }
+
+  .voice-dots span:nth-child(2) { animation-delay: 0.15s; }
+  .voice-dots span:nth-child(3) { animation-delay: 0.3s; }
+
+  .btn-primary {
+    @apply bg-neya-orange hover:bg-neya-orange-dark text-white px-4 py-2.5 rounded font-medium text-sm transition-colors min-h-[48px] sm:min-h-[44px] inline-flex items-center justify-center border border-transparent;
+  }
+
+  .btn-secondary {
+    @apply bg-white border border-neya-border hover:bg-neya-surface text-neya-ink px-4 py-2.5 rounded font-medium text-sm transition-colors min-h-[48px] sm:min-h-[44px] inline-flex items-center justify-center;
+  }
+
+  .btn-ghost {
+    @apply text-neya-muted hover:text-neya-ink hover:bg-neya-surface px-3 py-1.5 rounded text-sm transition-colors;
+  }
+
+  .card {
+    @apply bg-white rounded border border-neya-border p-4 sm:p-5;
+  }
+
+  .card-flat {
+    @apply bg-neya-surface rounded border border-neya-border p-4;
+  }
+
+  .input {
+    @apply w-full border border-neya-border rounded px-3.5 py-3 sm:py-2.5 text-base sm:text-sm bg-white focus:outline-none focus:border-neya-ink focus:ring-1 focus:ring-neya-ink/10 min-h-[48px] sm:min-h-[44px];
+  }
+
+  .label {
+    @apply block text-xs font-medium text-neya-muted uppercase tracking-wide mb-1.5;
+  }
+
+  .touch-target {
+    @apply min-h-[40px] min-w-[40px];
+  }
+
+  .nav-item {
+    @apply flex items-center justify-between gap-2 px-3 py-2 rounded text-sm transition-colors;
+  }
+
+  .nav-item-active {
+    @apply bg-neya-surface text-neya-ink font-semibold border-l-2 border-neya-ink -ml-px pl-[11px];
+  }
+
+  .nav-item-idle {
+    @apply text-neya-ink font-medium hover:bg-neya-surface;
+  }
+
+  .nav-section-label {
+    @apply text-[10px] font-medium uppercase tracking-[0.14em] text-neya-muted/80 px-3 mb-1.5;
+  }
+
+  /* FullCalendar — planning hebdomadaire */
+  .planner-calendar .fc {
+    --fc-border-color: #E8E4DF;
+    --fc-today-bg-color: rgba(0, 0, 0, 0.03);
+    --fc-neutral-bg-color: #FAFAFA;
+    font-family: inherit;
+    font-size: 0.8125rem;
+  }
+  .planner-calendar .fc-col-header-cell-cushion,
+  .planner-calendar .fc-timegrid-slot-label-cushion {
+    @apply text-neya-muted text-xs font-medium;
+  }
+  .planner-calendar .fc-event {
+    @apply rounded-md border-0 text-xs font-medium cursor-grab;
+    padding: 2px 4px;
+  }
+  .planner-calendar .fc-highlight {
+    @apply bg-neya-ink/10;
+  }
+
+  .badge {
+    @apply text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded border;
+  }
+
+  .section-title {
+    @apply text-xs font-semibold uppercase tracking-widest text-neya-muted;
+  }
+
+  /* Client courriel intégré */
+  .mail-shell {
+    @apply flex flex-col bg-white border border-neya-border overflow-hidden;
+    min-height: min(72vh, 720px);
+  }
+
+  .mail-toolbar {
+    @apply flex flex-wrap items-center gap-2 px-3 sm:px-4 py-2 border-b border-neya-border bg-white;
+  }
+
+  .mail-search {
+    @apply flex items-center gap-2 flex-1 min-w-[200px] max-w-xl bg-white border border-neya-border rounded px-3 py-1.5 focus-within:border-neya-ink/40 focus-within:ring-1 focus-within:ring-neya-ink/10;
+  }
+
+  .mail-search input {
+    @apply flex-1 border-0 bg-transparent text-sm focus:outline-none min-h-0 py-1;
+  }
+
+  .mail-layout {
+    @apply flex flex-1 min-h-0;
+  }
+
+  .mail-sidebar {
+    @apply hidden md:flex flex-col w-44 lg:w-52 shrink-0 border-r border-neya-border bg-neya-surface/50 py-1;
+  }
+
+  .mail-folder {
+    @apply flex items-center gap-2 mx-2 px-2.5 py-2 rounded-sm text-sm text-neya-muted hover:bg-white hover:text-neya-ink transition-colors;
+  }
+
+  .mail-folder-active {
+    @apply bg-white text-neya-ink font-medium border border-neya-border;
+  }
+
+  .mail-section-header {
+    @apply sticky top-0 z-[1] flex items-center justify-between px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-neya-muted bg-neya-surface border-b border-neya-border;
+  }
+
+  .mail-list {
+    @apply flex flex-col w-full md:w-[min(380px,38vw)] shrink-0 border-r border-neya-border bg-white;
+  }
+
+  .mail-list-scroll {
+    @apply flex-1 overflow-y-auto overscroll-contain;
+  }
+
+  .mail-row {
+    @apply relative flex gap-3 px-3 py-2.5 cursor-pointer border-b border-neya-border hover:bg-neya-surface/80 transition-colors text-left w-full;
+  }
+
+  .mail-row-active {
+    @apply bg-neya-surface border-l-2 border-l-neya-ink pl-[10px];
+  }
+
+  .mail-row-unread .mail-row-subject {
+    @apply font-semibold text-neya-ink;
+  }
+
+  .mail-avatar {
+    @apply shrink-0 w-8 h-8 rounded flex items-center justify-center text-[11px] font-medium text-white;
+  }
+
+  .mail-reading {
+    @apply flex-1 flex flex-col min-w-0 bg-white;
+  }
+
+  .mail-reading-header {
+    @apply px-4 sm:px-5 py-3 border-b border-neya-border;
+  }
+
+  .mail-body {
+    @apply flex-1 overflow-y-auto px-4 sm:px-5 py-4 text-sm leading-relaxed text-neya-ink whitespace-pre-wrap;
+  }
+
+  .mail-compose {
+    @apply border-t border-neya-border bg-neya-surface/40 px-4 sm:px-5 py-3;
+  }
+
+  .mail-erp-panel {
+    @apply border-t md:border-t-0 md:border-l border-neya-border bg-neya-surface/50 w-full md:w-72 lg:w-80 shrink-0 flex flex-col overflow-hidden;
+  }
+
+  .mail-icon-btn {
+    @apply inline-flex items-center justify-center w-8 h-8 rounded-sm text-neya-muted hover:text-neya-ink hover:bg-neya-surface transition-colors disabled:opacity-40;
+  }
+
+  /* Explorateur Drive */
+  .drive-shell {
+    @apply flex flex-col bg-white border border-neya-border overflow-hidden;
+    min-height: min(72vh, 720px);
+  }
+
+  .drive-toolbar {
+    @apply flex flex-wrap items-center gap-2 px-3 sm:px-4 py-2 border-b border-neya-border bg-white;
+  }
+
+  .drive-breadcrumb {
+    @apply flex items-center gap-1 min-w-0 flex-1 text-sm overflow-x-auto;
+  }
+
+  .drive-crumb {
+    @apply shrink-0 px-2 py-1 rounded-sm text-neya-muted hover:text-neya-ink hover:bg-neya-surface transition-colors truncate max-w-[140px] sm:max-w-[200px];
+  }
+
+  .drive-crumb-active {
+    @apply text-neya-ink font-medium bg-neya-surface border border-neya-border;
+  }
+
+  .drive-layout {
+    @apply flex flex-1 min-h-0;
+  }
+
+  .drive-sidebar {
+    @apply hidden lg:flex flex-col w-52 shrink-0 border-r border-neya-border bg-neya-surface/50 py-2;
+  }
+
+  .drive-nav-item {
+    @apply flex items-center gap-2 mx-2 px-2.5 py-2 rounded-sm text-sm text-neya-muted hover:bg-white hover:text-neya-ink transition-colors text-left;
+  }
+
+  .drive-nav-active {
+    @apply bg-white text-neya-ink font-medium border border-neya-border;
+  }
+
+  .drive-main {
+    @apply flex-1 flex flex-col min-w-0 min-h-0;
+  }
+
+  .drive-dropzone {
+    @apply relative flex-1 overflow-y-auto p-3 sm:p-4 transition-colors;
+  }
+
+  .drive-dropzone-active {
+    @apply bg-neya-surface ring-1 ring-inset ring-neya-border;
+  }
+
+  .drive-grid {
+    @apply grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-1.5 sm:gap-2;
+  }
+
+  .drive-card {
+    @apply relative flex flex-col items-center p-3 border border-transparent hover:border-neya-border hover:bg-neya-surface/80 transition-colors cursor-pointer text-center;
+  }
+
+  .drive-card-selected {
+    @apply border-neya-border bg-neya-surface;
+  }
+
+  .drive-file-icon {
+    @apply w-11 h-11 sm:w-12 sm:h-12 rounded flex items-center justify-center mb-2 border border-neya-border;
+  }
+
+  .drive-list {
+    @apply divide-y divide-neya-border;
+  }
+
+  .drive-row {
+    @apply flex items-center gap-3 px-2 sm:px-3 py-2 hover:bg-neya-surface/80 cursor-pointer transition-colors;
+  }
+
+  .drive-row-selected {
+    @apply bg-neya-surface border-l-2 border-l-neya-ink pl-[6px] sm:pl-[10px];
+  }
+
+  .drive-detail {
+    @apply hidden xl:flex flex-col w-72 shrink-0 border-l border-neya-border bg-neya-surface/40;
+  }
+
+  .drive-icon-btn {
+    @apply inline-flex items-center justify-center w-8 h-8 rounded-sm text-neya-muted hover:text-neya-ink hover:bg-neya-surface transition-colors disabled:opacity-40;
+  }
+
+  .drive-list-compact {
+    @apply flex-1 flex flex-col min-w-0;
+  }
+
+  @media (min-width: 1280px) {
+    .drive-list-compact {
+      @apply w-64 shrink-0 border-r border-neya-border;
+    }
+  }
+
+  .drive-preview {
+    @apply flex-1 flex flex-col min-w-0 min-h-0 bg-white border-r border-neya-border;
+  }
+
+  .drive-preview-header {
+    @apply flex items-center gap-2 px-3 py-2 border-b border-neya-border bg-white shrink-0;
+  }
+
+  .drive-preview-body {
+    @apply flex-1 min-h-0 overflow-hidden;
+    min-height: 320px;
+  }
+
+  .drive-thumb {
+    @apply w-11 h-11 sm:w-12 sm:h-12 rounded object-cover mb-2 bg-neya-surface border border-neya-border;
+  }
+}
+
+@keyframes voice-halo-breathe {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.1);
+    opacity: 0.85;
+  }
+}
+
+@keyframes voice-halo-breathe-active {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.75;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.18);
+    opacity: 1;
+  }
+}
+
+@keyframes voice-glow-breathe {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.08);
+    opacity: 1;
+  }
+}
+
+@keyframes voice-glow-breathe-active {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.95;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.12);
+    opacity: 1;
+  }
+}
+
+@keyframes voice-ring-expand {
+  0% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.55;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(2);
+    opacity: 0;
+  }
+}
+
+@keyframes voice-dot-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40% { transform: translateY(-4px); opacity: 1; }
+}
+
+@keyframes voice-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-voice-card-in {
+  animation: voice-card-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}

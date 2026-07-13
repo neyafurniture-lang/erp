@@ -1,0 +1,1140 @@
+ 
+neya
+Mobilier en bois massif — Montréal
+Fiches d'aide à la fabrication
+Document d'atelier — usage interne
+Version 1.1  —  Mai 2026
+Atelier : 2177 rue Masson, local 404, Montréal
+
+Comment utiliser ce document
+Ce document est ton compagnon d'atelier. Tu vas y trouver :
+Les règles de sécurité non négociables.
+Les bonnes pratiques générales : collage, sablage, Domino DF 700, finition.
+Une fiche par produit du catalogue Neya, à compléter au fur et à mesure que tu apprends la pièce.
+ 
+Chaque fiche a des dessins clairs, des cases à cocher et des lignes vides pour tes annotations. Le but : à la fin de l'été, ce cahier sera ton extension de mémoire.
+ 
+CONSEIL
+Si une étape n'est pas claire, demande avant de lancer la machine. Une question coûte 30 secondes ; refaire une pièce coûte une journée et un morceau de noyer.
+
+1. Sécurité — règles de l'atelier
+RÈGLES NON NÉGOCIABLES
+Seul Mehdi opère la dégauchisseuse et le banc de scie. Aucune exception.
+Lunettes de sécurité + protection auditive obligatoires pour toute machine.
+Masque P100 dès qu'on sable, qu'on souffle de la poussière, ou qu'on pulvérise une finition.
+Toujours utiliser le poussoir à la toupie et à la scie à ruban quand on approche < 6&quot; de la lame.
+Aspirateur connecté à TOUTES les machines, sauf la scie à ruban (capot ouvert).
+Une seule machine bruyante allumée à la fois si quelqu'un travaille à la main à côté.
+Atelier propre = atelier sûr. Sol balayé en fin de journée, surfaces dégagées.
+ 
+Sécurité — ciseau à bois
+
+ 
+Machines partagées — autorisées à l'assistant(e)
+Scie à ruban (ruban 1/2&quot; ou 3/8&quot; selon la coupe).
+Toupie (router table) avec guides en place.
+Domino DF 700 (seul modèle à l'atelier).
+Perceuse à colonne.
+Sableuses orbitales, sableuse à bande, Time Saver (drum sander).
+Défonceuse à main (avec guide ou gabarit).
+Machines réservées à Mehdi
+Dégauchisseuse.
+Banc de scie (table saw).
+CNC (programmation et chargement).
+
+2. Guide de collage
+Sens du bois (orientation des cernes)
+
+Alterner les cernes d'une planche à l'autre — ça équilibre le tassement et limite les voilages.
+Mauvais montage : tous les cernes dans le même sens → le plateau bombera côté concave.
+Face dessous TOUJOURS plane pour éviter les déséquilibres au serrage.
+ 
+Nombre de serres — règle 1 par 3&quot;
+
+Règle empirique : 1 serre par 3 pouces de largeur de plateau, alternées dessus/dessous.
+Plateau 18&quot; → 6 serres   |   Plateau 30&quot; → 10 serres   |   Plateau 36&quot;+ → 12 serres + sergents transversaux.
+ 
+Temps de séchage de la colle (Titebond III ou équivalent)
+Serrage minimum : 45 minutes.
+Manipulation possible après 1 h.
+Usinage final / rabotage : attendre 24 h.
+ 
+GRATTER LA COLLE APRÈS LE DESSERRAGE
+Retirer l'excédent dès le démontage (après ~45 min), grattoir ou ciseau bien affûté.
+Pas trop tôt (colle laiteuse, elle bave) ni trop tard (durcie, elle arrache le bois).
+Quand la colle est en consistance « gomme à effacer », c'est le bon moment.
+
+3. Guide de sablage
+Time Saver — décision
+
+ 
+RÈGLE NEYA
+« Quand ça passe pas au Time Saver, on fait 80 puis 0. »
+80 grit pour aplanir, puis 120 → 180 → 220 et terminer au 0000 (laine d'acier) seulement entre les couches d'huile.
+ 
+Séquence standard
+80 — Aplanir, retirer les traces de scie, niveler les jonctions.
+120 — Effacer les marques du 80, uniformiser.
+180 — Finition courante avant huile.
+220 — Finition fine avant vernis à l'eau.
+0000 (laine d'acier) — Entre deux couches d'huile uniquement.
+ 
+Bonnes habitudes
+Toujours dans le sens du fil pour les derniers grains (180+).
+Marquer la pièce au crayon avant un grain : quand toutes les marques ont disparu, le grain est terminé.
+Changer le papier dès qu'il glace.
+Casser les arêtes à la main au papier plié au 180 avant la finition.
+Souffler entre chaque grain (P100 obligatoire).
+
+4. Festool Domino DF 700
+À l'atelier on n'a que le DF 700 (fraises 8 à 14 mm). C'est l'outil universel pour les assemblages — plateaux, pieds, structures.
+ 
+Les 3 réglages de largeur (les fameux clics)
+
+Côté MAÎTRE (référence)
+Aucune marge de jeu
+Côté ESCLAVE
+Rattrape un petit défaut
+Longues séries
+Compense le retrait
+ 
+Placement sur un grand plateau
+
+ 
+RÈGLE PRATIQUE
+Les 2 dominos aux extrémités : ÉTROIT (référence).
+Tous les dominos intermédiaires : +1 clic ou +2 clics selon la longueur.
+Espacer les dominos d'environ 6&quot; à 8&quot;.
+
+Profondeur de coupe
+Profondeur = moitié de la longueur du domino. Ex. domino 8 × 50 mm → profondeur 25 mm de chaque côté.
+Réglage par butée — positions DF 700 : 15, 20, 25, 28, 36, 50, 70 mm.
+ 
+Hauteur d'appui — centrer la fraise
+
+ 
+Checklist Domino avant chaque jonction
+☐  Fraise serrée, profondeur réglée.   ☐  Hauteur d'appui correcte.   
+☐  Pièces marquées en pair (A-A, B-B...).   ☐  Trait de crayon centré sur chaque mortaise.   
+☐  Aspirateur branché et en marche.   ☐  Première mortaise en ÉTROIT (référence).   
+
+5. Traitement des arêtes — les 4 profils Neya
+Avant la finition, chaque arête vive du meuble doit être traitée. Sur chaque fiche produit, tu cocheras un profil et sa taille dans la grille suivante :
+ 
+
+☐  ARÊTE VIVE
+☐  CHANFREIN
+☐  1/4 DE ROND
+☐  DOUBLE CHANFREIN
+☐  (aucun usinage)
+☐  1/8&quot;
+☐  1/4&quot;
+☐  3/8&quot;
+☐  R = 1/8&quot;
+☐  R = 1/4&quot;
+☐  R = 3/8&quot;
+☐  1/8&quot;
+☐  1/4&quot;
+☐  dessus + dessous
+ 
+Toupie : fraises chanfrein 45° et 1/4 rond (R 1/8&quot;, 1/4&quot;, 3/8&quot;).
+Sur arêtes intérieures inaccessibles à la toupie : râpe à main puis sablage 180.
+Pour les profils complexes, faire un test sur chute AVANT d'attaquer la pièce.
+
+6. Finition — produits & méthode
+Produits utilisés à l'atelier
+Osmo LED Smart Oil — huile photo-réactive, séchage UV lampe LED.
+Application au chiffon ou tampon, 1 couche fine.
+Séchage sous lampe UV : ~2 min par passage.
+Huile dure / cire alimentaire (Saman) — planches à découper.
+2 couches minimum, espacées de 4 h. Excédent retiré au chiffon après 15 min.
+Vernis à l'eau sans COV — pièces structurelles (RIVAGE, AZAD).
+2 à 3 couches. Sablage léger au 320 entre chaque couche.
+Pistolet HVLP en cabine ventilée.
+ 
+Bonnes habitudes finition
+Tout poncer et souffler AVANT d'ouvrir le pot.
+Température idéale : 18-22 °C, hygrométrie < 65 %.
+Chiffons huilés → bidon métallique fermé. JAMAIS en boule à la poubelle (combustion spontanée).
+Étiqueter dès la dernière couche : essence, date, finisseur, n° de commande.
+
+L3  —  Planche à découper
+Prix public
+79,00 $ CAD
+Essence(s)
+Noyer (sombre) + Érable (blanc) — 1 pour 1
+Dimensions
+4,5&quot; × 15&quot; — épaisseur 4/4&quot; (≈19 mm)
+Finition
+Huile / cire alimentaire — 2 couches
+Délai
+Stock atelier
+ 
+
+Étapes en un coup d'œil
+
+Débitage
+Pièce
+Essence
+Qté
+Dimensions (É × L × Lo)
+Notes
+Lattes noyer
+Noyer
+3–4
+4/4&quot; × ≈1&quot; × 15&quot;
+Sens du fil régulier
+Lattes érable
+Érable
+3–4
+4/4&quot; × ≈1&quot; × 15&quot;
+Alterner avec le noyer
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+① Collage du bloc rayé (1 pour 1)
+Alterner noyer / érable sur toute la largeur du bloc.
+Coller à plat, serres alternées dessus/dessous.
+Sécher 45 min minimum, gratter la colle.
+Calibrer au Time Saver une fois la colle sèche (24 h).
+② Tracé de la vague avec le gabarit plexi
+
+Fixer le bloc à l'envers avec ruban double face (4 à 6 morceaux).
+Dessiner la courbe en S avec le guide plexi.
+Couper à la scie à ruban (ruban 3/8&quot;).
+③ Recomposition — Noyer extérieur / Érable centre
+Séparer les deux parties.
+Réassembler : NOYER à l'extérieur, ÉRABLE au centre — c'est le motif signature.
+Recoller à plat, 45 min, puis recouper à la taille finale (4,5&quot; × 15&quot;).
+ 
+Cardon des arêtes — cocher le profil
+
+☐  ARÊTE VIVE
+☐  CHANFREIN
+☐  1/4 DE ROND
+☐  DOUBLE CHANFREIN
+☐  (aucun usinage)
+☐  1/8&quot;
+☐  1/4&quot;
+☐  3/8&quot;
+☐  R = 1/8&quot;
+☐  R = 1/4&quot;
+☐  R = 3/8&quot;
+☐  1/8&quot;
+☐  1/4&quot;
+☐  dessus + dessous
+ 
+Arêtes traitées sur : ☐  Toutes   ☐  Dessus seulement   ☐  Dessus + dessous   ☐  Sélection : ______________   
+Sablage
+Time Saver — passe ou pas ?
+
+☐  OUI — calibrage Time Saver          ☐  NON — sablage manuel séquentiel   
+Grains utilisés (cocher au fur et à mesure)
+☐  80   ☐  120   ☐  150   ☐  180   ☐  220   ☐  320   ☐  0000 (laine d'acier — entre couches d'huile)   
+Rappel atelier : « si ça passe pas au Time Saver, on fait 80 puis 0 » — 80 pour aplanir, 120 → 180 → 220 pour progresser, 0000 (laine d'acier) seulement entre couches d'huile.
+Finition
+Type : ☐  Huile Osmo LED Smart Oil (UV)   ☐  Huile / cire alimentaire   ☐  Vernis à l'eau (sans COV)   ☐  Autre : ______________   
+Nombre de couches : ______________  |  Temps entre couches : ______________
+Usage déclaré : contact alimentaire
+Sablage entre couches : ☐ Oui (grain ______)   ☐ Non
+Vérifier la surface à la lumière rasante avant la dernière couche.
+Identifier la pièce (étiquette Neya) et noter dans le suivi de production.
+ 
+Notes spécifiques L3
+		
+		
+		
+		
+
+L7  —  Planche à découper suspendue
+Prix public
+89,00 $ CAD
+Essence(s)
+Noyer (sombre) + Érable (blanc) — 1 pour 1
+Dimensions
+24&quot; × 24&quot; (format losange) — épaisseur 4/4&quot;
+Finition
+Huile / cire alimentaire — 2 couches
+Délai
+Stock atelier
+ 
+
+Étapes communes avec L3
+
+Débitage
+Même principe que la L3 — format plus grand.
+Pièce
+Essence
+Qté
+Dimensions (É × L × Lo)
+Notes
+Lattes noyer
+Noyer
+À calculer
+4/4&quot; × ≈1&quot; × 24&quot;
+
+Lattes érable
+Érable
+À calculer
+4/4&quot; × ≈1&quot; × 24&quot;
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Collage, vague, recomposition
+Bloc rayé 1 pour 1 noyer/érable, sens du bois alterné.
+4 à 6 serres alternées, 45 min de serrage minimum.
+Tracé de la vague avec gabarit plexi, coupe scie ruban 3/8&quot;.
+Recomposition : NOYER à l'extérieur, ÉRABLE au centre.
+Recouper à la taille finale 24&quot; × 24&quot; (losange).
+ 
+Trou de suspension (signature L7)
+
+ 
+Cardon des arêtes — cocher le profil
+
+☐  ARÊTE VIVE
+☐  CHANFREIN
+☐  1/4 DE ROND
+☐  DOUBLE CHANFREIN
+☐  (aucun usinage)
+☐  1/8&quot;
+☐  1/4&quot;
+☐  3/8&quot;
+☐  R = 1/8&quot;
+☐  R = 1/4&quot;
+☐  R = 3/8&quot;
+☐  1/8&quot;
+☐  1/4&quot;
+☐  dessus + dessous
+ 
+Arêtes traitées sur : ☐  Toutes   ☐  Dessus seulement   ☐  Dessus + dessous   ☐  Sélection : ______________   
+Sablage
+Time Saver — passe ou pas ?
+
+☐  OUI — calibrage Time Saver          ☐  NON — sablage manuel séquentiel   
+Grains utilisés (cocher au fur et à mesure)
+☐  80   ☐  120   ☐  150   ☐  180   ☐  220   ☐  320   ☐  0000 (laine d'acier — entre couches d'huile)   
+Rappel atelier : « si ça passe pas au Time Saver, on fait 80 puis 0 » — 80 pour aplanir, 120 → 180 → 220 pour progresser, 0000 (laine d'acier) seulement entre couches d'huile.
+Finition
+Type : ☐  Huile Osmo LED Smart Oil (UV)   ☐  Huile / cire alimentaire   ☐  Vernis à l'eau (sans COV)   ☐  Autre : ______________   
+Nombre de couches : ______________  |  Temps entre couches : ______________
+Usage déclaré : contact alimentaire — suspendue
+Sablage entre couches : ☐ Oui (grain ______)   ☐ Non
+Vérifier la surface à la lumière rasante avant la dernière couche.
+Identifier la pièce (étiquette Neya) et noter dans le suivi de production.
+ 
+Notes spécifiques L7
+		
+		
+		
+		
+
+MÕA  —  Tabouret ondulé
+Prix public
+380 $ (frêne) — 420 $ (noyer)
+Essence(s)
+Frêne massif OU noyer massif
+Dimensions
+9,75&quot; × 15,5&quot; × 18,75&quot; (h) — poids ≈ 4,2 kg
+Finition
+Vernis à l'eau sans COV
+Délai
+1-2 semaines
+ 
+
+Débitage
+Tabouret 3 pieds + dessus ondulé. Une « vague signature » est usinée sur un des pieds (motif noyer dans le frêne ou inverse).
+Pièce
+Essence
+Qté
+Dimensions (É × L × Lo)
+Notes
+Dessus ondulé
+Frêne ou noyer
+1
+_____________________
+Collage lattes — découpe scie ruban
+Pieds
+Frêne ou noyer
+3
+_____________________
+Cylindriques — tournés ou CNC
+Pied signature
+Noyer (si dessus frêne)
+1
+_____________________
+Inséré avec vague
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Usinage
+Dessus : collage de lattes puis usinage CNC du profil ondulé OU scie à ruban avec gabarit plexi.
+Pieds : ☐ tournés au tour à bois  ☐ usinés à la CNC  ☐ autre : __________
+Mortaises pieds-dessus : ____________
+ 
+Assemblage Domino — DF 700
+À l'atelier, on utilise UNIQUEMENT le DF 700. Les 3 réglages de largeur de mortaise :
+
+☐  ÉTROIT (0 clic)
+☐  +1 CLIC
+☐  +2 CLICS
+ 
+Hauteur d'appui
+
+Paramètres de cette pièce
+Fraise (Ø) : ______________  |  Profondeur : ______________
+Hauteur appui (réglage) : ______________
+Nombre de dominos par jonction : ______________
+Position des dominos (croquis si besoin) :
+		
+		
+ 
+Cardon des arêtes — cocher le profil
+
+☐  ARÊTE VIVE
+☐  CHANFREIN
+☐  1/4 DE ROND
+☐  DOUBLE CHANFREIN
+☐  (aucun usinage)
+☐  1/8&quot;
+☐  1/4&quot;
+☐  3/8&quot;
+☐  R = 1/8&quot;
+☐  R = 1/4&quot;
+☐  R = 3/8&quot;
+☐  1/8&quot;
+☐  1/4&quot;
+☐  dessus + dessous
+ 
+Arêtes traitées sur : ☐  Toutes   ☐  Dessus seulement   ☐  Dessus + dessous   ☐  Sélection : ______________   
+Sablage
+Time Saver — passe ou pas ?
+
+☐  OUI — calibrage Time Saver          ☐  NON — sablage manuel séquentiel   
+Grains utilisés (cocher au fur et à mesure)
+☐  80   ☐  120   ☐  150   ☐  180   ☐  220   ☐  320   ☐  0000 (laine d'acier — entre couches d'huile)   
+Rappel atelier : « si ça passe pas au Time Saver, on fait 80 puis 0 » — 80 pour aplanir, 120 → 180 → 220 pour progresser, 0000 (laine d'acier) seulement entre couches d'huile.
+Finition
+Type : ☐  Huile Osmo LED Smart Oil (UV)   ☐  Huile / cire alimentaire   ☐  Vernis à l'eau (sans COV)   ☐  Autre : ______________   
+Nombre de couches : ______________  |  Temps entre couches : ______________
+Usage déclaré : assise quotidienne
+Sablage entre couches : ☐ Oui (grain ______)   ☐ Non
+Vérifier la surface à la lumière rasante avant la dernière couche.
+Identifier la pièce (étiquette Neya) et noter dans le suivi de production.
+ 
+Notes spécifiques MÕA
+		
+		
+		
+		
+
+ÕNDULA  —  Étagère courbée
+Prix public
+369 $ — 399 $
+Essence(s)
+À compléter : __________________
+Dimensions
+À compléter : __________________
+Finition
+Vernis à l'eau sans COV
+Délai
+1-2 semaines
+ 
+
+Débitage
+Pièce
+Essence
+Qté
+Dimensions (É × L × Lo)
+Notes
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Usinage / formage de la courbe
+Méthode : ☐ Lamellé-collé en moule   ☐ Découpe scie ruban + gabarit   ☐ Usinage CNC
+Rayon de courbure : ____________   |   Gabarit utilisé : ____________
+		
+		
+		
+Assemblage Domino — DF 700
+À l'atelier, on utilise UNIQUEMENT le DF 700. Les 3 réglages de largeur de mortaise :
+
+☐  ÉTROIT (0 clic)
+☐  +1 CLIC
+☐  +2 CLICS
+ 
+Hauteur d'appui
+
+Paramètres de cette pièce
+Fraise (Ø) : ______________  |  Profondeur : ______________
+Hauteur appui (réglage) : ______________
+Nombre de dominos par jonction : ______________
+Position des dominos (croquis si besoin) :
+		
+		
+ 
+Fixation murale
+Système : ☐ Pattes invisibles (Z)   ☐ Chevilles affleurantes   ☐ Autre : __________
+Position des fixations : ____________
+		
+		
+Cardon des arêtes — cocher le profil
+
+☐  ARÊTE VIVE
+☐  CHANFREIN
+☐  1/4 DE ROND
+☐  DOUBLE CHANFREIN
+☐  (aucun usinage)
+☐  1/8&quot;
+☐  1/4&quot;
+☐  3/8&quot;
+☐  R = 1/8&quot;
+☐  R = 1/4&quot;
+☐  R = 3/8&quot;
+☐  1/8&quot;
+☐  1/4&quot;
+☐  dessus + dessous
+ 
+Arêtes traitées sur : ☐  Toutes   ☐  Dessus seulement   ☐  Dessus + dessous   ☐  Sélection : ______________   
+Sablage
+Time Saver — passe ou pas ?
+
+☐  OUI — calibrage Time Saver          ☐  NON — sablage manuel séquentiel   
+Grains utilisés (cocher au fur et à mesure)
+☐  80   ☐  120   ☐  150   ☐  180   ☐  220   ☐  320   ☐  0000 (laine d'acier — entre couches d'huile)   
+Rappel atelier : « si ça passe pas au Time Saver, on fait 80 puis 0 » — 80 pour aplanir, 120 → 180 → 220 pour progresser, 0000 (laine d'acier) seulement entre couches d'huile.
+Finition
+Type : ☐  Huile Osmo LED Smart Oil (UV)   ☐  Huile / cire alimentaire   ☐  Vernis à l'eau (sans COV)   ☐  Autre : ______________   
+Nombre de couches : ______________  |  Temps entre couches : ______________
+Usage déclaré : intérieur — étagère murale
+Sablage entre couches : ☐ Oui (grain ______)   ☐ Non
+Vérifier la surface à la lumière rasante avant la dernière couche.
+Identifier la pièce (étiquette Neya) et noter dans le suivi de production.
+ 
+Notes spécifiques ÕNDULA
+		
+		
+		
+		
+
+SERA  —  Miroir sculptural
+Prix public
+259 $ — 289 $
+Essence(s)
+À compléter : __________________
+Dimensions
+À compléter : __________________
+Finition
+Huile naturelle / Osmo
+Délai
+1-2 semaines
+ 
+
+Débitage
+Pièce
+Essence
+Qté
+Dimensions (É × L × Lo)
+Notes
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Usinage du cadre sculptural
+Méthode : ☐ CNC   ☐ Scie ruban + gabarit   ☐ Défonceuse + gabarit
+Profil intérieur (logement miroir) : feuillure ____________ × ____________
+		
+		
+		
+Pose du miroir
+Type de fixation : ☐ Pinces   ☐ Adhésif miroir   ☐ Pattes vissées
+Système d'accrochage mural : ____________
+		
+		
+Cardon des arêtes — cocher le profil
+
+☐  ARÊTE VIVE
+☐  CHANFREIN
+☐  1/4 DE ROND
+☐  DOUBLE CHANFREIN
+☐  (aucun usinage)
+☐  1/8&quot;
+☐  1/4&quot;
+☐  3/8&quot;
+☐  R = 1/8&quot;
+☐  R = 1/4&quot;
+☐  R = 3/8&quot;
+☐  1/8&quot;
+☐  1/4&quot;
+☐  dessus + dessous
+ 
+Arêtes traitées sur : ☐  Toutes   ☐  Dessus seulement   ☐  Dessus + dessous   ☐  Sélection : ______________   
+Sablage
+Time Saver — passe ou pas ?
+
+☐  OUI — calibrage Time Saver          ☐  NON — sablage manuel séquentiel   
+Grains utilisés (cocher au fur et à mesure)
+☐  80   ☐  120   ☐  150   ☐  180   ☐  220   ☐  320   ☐  0000 (laine d'acier — entre couches d'huile)   
+Rappel atelier : « si ça passe pas au Time Saver, on fait 80 puis 0 » — 80 pour aplanir, 120 → 180 → 220 pour progresser, 0000 (laine d'acier) seulement entre couches d'huile.
+Finition
+Type : ☐  Huile Osmo LED Smart Oil (UV)   ☐  Huile / cire alimentaire   ☐  Vernis à l'eau (sans COV)   ☐  Autre : ______________   
+Nombre de couches : ______________  |  Temps entre couches : ______________
+Usage déclaré : intérieur — décoratif
+Sablage entre couches : ☐ Oui (grain ______)   ☐ Non
+Vérifier la surface à la lumière rasante avant la dernière couche.
+Identifier la pièce (étiquette Neya) et noter dans le suivi de production.
+ 
+Notes spécifiques SERA
+		
+		
+		
+		
+
+HARE  —  Table basse en noyer
+Prix public
+1 049 $
+Essence(s)
+Noyer massif
+Dimensions
+À compléter : __________________
+Finition
+Huile Osmo LED Smart Oil
+Délai
+2-3 semaines
+ 
+
+Débitage
+Pièce
+Essence
+Qté
+Dimensions (É × L × Lo)
+Notes
+Plateau organique
+Noyer
+1 (collage lattes)
+_____________________
+Forme libre
+Pieds
+Noyer
+_____
+_____________________
+3 ou 4
+Traverse / structure
+Noyer
+_____
+_____________________
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Collage du plateau organique
+Alterner les cernes (⌒ ⌣ ⌒ ⌣).
+Largeur : ____________   →   ____________ serres (règle 1/3&quot;).
+45 min minimum, gratter la colle, attendre 24 h avant rabotage.
+Formage du plateau
+Tracer la forme avec gabarit.
+Couper à la scie à ruban — finir au gabarit + défonceuse (flush trim).
+ 
+Assemblage Domino — DF 700
+À l'atelier, on utilise UNIQUEMENT le DF 700. Les 3 réglages de largeur de mortaise :
+
+☐  ÉTROIT (0 clic)
+☐  +1 CLIC
+☐  +2 CLICS
+ 
+Position des dominos sur le plateau
+
+Hauteur d'appui
+
+Paramètres de cette pièce
+Fraise (Ø) : ______________  |  Profondeur : ______________
+Hauteur appui (réglage) : ______________
+Nombre de dominos par jonction : ______________
+Position des dominos (croquis si besoin) :
+		
+		
+ 
+Assemblage du piètement
+Vérifier l'aplomb sur surface plane.
+Serrage : 4 serres minimum, alternées.
+		
+		
+Cardon des arêtes — cocher le profil
+
+☐  ARÊTE VIVE
+☐  CHANFREIN
+☐  1/4 DE ROND
+☐  DOUBLE CHANFREIN
+☐  (aucun usinage)
+☐  1/8&quot;
+☐  1/4&quot;
+☐  3/8&quot;
+☐  R = 1/8&quot;
+☐  R = 1/4&quot;
+☐  R = 3/8&quot;
+☐  1/8&quot;
+☐  1/4&quot;
+☐  dessus + dessous
+ 
+Arêtes traitées sur : ☐  Toutes   ☐  Dessus seulement   ☐  Dessus + dessous   ☐  Sélection : ______________   
+Sablage
+Time Saver — passe ou pas ?
+
+☐  OUI — calibrage Time Saver          ☐  NON — sablage manuel séquentiel   
+Grains utilisés (cocher au fur et à mesure)
+☐  80   ☐  120   ☐  150   ☐  180   ☐  220   ☐  320   ☐  0000 (laine d'acier — entre couches d'huile)   
+Rappel atelier : « si ça passe pas au Time Saver, on fait 80 puis 0 » — 80 pour aplanir, 120 → 180 → 220 pour progresser, 0000 (laine d'acier) seulement entre couches d'huile.
+Finition
+Type : ☐  Huile Osmo LED Smart Oil (UV)   ☐  Huile / cire alimentaire   ☐  Vernis à l'eau (sans COV)   ☐  Autre : ______________   
+Nombre de couches : ______________  |  Temps entre couches : ______________
+Usage déclaré : table basse — intérieur
+Sablage entre couches : ☐ Oui (grain ______)   ☐ Non
+Vérifier la surface à la lumière rasante avant la dernière couche.
+Identifier la pièce (étiquette Neya) et noter dans le suivi de production.
+ 
+Notes spécifiques HARE
+		
+		
+		
+		
+
+RIVAGE  —  Table à manger
+Prix public
+1 459 $ — 1 749 $ (3 longueurs)
+Essence(s)
+À compléter : __________________
+Dimensions
+60&quot; / 72&quot; / 84&quot; — à confirmer : ____________
+Finition
+Vernis à l'eau sans COV
+Délai
+3-5 semaines
+ 
+
+Débitage
+Pièce
+Essence
+Qté
+Dimensions (É × L × Lo)
+Notes
+Plateau (lattes)
+________
+À calculer
+_____________________
+Largeur indiv. 4-6&quot;
+Pieds
+________
+4
+_____________________
+
+Traverses longues
+________
+2
+_____________________
+
+Traverses courtes
+________
+2
+_____________________
+
+ 
+ 
+ 
+ 
+ 
+ 
+Collage du plateau (grand format)
+Largeur totale du plateau : ____________
+Nombre de serres (règle 1/3&quot;) : ____________ — alterner dessus/dessous.
+Sergents transversaux pour empêcher le bombage.
+45 min minimum, gratter, attendre 24 h.
+Calibrer au Time Saver si la largeur passe.
+ 
+Assemblage Domino — DF 700
+À l'atelier, on utilise UNIQUEMENT le DF 700. Les 3 réglages de largeur de mortaise :
+
+☐  ÉTROIT (0 clic)
+☐  +1 CLIC
+☐  +2 CLICS
+ 
+Position des dominos sur le plateau
+
+Hauteur d'appui
+
+Paramètres de cette pièce
+Fraise (Ø) : ______________  |  Profondeur : ______________
+Hauteur appui (réglage) : ______________
+Nombre de dominos par jonction : ______________
+Position des dominos (croquis si besoin) :
+		
+		
+ 
+Assemblage du piètement
+Vérifier les diagonales (max 1 mm de différence).
+Fixation plateau-piètement : ☐ Vis cale-plateau  ☐ Domino  ☐ Boulons traversants
+		
+		
+Cardon des arêtes — cocher le profil
+
+☐  ARÊTE VIVE
+☐  CHANFREIN
+☐  1/4 DE ROND
+☐  DOUBLE CHANFREIN
+☐  (aucun usinage)
+☐  1/8&quot;
+☐  1/4&quot;
+☐  3/8&quot;
+☐  R = 1/8&quot;
+☐  R = 1/4&quot;
+☐  R = 3/8&quot;
+☐  1/8&quot;
+☐  1/4&quot;
+☐  dessus + dessous
+ 
+Arêtes traitées sur : ☐  Toutes   ☐  Dessus seulement   ☐  Dessus + dessous   ☐  Sélection : ______________   
+Sablage
+Time Saver — passe ou pas ?
+
+☐  OUI — calibrage Time Saver          ☐  NON — sablage manuel séquentiel   
+Grains utilisés (cocher au fur et à mesure)
+☐  80   ☐  120   ☐  150   ☐  180   ☐  220   ☐  320   ☐  0000 (laine d'acier — entre couches d'huile)   
+Rappel atelier : « si ça passe pas au Time Saver, on fait 80 puis 0 » — 80 pour aplanir, 120 → 180 → 220 pour progresser, 0000 (laine d'acier) seulement entre couches d'huile.
+Finition
+Type : ☐  Huile Osmo LED Smart Oil (UV)   ☐  Huile / cire alimentaire   ☐  Vernis à l'eau (sans COV)   ☐  Autre : ______________   
+Nombre de couches : ______________  |  Temps entre couches : ______________
+Usage déclaré : table à manger — contact alimentaire occasionnel
+Sablage entre couches : ☐ Oui (grain ______)   ☐ Non
+Vérifier la surface à la lumière rasante avant la dernière couche.
+Identifier la pièce (étiquette Neya) et noter dans le suivi de production.
+ 
+Notes spécifiques RIVAGE
+		
+		
+		
+		
+
+AZAD  —  Bureau assis-debout
+Prix public
+1 129 $ — 1 349 $ (4 options)
+Essence(s)
+À compléter : __________________
+Dimensions
+À compléter : __________________
+Finition
+Vernis à l'eau sans COV
+Délai
+3-5 semaines
+ 
+
+Débitage
+Pièce
+Essence
+Qté
+Dimensions (É × L × Lo)
+Notes
+Plateau (lattes)
+________
+À calculer
+_____________________
+
+Châssis assis-debout
+Acier (fourni)
+1 kit
+_____________________
+Mécanisme motorisé
+Chants / encadrement
+________
+_____
+_____________________
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mécanisme assis-debout
+Modèle / fournisseur : ____________
+Course : ____________
+Positionnement des fixations sur le plateau : ____________
+Pré-perçage AVANT collage final — utiliser le gabarit du fabricant.
+ 
+Collage du plateau
+Sens du bois alterné, sergents transversaux.
+Largeur : ____________   →   ____________ serres.
+Calibrage Time Saver puis sablage progressif.
+ 
+Assemblage Domino — DF 700
+À l'atelier, on utilise UNIQUEMENT le DF 700. Les 3 réglages de largeur de mortaise :
+
+☐  ÉTROIT (0 clic)
+☐  +1 CLIC
+☐  +2 CLICS
+ 
+Position des dominos sur le plateau
+
+Hauteur d'appui
+
+Paramètres de cette pièce
+Fraise (Ø) : ______________  |  Profondeur : ______________
+Hauteur appui (réglage) : ______________
+Nombre de dominos par jonction : ______________
+Position des dominos (croquis si besoin) :
+		
+		
+ 
+Cardon des arêtes — cocher le profil
+
+☐  ARÊTE VIVE
+☐  CHANFREIN
+☐  1/4 DE ROND
+☐  DOUBLE CHANFREIN
+☐  (aucun usinage)
+☐  1/8&quot;
+☐  1/4&quot;
+☐  3/8&quot;
+☐  R = 1/8&quot;
+☐  R = 1/4&quot;
+☐  R = 3/8&quot;
+☐  1/8&quot;
+☐  1/4&quot;
+☐  dessus + dessous
+ 
+Arêtes traitées sur : ☐  Toutes   ☐  Dessus seulement   ☐  Dessus + dessous   ☐  Sélection : ______________   
+Sablage
+Time Saver — passe ou pas ?
+
+☐  OUI — calibrage Time Saver          ☐  NON — sablage manuel séquentiel   
+Grains utilisés (cocher au fur et à mesure)
+☐  80   ☐  120   ☐  150   ☐  180   ☐  220   ☐  320   ☐  0000 (laine d'acier — entre couches d'huile)   
+Rappel atelier : « si ça passe pas au Time Saver, on fait 80 puis 0 » — 80 pour aplanir, 120 → 180 → 220 pour progresser, 0000 (laine d'acier) seulement entre couches d'huile.
+Finition
+Type : ☐  Huile Osmo LED Smart Oil (UV)   ☐  Huile / cire alimentaire   ☐  Vernis à l'eau (sans COV)   ☐  Autre : ______________   
+Nombre de couches : ______________  |  Temps entre couches : ______________
+Usage déclaré : bureau — usage intensif
+Sablage entre couches : ☐ Oui (grain ______)   ☐ Non
+Vérifier la surface à la lumière rasante avant la dernière couche.
+Identifier la pièce (étiquette Neya) et noter dans le suivi de production.
+ 
+Notes spécifiques AZAD
+		
+		
+		
+		
+
+Fiche vierge — nouveau produit / sur mesure
+______  —  ______________________________________
+Prix public
+_______________________________________________
+Essence(s)
+_______________________________________________
+Dimensions
+_______________________________________________
+Finition
+_______________________________________________
+Délai
+_______________________________________________
+ 
+Croquis / vue d'ensemble
+		
+		
+		
+		
+		
+		
+		
+		
+Débitage
+Pièce
+Essence
+Qté
+Dimensions (É × L × Lo)
+Notes
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Usinage
+		
+		
+		
+		
+Assemblage Domino — DF 700
+À l'atelier, on utilise UNIQUEMENT le DF 700. Les 3 réglages de largeur de mortaise :
+
+☐  ÉTROIT (0 clic)
+☐  +1 CLIC
+☐  +2 CLICS
+ 
+Position des dominos sur le plateau
+
+Hauteur d'appui
+
+Paramètres de cette pièce
+Fraise (Ø) : ______________  |  Profondeur : ______________
+Hauteur appui (réglage) : ______________
+Nombre de dominos par jonction : ______________
+Position des dominos (croquis si besoin) :
+		
+		
+ 
+Collage / assemblage
+		
+		
+		
+		
+Cardon des arêtes — cocher le profil
+
+☐  ARÊTE VIVE
+☐  CHANFREIN
+☐  1/4 DE ROND
+☐  DOUBLE CHANFREIN
+☐  (aucun usinage)
+☐  1/8&quot;
+☐  1/4&quot;
+☐  3/8&quot;
+☐  R = 1/8&quot;
+☐  R = 1/4&quot;
+☐  R = 3/8&quot;
+☐  1/8&quot;
+☐  1/4&quot;
+☐  dessus + dessous
+ 
+Arêtes traitées sur : ☐  Toutes   ☐  Dessus seulement   ☐  Dessus + dessous   ☐  Sélection : ______________   
+Sablage
+Time Saver — passe ou pas ?
+
+☐  OUI — calibrage Time Saver          ☐  NON — sablage manuel séquentiel   
+Grains utilisés (cocher au fur et à mesure)
+☐  80   ☐  120   ☐  150   ☐  180   ☐  220   ☐  320   ☐  0000 (laine d'acier — entre couches d'huile)   
+Rappel atelier : « si ça passe pas au Time Saver, on fait 80 puis 0 » — 80 pour aplanir, 120 → 180 → 220 pour progresser, 0000 (laine d'acier) seulement entre couches d'huile.
+Finition
+Type : ☐  Huile Osmo LED Smart Oil (UV)   ☐  Huile / cire alimentaire   ☐  Vernis à l'eau (sans COV)   ☐  Autre : ______________   
+Nombre de couches : ______________  |  Temps entre couches : ______________
+Usage déclaré : à préciser
+Sablage entre couches : ☐ Oui (grain ______)   ☐ Non
+Vérifier la surface à la lumière rasante avant la dernière couche.
+Identifier la pièce (étiquette Neya) et noter dans le suivi de production.
+ 
+Notes
+		
+		
+		
+		
+		
+		

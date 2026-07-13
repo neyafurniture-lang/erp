@@ -1,0 +1,40 @@
+{
+  "name": "Neya Furnitures & More",
+  "website": "https://neyafurniture.ca",
+  "palette": {
+    "green": {
+      "DEFAULT": "#4D5446",
+      "dark": "#3d4338",
+      "light": "#5c6554"
+    },
+    "orange": {
+      "DEFAULT": "#D86B30",
+      "dark": "#b85a28",
+      "light": "#e88a55"
+    },
+    "cream": {
+      "DEFAULT": "#F9F1EA",
+      "light": "#FFFCF8",
+      "dark": "#EDE5DC"
+    }
+  },
+  "semantic": {
+    "background": "#F9F1EA",
+    "surface": "#FFFFFF",
+    "sidebar": "#4D5446",
+    "sidebarText": "#F9F1EA",
+    "primary": "#4D5446",
+    "accent": "#D86B30",
+    "text": "#4D5446",
+    "textMuted": "#6B7264",
+    "border": "#E8DFD6"
+  },
+  "assets": {
+    "logoOrange": "brand/assets/logo-orange.png",
+    "logoWhite": "brand/assets/logo-white.png",
+    "waveOrange": "brand/assets/wave-orange.png",
+    "waveGreen": "brand/assets/wave-green.png",
+    "starOrange": "brand/assets/star-orange.png",
+    "charte": "brand/assets/charte-graphique.png"
+  }
+}

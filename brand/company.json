@@ -1,0 +1,48 @@
+{
+  "legalName": "9511-9319 Quebec Inc",
+  "tradeName": "Neya Furniture",
+  "address": {
+    "line1": "4842 Rue Fabre",
+    "line2": "Montréal QC H2J 3W2",
+    "altLine1": "2177 rue Masson, suite 404",
+    "altLine2": "Montréal QC"
+  },
+  "phone": "+1 514 910-4874",
+  "email": "neyafurniture@gmail.com",
+  "gstNumber": "750243958RT0001",
+  "qstNumber": "1231503958TQ0001",
+  "tax": {
+    "gstRate": 0.05,
+    "qstRate": 0.09975,
+    "labelGst": "GST 5%",
+    "labelQst": "QST 9.975%"
+  },
+  "defaultTerms": "Net 30",
+  "quoteValidityDays": 30,
+  "payment": {
+    "intro": "Production will be scheduled once the deposit is received. We will follow up with the production timeline and logistics.",
+    "interac": {
+      "label": "Interac e-Transfer",
+      "email": "contact@neyafurniture.ca",
+      "note": "No security question required (auto-deposit enabled)"
+    },
+    "bank": {
+      "label": "Direct deposit / Bank transfer",
+      "institution": "Desjardins — Plateau-Mont-Royal",
+      "address": "435 Ave. Mont-Royal Est, Montréal QC H2J 1W2",
+      "transit": "30197",
+      "institutionNumber": "815",
+      "account": "650-712-3",
+      "beneficiary": "9511-9319 Quebec Inc."
+    },
+    "referenceNote": "Please include the invoice number with your payment so we can match it to your order."
+  },
+  "quoteTerms": [
+    "All amounts shown are before taxes (GST 5% + QST 9.975%).",
+    "50% deposit upon order confirmation, balance due on delivery.",
+    "Accepted payment methods: bank transfer, cheque, or Interac.",
+    "Pickup at the workshop (Montreal) or delivery to be arranged.",
+    "Wood supplied by client unless otherwise specified in the quote."
+  ],
+  "invoiceNumberStart": 1027
+}

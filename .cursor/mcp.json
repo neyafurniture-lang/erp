@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "neya-erp": {
+      "command": "node",
+      "args": ["mcp/neya-erp/src/index.js"],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "NEYA_API_URL": "http://localhost:4001/api",
+        "NEYA_EMAIL": "admin@neya.local",
+        "NEYA_PASSWORD": "neya2024"
+      }
+    }
+  }
+}
