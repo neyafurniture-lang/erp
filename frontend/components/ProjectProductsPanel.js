@@ -17,7 +17,7 @@ function normalizeRows(rows) {
   return (rows || []).map(normalizeProductRow);
 }
 
-export default function ProjectProductsPanel({ project, onReload, mode = 'edit', onEditTab }) {
+export default function ProjectProductsPanel({ project, onReload, mode = 'edit', onEditTab, inModal = false }) {
   const isOverview = mode === 'overview';
   const [rows, setRows] = useState([]);
   const [busy, setBusy] = useState('');
@@ -117,14 +117,16 @@ export default function ProjectProductsPanel({ project, onReload, mode = 'edit',
 
   return (
     <div className="space-y-4">
-      <div className="border border-neya-border bg-neya-surface/40 px-4 py-3">
-        <p className="text-sm text-neya-ink">
-          {isOverview
-            ? 'Catalogue commande — cochez chaque SKU une fois validé en atelier.'
-            : 'Catalogue SKU du projet — références, dimensions, modèles et quantités commandées.'}
-          {' '}Lia utilise ce tableau pour répondre aux questions sur les produits du projet.
-        </p>
-      </div>
+      {!inModal && (
+        <div className="border border-neya-border bg-neya-surface/40 px-4 py-3">
+          <p className="text-sm text-neya-ink">
+            {isOverview
+              ? 'Catalogue commande — cochez chaque SKU une fois validé en atelier.'
+              : 'Catalogue SKU du projet — références, dimensions, modèles et quantités commandées.'}
+            {' '}Lia utilise ce tableau pour répondre aux questions sur les produits du projet.
+          </p>
+        </div>
+      )}
 
       {rows.length > 0 && (
         <div className="card-flat py-3">

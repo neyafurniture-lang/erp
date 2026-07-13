@@ -234,7 +234,26 @@ function getJsonlStore(sdk, rootHint) {
   return jsonlStore;
 }
 
-function gitCwdForBackup(cfg) {
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function mergeProgress(existing = [], incoming = []) {
+  if (!incoming.length) return existing;
+  const seen = new Set(existing.map((e) => `${e.at}|${e.kind}|${e.text || e.name}`));
+  const merged = [...existing];
+  for (const item of incoming) {
+    const key = `${item.at}|${item.kind}|${item.text || item.name}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(item);
+  }
+  return merged.slice(-80);
+}
+
+function hasActiveRun() {
+  return [...runs.values()].some((r) => r.status === 'queued' || r.status === 'running');
+}
   if (fs.existsSync('/workspace/.git')) return '/workspace';
   if (cfg?.cwd && fs.existsSync(path.join(cfg.cwd, '.git'))) return cfg.cwd;
   return cfg?.cwd || '/workspace';
@@ -243,6 +262,32 @@ function gitCwdForBackup(cfg) {
 async function executeRun(run) {
   run.status = 'running';
   run.started_at = new Date().toISOString();
+  run.progress = [];
+  let eventCursor = 0;
+  let stopPolling = false;
+
+  const progressTask = (async () => {
+    try {
+      const boot = await requestHost('GET', '/events/tail?after=0', null, 8000);
+      eventCursor = boot?.cursor ?? 0;
+    } catch {
+      eventCursor = 0;
+    }
+    while (!stopPolling) {
+      if (run.status !== 'running') break;
+      try {
+        const ev = await requestHost('GET', `/events/tail?after=${eventCursor}`, null, 8000);
+        if (ev?.items?.length) {
+          run.progress = mergeProgress(run.progress, ev.items);
+        }
+        if (typeof ev?.cursor === 'number') eventCursor = ev.cursor;
+      } catch {
+        /* ignore */
+      }
+      await sleep(2000);
+    }
+  })();
+
   try {
     const cfg = await getCursorConfig();
     if (!cfg.configured) throw new Error('Clé Cursor API manquante (Paramètres → Agent Cursor)');
@@ -319,12 +364,26 @@ async function executeRun(run) {
     run.status = 'error';
     run.error = err.message || String(err);
     run.finished_at = new Date().toISOString();
+  } finally {
+    stopPolling = true;
+    await progressTask.catch(() => {});
+    try {
+      const ev = await requestHost('GET', `/events/tail?after=${eventCursor}`, null, 8000);
+      if (ev?.items?.length) {
+        run.progress = mergeProgress(run.progress, ev.items);
+      }
+    } catch {
+      /* ignore */
+    }
   }
 }
 
 export async function startAgentRun({ prompt, label = null, source = 'manual', roadmap_id = null }) {
   const text = String(prompt || '').trim();
   if (!text) throw new Error('Prompt requis');
+  if (hasActiveRun()) {
+    throw new Error('Un agent Cursor est déjà en cours — attendez la fin avant d\'en lancer un autre.');
+  }
 
   const run = {
     id: seq++,
@@ -339,6 +398,7 @@ export async function startAgentRun({ prompt, label = null, source = 'manual', r
     host: null,
     git_after: null,
     agent_run_id: null,
+    progress: [],
     created_at: new Date().toISOString(),
     started_at: null,
     finished_at: null,

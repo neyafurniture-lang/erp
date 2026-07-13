@@ -10,6 +10,55 @@ const STATUS_CLS = {
   error: 'bg-red-50 text-red-700 border border-red-200',
 };
 
+function formatProgressLine(item) {
+  if (!item) return null;
+  if (item.kind === 'thinking') return item.text ? `💭 ${item.text}` : null;
+  if (item.kind === 'tool') {
+    const st = item.status === 'completed' ? '✓' : item.status === 'error' ? '✗' : '…';
+    return `🔧 ${item.name} ${st}`;
+  }
+  if (item.kind === 'assistant') return item.text;
+  if (item.kind === 'status' || item.kind === 'task') return item.text;
+  return null;
+}
+
+function RunProgress({ run }) {
+  const lines = (run.progress || []).map(formatProgressLine).filter(Boolean);
+  const last = lines[lines.length - 1];
+  const started = run.started_at ? new Date(run.started_at).getTime() : null;
+  const elapsed =
+    started && (run.status === 'running' || run.status === 'queued')
+      ? Math.max(0, Math.floor((Date.now() - started) / 1000))
+      : null;
+
+  return (
+    <div className="space-y-2">
+      {elapsed != null && (
+        <p className="text-xs text-neya-muted">
+          En cours depuis {elapsed >= 60 ? `${Math.floor(elapsed / 60)} min ${elapsed % 60} s` : `${elapsed} s`}
+          {lines.length > 0 ? ` · ${lines.length} étape(s)` : ''}
+        </p>
+      )}
+      {last && (
+        <p className="text-sm text-neya-ink whitespace-pre-wrap animate-pulse">{last}</p>
+      )}
+      {!last && (
+        <p className="text-neya-muted animate-pulse text-sm">Connexion à l&apos;agent sur le VPS…</p>
+      )}
+      {lines.length > 1 && (
+        <details className="text-xs text-neya-muted">
+          <summary className="cursor-pointer select-none">Voir les étapes ({lines.length})</summary>
+          <ul className="mt-2 space-y-1 max-h-40 overflow-y-auto font-mono text-[11px]">
+            {lines.slice(-20).map((line, i) => (
+              <li key={i} className="truncate" title={line}>{line}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
+}
+
 export default function CursorAgentPanel() {
   const [config, setConfig] = useState(null);
   const [gitInfo, setGitInfo] = useState(null);
@@ -69,7 +118,7 @@ export default function CursorAgentPanel() {
     load();
     const t = setInterval(() => {
       api('/cursor-agent/runs').then(setRuns).catch(() => {});
-    }, 3000);
+    }, 2000);
     return () => clearInterval(t);
   }, [load]);
 
@@ -402,7 +451,7 @@ export default function CursorAgentPanel() {
                     )}
                   </div>
                   {run.status === 'queued' || run.status === 'running' ? (
-                    <p className="text-neya-muted animate-pulse">Modification en cours sur le VPS…</p>
+                    <RunProgress run={run} />
                   ) : run.error ? (
                     <p className="text-red-600 whitespace-pre-wrap">{run.error}</p>
                   ) : (

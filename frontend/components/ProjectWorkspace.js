@@ -14,7 +14,7 @@ import GmailInbox from './GmailInbox';
 import InstallationBillingPanel from './InstallationBillingPanel';
 import ProjectProductsPanel from './ProjectProductsPanel';
 import ProjectPlansPanel from './ProjectPlansPanel';
-import { getProjectProducts } from '../lib/project-products';
+import { getProjectProducts, productsProgress } from '../lib/project-products';
 
 const MODULES = [
   { id: 'overview', label: 'Vue d\'ensemble' },
@@ -42,6 +42,7 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
   const [taskForm, setTaskForm] = useState({ title: '', type: 'assemblage', estimated_minutes: 60 });
   const [taskBusy, setTaskBusy] = useState(false);
   const [statusBusy, setStatusBusy] = useState(false);
+  const [productsModalOpen, setProductsModalOpen] = useState(false);
   const custom = isCustomProject(project);
   const meta = typeof project.meta === 'string' ? JSON.parse(project.meta || '{}') : (project.meta || {});
   const standardMeta = project.standard_meta || null;
@@ -53,6 +54,7 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
   const nextTasks = project.tasks?.filter(t => t.status !== 'done').slice(0, 4) || [];
   const { done, total, pct } = checklistProgress(project.tasks);
   const projectProducts = getProjectProducts(project);
+  const productsStats = productsProgress(projectProducts);
 
   useEffect(() => {
     const t = searchParams.get('tab');
@@ -265,12 +267,38 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
           </div>
 
           {projectProducts.length > 0 && (
-            <ProjectProductsPanel
-              project={project}
-              onReload={onReload}
-              mode="overview"
-              onEditTab={() => changeTab('products')}
-            />
+            <div className="card-flat">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                <div>
+                  <p className="text-sm font-semibold text-neya-ink">Catalogue commande</p>
+                  <p className="text-xs text-neya-muted mt-0.5">
+                    {projectProducts.length} SKU · {productsStats.done}/{productsStats.total} validés ({productsStats.pct}%)
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setProductsModalOpen(true)}
+                    className="btn-primary text-sm min-h-[36px]"
+                  >
+                    Ouvrir le tableau
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => changeTab('products')}
+                    className="btn-secondary text-sm min-h-[36px]"
+                  >
+                    Éditer
+                  </button>
+                </div>
+              </div>
+              <div className="h-2 bg-neya-cream rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-neya-orange transition-all"
+                  style={{ width: `${productsStats.pct}%` }}
+                />
+              </div>
+            </div>
           )}
 
           <div className="grid md:grid-cols-2 gap-4">
@@ -492,6 +520,49 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
       {tab === 'notes' && (
         <div className="card">
           <p className="text-sm whitespace-pre-wrap">{project.notes || 'Aucune note'}</p>
+        </div>
+      )}
+
+      {productsModalOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Catalogue commande"
+          onClick={() => setProductsModalOpen(false)}
+        >
+          <div
+            className="bg-white w-full max-w-4xl max-h-[90vh] rounded-xl overflow-hidden shadow-xl flex flex-col"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-neya-border shrink-0">
+              <div>
+                <h3 className="font-heading text-lg text-neya-ink">Catalogue commande</h3>
+                <p className="text-xs text-neya-muted mt-0.5">
+                  Cochez chaque SKU une fois validé en atelier
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setProductsModalOpen(false)}
+                className="text-sm text-neya-muted hover:text-neya-ink px-2 py-1"
+              >
+                Fermer
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              <ProjectProductsPanel
+                project={project}
+                onReload={onReload}
+                mode="overview"
+                inModal
+                onEditTab={() => {
+                  setProductsModalOpen(false);
+                  changeTab('products');
+                }}
+              />
+            </div>
+          </div>
         </div>
       )}
     </div>
