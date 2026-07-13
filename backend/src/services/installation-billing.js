@@ -141,29 +141,39 @@ export function getInstallationBillingFromMeta(meta) {
 }
 
 async function fetchProjectMailTexts(projectId) {
-  const { rows } = await pool.query(`
-    SELECT DISTINCT ON (COALESCE(em.gmail_message_id, pe.gmail_message_id))
+  const { rows: fromProjectEmails } = await pool.query(`
+    SELECT
       COALESCE(em.subject, pe.subject) AS subject,
-      COALESCE(em.snippet, pe.snippet, '') AS snippet,
-      COALESCE(em.body_text, '') AS body_text,
-      em.sent_at
+      TRIM(COALESCE(em.snippet, pe.snippet, '') || ' ' || COALESCE(em.body_text, '')) AS text,
+      COALESCE(em.sent_at, pe.linked_at) AS sent_at,
+      pe.gmail_message_id
     FROM project_emails pe
     LEFT JOIN email_messages em ON em.gmail_message_id = pe.gmail_message_id
     WHERE pe.project_id = $1
+  `, [projectId]);
 
-    UNION
-
-    SELECT em.subject, em.snippet, COALESCE(em.body_text, ''), em.sent_at
+  const { rows: fromThreads } = await pool.query(`
+    SELECT em.subject, TRIM(COALESCE(em.snippet, '') || ' ' || COALESCE(em.body_text, '')) AS text,
+           em.sent_at, em.gmail_message_id
     FROM email_messages em
     JOIN email_threads et ON et.id = em.thread_id
     WHERE et.project_id = $1
-    ORDER BY sent_at DESC NULLS LAST
   `, [projectId]);
 
-  return rows.map(r => ({
-    subject: r.subject || '',
-    text: [r.subject, r.snippet, r.body_text].filter(Boolean).join('\n'),
-  }));
+  const seen = new Set();
+  const merged = [];
+  for (const row of [...fromProjectEmails, ...fromThreads]) {
+    const key = row.gmail_message_id || `${row.subject}:${row.text?.slice(0, 40)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push({
+      subject: row.subject || '',
+      text: [row.subject, row.text].filter(Boolean).join('\n'),
+      sent_at: row.sent_at,
+    });
+  }
+  merged.sort((a, b) => new Date(b.sent_at || 0) - new Date(a.sent_at || 0));
+  return merged;
 }
 
 export async function scanProjectInstallationDates(projectId) {
