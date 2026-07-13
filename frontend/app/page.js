@@ -4,56 +4,62 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import AppShell from '../components/AppShell';
 import AuthGuard from '../components/AuthGuard';
-import ProjectCard from '../components/ProjectCard';
 import { api, formatMoney, formatDate } from '../lib/api';
 import { AdminTasksSummary } from '../components/AdminTasksPanel';
 import SupplierInvoiceQueue from '../components/SupplierInvoiceQueue';
 import EditableSection from '../components/EditableSection';
 
 const QUICK_ACTIONS = [
-  { href: '/production', label: 'Production', icon: '⚒', primary: true },
-  { href: '/admin', label: 'Admin', icon: '📋' },
-  { href: '/projects', label: 'Projet', icon: '▣' },
-  { href: '/invoices', label: 'Devis', icon: '▤' },
-  { href: '/clients', label: 'Client', icon: '◉' },
-  { href: '/expenses', label: 'Dépense', icon: '▥' },
-  { href: '/calendar', label: 'Calendrier', icon: '▦' },
-  { href: '/web', label: 'Site web', icon: '🌐' },
+  { href: '/production', label: 'Production' },
+  { href: '/projects', label: 'Projets' },
+  { href: '/invoices', label: 'Devis / factures' },
+  { href: '/mail', label: 'Courriel' },
+  { href: '/clients', label: 'Clients' },
+  { href: '/calendar', label: 'Calendrier' },
+  { href: '/expenses', label: 'Dépenses' },
+  { href: '/admin', label: 'Admin' },
 ];
 
-const TASK_STATUS = {
-  todo: { label: 'À faire', cls: 'bg-neya-cream text-neya-muted' },
-  doing: { label: 'En cours', cls: 'bg-neya-warning/20 text-neya-warning' },
-  done: { label: 'Fait', cls: 'bg-green-100 text-green-800' },
-};
-
-function StatCard({ label, value, sub, accent, href }) {
-  const inner = (
-    <div className={`card h-full transition-all ${href ? 'hover:border-neya-orange hover:shadow-md cursor-pointer' : ''}`}>
-      <p className="text-xs sm:text-sm text-neya-muted">{label}</p>
-      <p className={`text-2xl sm:text-3xl font-heading mt-1 ${accent || 'text-neya-ink'}`}>{value}</p>
-      {sub && <p className="text-[10px] sm:text-xs text-neya-muted mt-1">{sub}</p>}
+function Metric({ label, value, hint, href, tone }) {
+  const body = (
+    <div className={`dash-metric ${tone || ''}`}>
+      <p className="dash-metric-label">{label}</p>
+      <p className="dash-metric-value">{value}</p>
+      {hint ? <p className="dash-metric-hint">{hint}</p> : null}
     </div>
   );
-  return href ? <Link href={href} className="block h-full">{inner}</Link> : inner;
+  return href ? <Link href={href} className="block hover:bg-neya-surface/80 transition-colors">{body}</Link> : body;
+}
+
+function SectionHead({ title, href, hrefLabel = 'Voir tout', aside }) {
+  return (
+    <div className="dash-section-head">
+      <h2 className="dash-section-title">{title}</h2>
+      <div className="flex items-center gap-3">
+        {aside}
+        {href && (
+          <Link href={href} className="dash-link">
+            {hrefLabel}
+          </Link>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function AlertsBar({ alerts }) {
   if (!alerts?.length) return null;
-  const styles = {
-    danger: 'bg-red-50 border-red-200 text-red-800',
-    warning: 'bg-amber-50 border-amber-200 text-amber-900',
-    info: 'bg-blue-50 border-blue-200 text-blue-800',
-  };
   return (
-    <div className="flex gap-2 overflow-x-auto pb-1 mb-6 -mx-1 px-1 scrollbar-hide">
+    <div className="dash-alerts">
       {alerts.map((a, i) => (
         <Link
           key={i}
-          href={a.href}
-          className={`shrink-0 text-xs sm:text-sm font-medium px-4 py-2.5 rounded-full border ${styles[a.type] || styles.info}`}
+          href={a.href || '/'}
+          className={`dash-alert dash-alert-${a.type || 'info'}`}
         >
-          {a.text} →
+          <span className="dash-alert-dot" aria-hidden />
+          <span className="flex-1 min-w-0">{a.text}</span>
+          <span className="dash-alert-arrow" aria-hidden>→</span>
         </Link>
       ))}
     </div>
@@ -87,80 +93,107 @@ function DashboardTodoList({ todos, onChange, listKey = 'main', title = 'Ma todo
   }
 
   return (
-    <div className="card h-full">
-      <div className="flex items-center justify-between gap-2 mb-3">
-        <h2 className="font-heading text-base sm:text-lg">{title}</h2>
-        {pending.length > 0 && (
-          <span className="text-xs font-semibold bg-neya-orange text-white px-2.5 py-0.5 rounded-full">{pending.length}</span>
-        )}
-      </div>
-      <form onSubmit={addTodo} className="flex gap-2 mb-3">
+    <div className="dash-block">
+      <SectionHead
+        title={title}
+        aside={pending.length > 0 ? <span className="dash-count">{pending.length}</span> : null}
+      />
+      <form onSubmit={addTodo} className="flex gap-2 mb-2">
         <input
           className="input flex-1"
-          placeholder="Ajouter…"
+          placeholder="Ajouter une tâche…"
           value={newTitle}
           onChange={e => setNewTitle(e.target.value)}
         />
-        <button type="submit" disabled={adding || !newTitle.trim()} className="btn-primary text-sm shrink-0 disabled:opacity-40">
-          +
+        <button type="submit" disabled={adding || !newTitle.trim()} className="btn-secondary text-sm shrink-0 disabled:opacity-40">
+          Ajouter
         </button>
       </form>
-      <ul className="space-y-1 max-h-64 overflow-y-auto">
+      <ul className="dash-list">
         {pending.length === 0 && done.length === 0 && (
-          <li className="text-sm text-neya-muted italic py-2">Rien pour l&apos;instant</li>
+          <li className="dash-empty">Rien pour l&apos;instant</li>
         )}
         {pending.map(todo => (
-          <li key={todo.id} className="flex items-center gap-2 py-2 min-h-[44px]">
+          <li key={todo.id} className="dash-row">
             <button
               type="button"
               onClick={() => toggleTodo(todo)}
-              className="w-9 h-9 shrink-0 rounded-lg border-2 border-neya-border hover:border-neya-orange bg-white"
+              className="dash-check"
               aria-label="Cocher"
             />
             <span className="text-sm flex-1">{todo.title}</span>
           </li>
         ))}
         {done.map(todo => (
-          <li key={todo.id} className="flex items-center gap-2 py-2 opacity-60">
+          <li key={todo.id} className="dash-row opacity-50">
             <button
               type="button"
               onClick={() => toggleTodo(todo)}
-              className="w-9 h-9 shrink-0 rounded-lg bg-neya-orange text-white text-sm"
+              className="dash-check dash-check-on"
               aria-label="Décocher"
             >✓</button>
             <span className="text-sm line-through flex-1">{todo.title}</span>
           </li>
         ))}
       </ul>
-      <p className="text-[10px] text-neya-muted mt-2">Cochées → disparaissent après 2 jours</p>
     </div>
   );
 }
 
 function TaskRow({ task, onToggle }) {
-  const st = TASK_STATUS[task.status] || TASK_STATUS.todo;
   const time = task.start_time
     ? new Date(task.start_time).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' })
     : null;
 
   return (
-    <li className="flex items-center gap-2 py-2.5 border-b border-neya-border/60 last:border-0">
+    <li className="dash-row">
       {task.status !== 'done' && (
         <button
           type="button"
           onClick={() => onToggle(task)}
-          className="w-8 h-8 shrink-0 rounded-lg border border-neya-border hover:bg-neya-orange hover:border-neya-orange hover:text-white text-xs"
+          className="dash-check"
           title="Marquer fait"
-        >✓</button>
+          aria-label="Marquer fait"
+        />
       )}
       <Link href={task.project_id ? `/projects/${task.project_id}` : '/calendar'} className="flex-1 min-w-0">
-        <p className="text-sm font-medium truncate">{task.title}</p>
+        <p className="text-sm font-medium text-neya-ink truncate">{task.title}</p>
         <p className="text-xs text-neya-muted truncate">
           {time && `${time} · `}{task.project_name || 'Atelier'}
         </p>
       </Link>
-      <span className={`text-[10px] px-2 py-0.5 rounded-full shrink-0 ${st.cls}`}>{st.label}</span>
+      {task.status === 'doing' && <span className="dash-pill">En cours</span>}
     </li>
+  );
+}
+
+function ProjectRow({ project }) {
+  const overdue = project.deadline && new Date(project.deadline) < new Date(new Date().toDateString());
+  const progress = project.progress_pct ?? project.costs?.progress_pct ?? 0;
+  const open = (project.tasks_open ?? 0);
+  const done = (project.tasks_done ?? 0);
+  const total = open + done;
+
+  return (
+    <Link href={`/projects/${project.id}`} className="dash-project-row">
+      <div className="min-w-0 flex-1">
+        <p className="text-[11px] text-neya-muted truncate mb-0.5">{project.client_name || 'Sans client'}</p>
+        <p className="text-sm font-medium text-neya-ink truncate">{project.name}</p>
+        <div className="dash-progress mt-2">
+          <div className="dash-progress-bar" style={{ width: `${Math.min(100, progress)}%` }} />
+        </div>
+      </div>
+      <div className="text-right shrink-0 ml-4">
+        {total > 0 && (
+          <p className="text-xs text-neya-ink tabular-nums">{done}/{total}</p>
+        )}
+        {project.deadline && (
+          <p className={`text-[11px] mt-0.5 ${overdue ? 'text-neya-error font-medium' : 'text-neya-muted'}`}>
+            {formatDate(project.deadline)}
+          </p>
+        )}
+      </div>
+    </Link>
   );
 }
 
@@ -242,20 +275,30 @@ export default function DashboardPage() {
   });
 
   if (!data && !error) {
-    return <AuthGuard><AppShell title="Dashboard" wide><div className="text-neya-muted py-12 text-center">Chargement…</div></AppShell></AuthGuard>;
+    return (
+      <AuthGuard>
+        <AppShell title="Accueil" wide>
+          <div className="text-neya-muted py-16 text-center text-sm">Chargement…</div>
+        </AppShell>
+      </AuthGuard>
+    );
   }
 
   const s = data?.stats || {};
   const web = data?.web;
   const sections = (layout?.sections || []).filter(sec => sec.visible !== false);
+  const todayCount = data?.tasksToday?.length ?? 0;
+  const dueHint = s.overdueProjects > 0
+    ? `${s.overdueProjects} en retard`
+    : `${s.dueSoonProjects ?? 0} sous 7 j`;
 
-  function wrap(section, node, extraClass = 'mb-6') {
+  function wrap(section, node) {
     return (
       <EditableSection
         key={section.id}
         section={section}
         editMode={editMode}
-        className={extraClass}
+        className="dash-section"
         onMoveUp={(id) => moveSection(id, 'up')}
         onMoveDown={(id) => moveSection(id, 'down')}
         onHide={removeTodoSection}
@@ -274,97 +317,126 @@ export default function DashboardPage() {
           listKey={section.list_key || 'main'}
           title={section.title || section.label || 'Todo'}
         />
-      ), 'mb-4');
+      ));
     }
 
     switch (section.id) {
       case 'alerts':
-        return wrap(section, <AlertsBar alerts={data?.alerts} />, 'mb-4');
+        if (!data?.alerts?.length) return null;
+        return wrap(section, <AlertsBar alerts={data.alerts} />);
+
       case 'supplier_invoices':
-        return wrap(section, <SupplierInvoiceQueue />, 'mb-4');
+        return wrap(section, <SupplierInvoiceQueue compact />);
+
+      case 'admin_tasks':
+        return wrap(section, (
+          <div className="dash-block">
+            <SectionHead title="Tâches admin" href="/admin" />
+            <AdminTasksSummary tasks={data?.adminTasks || []} openCount={s.adminTasksOpen ?? 0} onChange={load} />
+          </div>
+        ));
+
       case 'projects_cards':
         return wrap(section, (
-          <section>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-medium tracking-tight">Projets en cours</h2>
-              <Link href="/projects" className="text-xs text-neya-orange hover:underline">Tous →</Link>
-            </div>
-            {data?.projectCards?.length === 0 ? (
-              <div className="card-flat text-center py-12">
-                <p className="text-sm text-neya-muted mb-4">Aucun projet actif</p>
-                <Link href="/projects" className="btn-primary">Créer un projet</Link>
+          <div className="dash-block">
+            <SectionHead title="Projets en cours" href="/projects" />
+            {!data?.projectCards?.length ? (
+              <div className="dash-empty-block">
+                <p className="text-sm text-neya-muted mb-3">Aucun projet actif</p>
+                <Link href="/projects" className="btn-primary text-sm">Créer un projet</Link>
               </div>
             ) : (
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {data?.projectCards?.map(p => (
-                  <ProjectCard key={p.id} project={p} large onStatusChange={() => load()} />
+              <div className="dash-projects">
+                {(data.projectCards || []).slice(0, 8).map(p => (
+                  <ProjectRow key={p.id} project={p} />
                 ))}
               </div>
             )}
-          </section>
+          </div>
         ));
+
       case 'quick_actions':
         return wrap(section, (
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-            {QUICK_ACTIONS.map(a => (
-              <Link
-                key={a.href}
-                href={a.href}
-                className={`flex flex-col items-center justify-center gap-1 py-3 px-2 rounded-2xl border text-center min-h-[72px] transition-all active:scale-95 ${
-                  a.primary
-                    ? 'bg-neya-orange text-white border-neya-orange shadow-sm'
-                    : 'bg-white border-neya-border hover:border-neya-orange text-neya-ink'
-                }`}
-              >
-                <span className="text-xl">{a.icon}</span>
-                <span className="text-[11px] font-semibold">{a.label}</span>
-              </Link>
-            ))}
+          <div className="dash-block">
+            <SectionHead title="Raccourcis" />
+            <div className="dash-shortcuts">
+              {QUICK_ACTIONS.map(a => (
+                <Link key={a.href} href={a.href} className="dash-shortcut">
+                  {a.label}
+                </Link>
+              ))}
+            </div>
           </div>
         ));
+
       case 'stats':
         return wrap(section, (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <StatCard label="Projets actifs" value={s.activeProjects ?? 0} href="/projects"
-              sub={s.overdueProjects > 0 ? `${s.overdueProjects} en retard` : `${s.dueSoonProjects ?? 0} deadline sous 7j`}
-              accent={s.overdueProjects > 0 ? 'text-red-600' : 'text-neya-ink'} />
-            <StatCard label="À recevoir" value={formatMoney(s.invoicesDue)} href="/invoices"
-              sub={`${data?.pendingInvoices?.length ?? 0} facture(s)`} accent="text-neya-orange" />
-            <StatCard label="Dépenses mois" value={formatMoney(s.expensesMonth)} href="/expenses" sub="Ce mois-ci" />
-            <StatCard label="Clients" value={s.clients ?? 0} href="/clients"
-              sub={web?.configured ? `${web.web_orders_active ?? 0} cmd. web` : `${s.unscheduledTasks ?? 0} tâches à planifier`} />
+          <div className="dash-metrics">
+            <Metric
+              label="Projets actifs"
+              value={s.activeProjects ?? 0}
+              hint={dueHint}
+              href="/projects"
+              tone={s.overdueProjects > 0 ? 'dash-metric-warn' : ''}
+            />
+            <Metric
+              label="À recevoir"
+              value={formatMoney(s.invoicesDue)}
+              hint={`${data?.pendingInvoices?.length ?? 0} facture(s)`}
+              href="/invoices"
+              tone="dash-metric-accent"
+            />
+            <Metric
+              label="Dépenses du mois"
+              value={formatMoney(s.expensesMonth)}
+              hint="Ce mois-ci"
+              href="/expenses"
+            />
+            <Metric
+              label="Clients"
+              value={s.clients ?? 0}
+              hint={web?.configured ? `${web.web_orders_active ?? 0} cmd. web` : `${s.unscheduledTasks ?? 0} à planifier`}
+              href="/clients"
+            />
           </div>
         ));
+
       case 'today_week':
         return wrap(section, (
-          <div className="space-y-4">
-            <div className="card">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="font-heading text-base sm:text-lg">Aujourd&apos;hui</h2>
-                <Link href="/calendar" className="text-xs text-neya-orange hover:underline">Calendrier →</Link>
-              </div>
-              {data?.tasksToday?.length === 0 ? (
-                <p className="text-sm text-neya-muted py-4 text-center">Aucune tâche — planifiez dans le calendrier</p>
+          <div className="dash-split">
+            <div className="dash-block">
+              <SectionHead
+                title="Aujourd’hui"
+                href="/calendar"
+                hrefLabel="Calendrier"
+                aside={todayCount > 0 ? <span className="dash-count">{todayCount}</span> : null}
+              />
+              {!data?.tasksToday?.length ? (
+                <p className="dash-empty">Aucune tâche — planifiez dans le calendrier</p>
               ) : (
-                <ul>{data?.tasksToday?.map(t => <TaskRow key={t.id} task={t} onToggle={completeTask} />)}</ul>
+                <ul className="dash-list">
+                  {data.tasksToday.map(t => (
+                    <TaskRow key={t.id} task={t} onToggle={completeTask} />
+                  ))}
+                </ul>
               )}
             </div>
-            <div className="card">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="font-heading text-base sm:text-lg">Cette semaine</h2>
-                <span className="text-xs text-neya-muted">{data?.tasksWeek?.length ?? 0} planifiée(s)</span>
-              </div>
-              {data?.tasksWeek?.length === 0 ? (
-                <p className="text-sm text-neya-muted py-2">Semaine libre pour l&apos;instant</p>
+            <div className="dash-block">
+              <SectionHead
+                title="Cette semaine"
+                aside={<span className="text-xs text-neya-muted">{data?.tasksWeek?.length ?? 0}</span>}
+              />
+              {!data?.tasksWeek?.length ? (
+                <p className="dash-empty">Semaine libre pour l&apos;instant</p>
               ) : (
-                <ul className="divide-y divide-neya-border/60">
-                  {data?.tasksWeek?.map(t => {
+                <ul className="dash-list">
+                  {data.tasksWeek.map(t => {
                     const d = new Date(t.start_time);
                     return (
-                      <li key={t.id} className="flex items-center gap-3 py-2.5">
-                        <div className="w-10 text-center shrink-0">
-                          <p className="text-[10px] text-neya-muted uppercase">{d.toLocaleDateString('fr-CA', { weekday: 'short' })}</p>
-                          <p className="text-sm font-bold text-neya-orange">{d.getDate()}</p>
+                      <li key={t.id} className="dash-row">
+                        <div className="dash-date-cell">
+                          <span className="dash-date-day">{d.toLocaleDateString('fr-CA', { weekday: 'short' })}</span>
+                          <span className="dash-date-num">{d.getDate()}</span>
                         </div>
                         <Link href={t.project_id ? `/projects/${t.project_id}` : '/calendar'} className="flex-1 min-w-0">
                           <p className="text-sm font-medium truncate">{t.title}</p>
@@ -380,79 +452,77 @@ export default function DashboardPage() {
             </div>
           </div>
         ));
-      case 'admin_tasks':
-        return wrap(section, (
-          <AdminTasksSummary tasks={data?.adminTasks || []} openCount={s.adminTasksOpen ?? 0} onChange={load} />
-        ), 'mb-4');
+
       case 'finances':
         return wrap(section, (
-          <div className="card">
-            <h2 className="font-heading text-base mb-3">Finances</h2>
-            <div className="space-y-3">
-              <div className="flex justify-between text-sm">
-                <span className="text-neya-muted">Factures en attente</span>
-                <span className="font-semibold text-neya-orange">{formatMoney(s.invoicesDue)}</span>
+          <div className="dash-block">
+            <SectionHead title="Finances" href="/invoices" hrefLabel="Factures & devis" />
+            <div className="dash-kv">
+              <div className="dash-kv-row">
+                <span>Factures en attente</span>
+                <strong className="text-neya-orange tabular-nums">{formatMoney(s.invoicesDue)}</strong>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-neya-muted">Devis en cours</span>
-                <span className="font-semibold">{data?.pendingQuotes?.length ?? 0}</span>
+              <div className="dash-kv-row">
+                <span>Devis en cours</span>
+                <strong className="tabular-nums">{data?.pendingQuotes?.length ?? 0}</strong>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-neya-muted">Dépenses (mois)</span>
-                <span className="font-semibold">{formatMoney(s.expensesMonth)}</span>
+              <div className="dash-kv-row">
+                <span>Dépenses (mois)</span>
+                <strong className="tabular-nums">{formatMoney(s.expensesMonth)}</strong>
               </div>
-              <div className="flex justify-between text-sm border-t border-neya-border pt-3">
-                <span className="text-neya-muted">Budget projets actifs</span>
-                <span className="font-semibold">{formatMoney(s.budgetActive)}</span>
+              <div className="dash-kv-row dash-kv-row-last">
+                <span>Budget projets actifs</span>
+                <strong className="tabular-nums">{formatMoney(s.budgetActive)}</strong>
               </div>
             </div>
-            <Link href="/invoices" className="btn-secondary text-xs w-full mt-4 text-center">Voir factures & devis</Link>
           </div>
-        ), 'mb-4');
+        ));
+
       case 'projects_deadlines':
         return wrap(section, (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-            <div className="card">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="font-heading text-base sm:text-lg">Projets actifs</h2>
-                <Link href="/projects" className="text-xs text-neya-orange hover:underline">Tous →</Link>
-              </div>
-              {data?.activeProjects?.length === 0 ? (
-                <p className="text-sm text-neya-muted">Aucun projet actif</p>
+          <div className="dash-split">
+            <div className="dash-block">
+              <SectionHead title="Projets actifs" href="/projects" />
+              {!data?.activeProjects?.length ? (
+                <p className="dash-empty">Aucun projet actif</p>
               ) : (
-                <ul className="space-y-2">
-                  {data?.activeProjects?.map(p => (
-                    <Link key={p.id} href={`/projects/${p.id}`} className="flex items-center justify-between py-2.5 px-2 -mx-2 rounded-xl hover:bg-neya-cream/60 transition-colors">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">{p.name}</p>
-                        <p className="text-xs text-neya-muted">{p.client_name || 'Sans client'}</p>
-                      </div>
-                      <div className="text-right shrink-0 ml-2">
-                        {p.tasks_open > 0 && (
-                          <span className="text-xs text-neya-orange font-medium">{p.tasks_done}/{p.tasks_done + p.tasks_open}</span>
-                        )}
-                        {p.deadline && <p className="text-[10px] text-neya-muted">{formatDate(p.deadline)}</p>}
-                      </div>
-                    </Link>
+                <ul className="dash-list">
+                  {data.activeProjects.map(p => (
+                    <li key={p.id}>
+                      <Link href={`/projects/${p.id}`} className="dash-row hover:bg-neya-surface -mx-1 px-1 rounded-sm">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium truncate">{p.name}</p>
+                          <p className="text-xs text-neya-muted">{p.client_name || 'Sans client'}</p>
+                        </div>
+                        <div className="text-right shrink-0 ml-2">
+                          {p.tasks_open > 0 && (
+                            <span className="text-xs tabular-nums text-neya-muted">{p.tasks_done}/{p.tasks_done + p.tasks_open}</span>
+                          )}
+                          {p.deadline && <p className="text-[10px] text-neya-muted">{formatDate(p.deadline)}</p>}
+                        </div>
+                      </Link>
+                    </li>
                   ))}
                 </ul>
               )}
             </div>
-            <div className="card">
-              <h2 className="font-heading text-base sm:text-lg mb-3">Deadlines proches</h2>
-              {data?.urgentProjects?.length === 0 ? (
-                <p className="text-sm text-neya-muted">Aucune deadline dans les 14 prochains jours</p>
+            <div className="dash-block">
+              <SectionHead title="Deadlines proches" />
+              {!data?.urgentProjects?.length ? (
+                <p className="dash-empty">Aucune deadline dans les 14 prochains jours</p>
               ) : (
-                <ul className="space-y-2">
-                  {data?.urgentProjects?.map(p => {
+                <ul className="dash-list">
+                  {data.urgentProjects.map(p => {
                     const overdue = p.deadline && new Date(p.deadline) < new Date(new Date().toDateString());
                     return (
-                      <Link key={p.id} href={`/projects/${p.id}`} className="flex items-center justify-between py-2.5 px-2 -mx-2 rounded-xl hover:bg-neya-cream/60">
-                        <p className="text-sm font-medium truncate flex-1">{p.name}</p>
-                        <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ml-2 ${overdue ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'}`}>
-                          {formatDate(p.deadline)}
-                        </span>
-                      </Link>
+                      <li key={p.id}>
+                        <Link href={`/projects/${p.id}`} className="dash-row hover:bg-neya-surface -mx-1 px-1 rounded-sm">
+                          <p className="text-sm font-medium truncate flex-1">{p.name}</p>
+                          <span className={`text-xs tabular-nums shrink-0 ml-2 ${overdue ? 'text-neya-error font-medium' : 'text-neya-muted'}`}>
+                            {formatDate(p.deadline)}
+                          </span>
+                        </Link>
+                      </li>
                     );
                   })}
                 </ul>
@@ -460,55 +530,59 @@ export default function DashboardPage() {
             </div>
           </div>
         ));
+
       case 'invoices_web':
         return wrap(section, (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-            <div className="card">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="font-heading text-base sm:text-lg">Factures à suivre</h2>
-                <Link href="/invoices" className="text-xs text-neya-orange hover:underline">Toutes →</Link>
-              </div>
-              {data?.pendingInvoices?.length === 0 ? (
-                <p className="text-sm text-neya-muted">Tout est à jour ✓</p>
+          <div className="dash-split">
+            <div className="dash-block">
+              <SectionHead title="Factures à suivre" href="/invoices" />
+              {!data?.pendingInvoices?.length ? (
+                <p className="dash-empty">Tout est à jour</p>
               ) : (
-                <ul className="space-y-2">
-                  {data?.pendingInvoices?.map(inv => (
-                    <Link key={inv.id} href={`/invoices/${inv.id}`} className="flex items-center justify-between py-2 border-b border-neya-border/50 last:border-0 hover:bg-neya-cream/40 -mx-2 px-2 rounded-lg">
-                      <div>
-                        <p className="text-sm font-medium">{inv.invoice_number}</p>
-                        <p className="text-xs text-neya-muted">{inv.client_name}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-semibold">{formatMoney(inv.total - inv.amount_paid)}</p>
-                        <p className="text-[10px] text-neya-muted">{inv.due_date ? formatDate(inv.due_date) : inv.status}</p>
-                      </div>
-                    </Link>
+                <ul className="dash-list">
+                  {data.pendingInvoices.map(inv => (
+                    <li key={inv.id}>
+                      <Link href={`/invoices/${inv.id}`} className="dash-row hover:bg-neya-surface -mx-1 px-1 rounded-sm">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium">{inv.invoice_number}</p>
+                          <p className="text-xs text-neya-muted">{inv.client_name}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-sm font-medium tabular-nums">{formatMoney(inv.total - inv.amount_paid)}</p>
+                          <p className="text-[10px] text-neya-muted">{inv.due_date ? formatDate(inv.due_date) : inv.status}</p>
+                        </div>
+                      </Link>
+                    </li>
                   ))}
                 </ul>
               )}
             </div>
             {web && (
-              <div className="card border-neya-orange/20 bg-gradient-to-br from-white to-neya-cream/40">
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="font-heading text-base sm:text-lg">neyafurniture.ca</h2>
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full ${web.configured ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
-                    {web.configured ? 'Connecté' : 'Non configuré'}
-                  </span>
-                </div>
+              <div className="dash-block">
+                <SectionHead
+                  title="Site web"
+                  href="/web"
+                  hrefLabel="Hub"
+                  aside={(
+                    <span className={`text-[11px] ${web.configured ? 'text-neya-success' : 'text-neya-warning'}`}>
+                      {web.configured ? 'Connecté' : 'Non configuré'}
+                    </span>
+                  )}
+                />
                 {web.configured ? (
-                  <div className="grid grid-cols-3 gap-2 mb-3 text-center">
-                    <div><p className="text-lg font-heading text-neya-orange">{web.linked_products}</p><p className="text-[10px] text-neya-muted">Fiches</p></div>
-                    <div><p className="text-lg font-heading">{web.web_orders_total}</p><p className="text-[10px] text-neya-muted">Commandes</p></div>
-                    <div><p className="text-lg font-heading">{web.web_projects}</p><p className="text-[10px] text-neya-muted">Projets</p></div>
+                  <div className="dash-metrics dash-metrics-compact">
+                    <Metric label="Fiches" value={web.linked_products} />
+                    <Metric label="Commandes" value={web.web_orders_total} />
+                    <Metric label="Projets" value={web.web_projects} />
                   </div>
                 ) : (
-                  <p className="text-sm text-neya-muted mb-3">Connectez WooCommerce pour sync produits et commandes.</p>
+                  <p className="dash-empty">Connectez WooCommerce pour sync produits et commandes.</p>
                 )}
-                <Link href="/web" className="btn-primary text-sm w-full text-center">Hub site web</Link>
               </div>
             )}
           </div>
         ));
+
       default:
         return null;
     }
@@ -516,43 +590,46 @@ export default function DashboardPage() {
 
   return (
     <AuthGuard>
-      <AppShell title="Dashboard" wide>
+      <AppShell title="Accueil" wide>
         {error && (
-          <div className="mb-4 text-sm text-red-700 bg-red-50 border border-red-200 px-4 py-3 rounded-xl">{error}</div>
+          <div className="mb-6 text-sm text-red-700 bg-red-50 border border-red-200 px-4 py-3">{error}</div>
         )}
 
-        <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <header className="dash-hero">
           <div>
-            <h2 className="font-heading text-xl sm:text-2xl text-neya-ink">{greeting} 👋</h2>
-            <p className="text-sm text-neya-muted capitalize mt-0.5">{todayLabel}</p>
+            <p className="dash-hero-kicker">Neya · atelier</p>
+            <h1 className="dash-hero-title">{greeting}</h1>
+            <p className="dash-hero-sub capitalize">{todayLabel}</p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {editMode && (
               <button type="button" onClick={addTodoList} className="btn-secondary text-sm">
-                + Todo
+                + Liste todo
               </button>
             )}
             <button
               type="button"
               onClick={toggleEditMode}
-              className={`text-sm px-3 py-2 rounded-xl border font-medium ${
+              className={`text-sm px-3 py-2 border font-medium transition-colors ${
                 editMode
-                  ? 'bg-neya-orange text-white border-neya-orange'
-                  : 'bg-white border-neya-border text-neya-ink'
+                  ? 'bg-neya-ink text-white border-neya-ink'
+                  : 'bg-white border-neya-border text-neya-ink hover:bg-neya-surface'
               }`}
             >
-              {editMode ? '✓ Terminer édition' : '✎ Éditer UI'}
+              {editMode ? 'Terminer' : 'Réorganiser'}
             </button>
           </div>
-        </div>
+        </header>
 
         {editMode && (
-          <div className="mb-4 text-sm bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 rounded-xl">
-            Mode édition : utilisez ↑ ↓ sur chaque section, ou dites à l&apos;IA « ajoute une todo atelier » / « monte la section stats ».
+          <div className="dash-edit-banner mb-6">
+            Mode édition — utilisez ↑ ↓ pour déplacer les blocs. L’ordre est sauvegardé pour votre compte.
           </div>
         )}
 
-        {sections.map(renderSection)}
+        <div className="dash-stack">
+          {sections.map(renderSection)}
+        </div>
       </AppShell>
     </AuthGuard>
   );

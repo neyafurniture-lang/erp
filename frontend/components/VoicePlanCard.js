@@ -29,7 +29,7 @@ export default function VoicePlanCard({
 
   return (
     <div
-      className="fixed z-[55] left-4 right-[5.5rem] bottom-[calc(8.5rem+env(safe-area-inset-bottom,0px))] lg:left-auto lg:right-28 lg:bottom-28 lg:max-w-md lg:w-[min(440px,calc(100vw-12rem))] animate-voice-card-in"
+      className="fixed z-[62] left-3 right-[4.75rem] bottom-[calc(var(--dock-clearance)+0.5rem)] lg:left-auto lg:right-28 lg:bottom-28 lg:max-w-md lg:w-[min(440px,calc(100vw-12rem))] animate-voice-card-in"
       role="status"
       aria-live="polite"
     >

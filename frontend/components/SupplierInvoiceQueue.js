@@ -162,10 +162,10 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
 
   return (
     <>
-      <div className={compact ? 'border border-neya-border bg-neya-surface/50 px-4 py-3 mb-4' : 'card mb-6'}>
+      <div className={compact ? 'border border-neya-border bg-neya-surface/40 px-3.5 py-3' : 'card mb-6'}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <h2 className={`font-heading ${compact ? 'text-sm' : 'text-lg'}`}>
+            <h2 className={`font-medium tracking-tight ${compact ? 'text-sm' : 'text-lg'}`}>
               {pending.length > 0
                 ? `${pending.length} facture${pending.length !== 1 ? 's' : ''} à classer`
                 : 'Factures fournisseurs'}

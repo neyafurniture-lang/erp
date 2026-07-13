@@ -20,6 +20,8 @@ export const ACTION_TYPES = [
   'update_standard', 'sync_wordpress', 'sync_web_orders', 'list_web_orders', 'sync_web_photos',
   'ui_edit_mode', 'ui_add_todo_list', 'ui_move_section', 'ui_hide_section', 'ui_show_section', 'ui_reset_layout',
   'erp_manual',
+  'demande_modification_erp',
+  'atelier_habits',
 ];
 
 /** Extrait un éventuel objet params JSON préfixé au message (mode LLM). */
@@ -1297,8 +1299,27 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
     }
 
     case 'create_invoice': {
-      const clientId = pageContext?.type === 'client' ? pageContext.id : null;
-      if (!clientId) return { reply: 'Ouvrez la fiche client pour créer une facture.', actions };
+      let clientId = pageContext?.type === 'client' ? pageContext.id : (params.client_id || null);
+      if (!clientId && pageContext?.type === 'project' && pageContext.project?.client_id) {
+        clientId = pageContext.project.client_id;
+      }
+      if (!clientId) {
+        const nameGuess = extractQuotedText(message)
+          || extractAfterKeyword(message, ['facture pour', 'facture client', 'client']);
+        if (nameGuess && nameGuess.length >= 2) {
+          const { rows } = await pool.query(
+            `SELECT id, name FROM clients WHERE LOWER(name) LIKE $1 ORDER BY LENGTH(name) ASC LIMIT 1`,
+            [`%${nameGuess.toLowerCase()}%`]
+          );
+          if (rows[0]) clientId = rows[0].id;
+        }
+      }
+      if (!clientId) {
+        return {
+          reply: 'Pour créer une facture métier : précisez le client (« nouvelle facture pour Dupont ») ou ouvrez sa fiche. Si vous vouliez une feature UI (éditeur, clic…), redites-le — je lance Cursor.',
+          actions: [],
+        };
+      }
       const title = extractQuotedText(message) || extractAfterKeyword(message, ['facture', 'invoice']) || 'Facture';
       const amount = extractAmount(message) || 0;
       const inv = await createInvoiceRecord({
@@ -1308,7 +1329,8 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
         lines: [{ description: title, qty: 1, price: amount }],
       });
       actions.push({ type: 'create_invoice', data: inv });
-      return { reply: `Facture #${inv.invoice_number} créée`, actions };
+      actions.push({ type: 'navigate', data: { href: `/invoices/${inv.id}` } });
+      return { reply: `Facture #${inv.invoice_number} créée — ouvrez-la pour l’éditeur visuel.`, actions };
     }
 
     case 'convert_quote': {
@@ -1558,6 +1580,170 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
       const { reply, href, section } = buildManualReply(message);
       actions.push({ type: 'navigate', data: { href, section } });
       return { reply: reply.replace(/\*\*/g, ''), actions };
+    }
+
+    case 'atelier_habits': {
+      try {
+        const { readHabitsFile, appendHabit } = await import('./atelier-habits.js');
+        const rule = String(
+          params.rule || params.habit || extractQuotedText(msg) || extractAfterKeyword(msg, [
+            'ajoute une habitude', 'ajouter une habitude', 'nouvelle habitude',
+            'habitude :', 'habitude:', 'retiens comme habitude',
+          ]) || ''
+        ).trim().replace(/^[-•*]\s*/, '');
+
+        const section = String(params.section || 'Général').trim() || 'Général';
+        const wantsList = /liste|voir|montre|quelles?\s+habitudes|lire\s+habitudes/i.test(msg) && !rule;
+
+        if (rule && !wantsList) {
+          const result = appendHabit({ section, rule });
+          actions.push({ type: 'atelier_habits', data: { appended: !result.already, rule, section } });
+          actions.push({ type: 'navigate', data: { href: '/settings?tab=habits' } });
+          return {
+            reply: result.already
+              ? `Cette habitude existe déjà dans ATELIER_HABITS.md.`
+              : `Habitude ajoutée (${section}) : « ${rule} ». Lia et Cursor s'y conformeront.`,
+            actions,
+          };
+        }
+
+        const data = readHabitsFile();
+        const preview = String(data.content || '').trim().slice(0, 2500);
+        actions.push({ type: 'atelier_habits', data: { path: data.path } });
+        actions.push({ type: 'navigate', data: { href: '/settings?tab=habits' } });
+        return {
+          reply: `Bonnes habitudes atelier (${data.path}) :\n\n${preview}${preview.length >= 2500 ? '\n…' : ''}\n\nPour en ajouter : « ajoute une habitude : … »`,
+          actions,
+        };
+      } catch (e) {
+        return { reply: `Habitudes atelier : ${e.message}`, actions: [] };
+      }
+    }
+
+    case 'demande_modification_erp': {
+      try {
+        const { startAgentRun, getCursorConfig } = await import('./cursor-agent.js');
+        const cfg = await getCursorConfig();
+        if (!cfg.configured) {
+          return {
+            reply: 'Clé Cursor API manquante. Allez dans Paramètres → Agent Cursor pour la configurer, puis redemandez.',
+            actions: [{ type: 'navigate', data: { href: '/settings?tab=cursor' } }],
+          };
+        }
+        if (cfg.runtime !== 'cloud' && cfg.host && !cfg.host.available) {
+          return {
+            reply: `Runner Cursor hôte hors ligne : ${cfg.host.error || 'service arrêté'}. Vérifiez neya-cursor-agent sur le VPS.`,
+            actions: [],
+          };
+        }
+
+        const feature = String(params.feature || params.template || '').toLowerCase();
+        const rawPrompt = String(
+          params.prompt
+          || params.request
+          || params.description
+          || extractQuotedText(msg)
+          || extractAfterKeyword(msg, [
+            'modifie l\'erp', 'modifier l\'erp', 'modification erp', 'change le code',
+            'demande modification', 'fais évoluer', 'améliore l\'erp', 'améliore l\'interface',
+            'change l\'interface', 'modifie l\'interface', 'modifie la boîte', 'modifie la boite',
+            'ajoute dans le mail', 'ajoute au mail', 'crée une passerelle', 'lance cursor',
+            'demande à cursor', 'fais modifier', 'éditeur visuel', 'visualiser les factures',
+            'en cliquant', 'modifier directement',
+          ])
+          || msg
+        ).trim();
+
+        const TEMPLATES = {
+          mail_planning: `Dans le repo NEYA ERP (frontend Next.js + backend Express), enrichis le module Courriel (/mail) pour l'atelier :
+
+1. Planification des départs : UI pour planifier / voir les départs liés aux projets/livraisons depuis la boîte mail (dates, projet, statut).
+2. Pré-réponses en proposition : pour les mails à répondre, proposer 1–3 brouillons de réponse (IA) que l'utilisateur peut éditer puis envoyer via Gmail existant.
+3. Intégration cohérente avec l'UI mail actuelle (sobre, pas de cards "AI bubble"), réutiliser google-gmail.js et les routes /api/gmail/*.
+4. Commence par un plan court puis implémente les fichiers concrets (backend + frontend).`,
+          mail_prereply: `Dans NEYA ERP, ajoute des propositions de pré-réponse IA dans /mail : analyse du fil, 2–3 brouillons éditables, envoi via Gmail API existante. Style UI sobre. Plan court puis code.`,
+          invoice_visual: `Dans NEYA ERP (Next.js frontend), sur /invoices et /invoices/[id] :
+
+1. Au clic sur une facture dans la liste → ouvrir la fiche.
+2. Afficher la facture comme un document/aperçu éditable (éditeur visuel) : titre, client, notes, lignes (description, qté, prix), totaux.
+3. Cliquer un champ ou une ligne = éditer directement ; enregistrer via PUT /api/invoices/:id (lines, title, notes, etc.).
+4. Style sobre cohérent avec l'ERP (pas de gros cards orange arrondis). Réutilise EasyTable si utile.
+5. Plan court puis implémentation concrète.`,
+          ui_change: `Dans NEYA ERP, applique cette modification d'interface (Next.js frontend, style existant sobre — pas de pills orange "AI") :\n\n${rawPrompt}\n\nTouche uniquement les fichiers nécessaires. Plan court puis implémentation.`,
+          passerelle_cursor: `Dans NEYA ERP, vérifie / améliore la passerelle Cursor hôte VPS (deploy/cursor-host-runner + skill assistant demande_modification_erp + Paramètres Agent Cursor). Corrige les bugs éventuels et documente brièvement.`,
+        };
+
+        let agentPrompt;
+        if (feature && TEMPLATES[feature]) {
+          agentPrompt = TEMPLATES[feature];
+          if (feature === 'ui_change' && rawPrompt.length > 15) {
+            agentPrompt = TEMPLATES.ui_change;
+          }
+        } else if (/[eé]diteur\s*visuel|visualiser\s*(les\s*)?facture|facture.*cliqu|cliquer.*facture|modifier\s*directement.*facture|aper[cç]u\s*facture/i.test(rawPrompt + ' ' + msg)) {
+          agentPrompt = TEMPLATES.invoice_visual + `\n\nPrécisions utilisateur :\n${rawPrompt}`;
+        } else if (/planif.*d[eé]part|d[eé]part.*mail|pr[eé]-?r[eé]ponse|pr[eé]r[eé]ponse|bo[iî]te\s*mail.*(planif|d[eé]part|r[eé]ponse)/i.test(rawPrompt + ' ' + msg)) {
+          agentPrompt = TEMPLATES.mail_planning;
+          if (rawPrompt.length > 40 && !/planif|d[eé]part|pr[eé]/i.test(rawPrompt)) {
+            agentPrompt += `\n\nPrécisions utilisateur :\n${rawPrompt}`;
+          } else if (rawPrompt.length > 80) {
+            agentPrompt += `\n\nPrécisions utilisateur :\n${rawPrompt}`;
+          }
+        } else if (/passerelle\s*cursor|agent\s*cursor|host\s*runner/i.test(rawPrompt + ' ' + msg)) {
+          agentPrompt = TEMPLATES.passerelle_cursor + `\n\nDemande :\n${rawPrompt}`;
+        } else if (/interface|ui|écran|page|bouton|layout|dashboard|halo|orbe/i.test(rawPrompt + ' ' + msg)) {
+          agentPrompt = TEMPLATES.ui_change;
+        } else {
+          if (rawPrompt.length < 12) {
+            return {
+              reply: 'Décrivez la modification ERP (interface, mail, module…). Ex. « ajoute la planification des départs dans la boîte mail ».',
+              actions: [],
+            };
+          }
+          agentPrompt = `Dans le repo NEYA ERP (Express backend + Next.js frontend, prod sur VPS /opt/neya-erp), applique cette demande utilisateur de façon autonome.\nStyle UI : sobre, cohérent avec l'existant (éviter look "AI bubble").\nFais un plan court puis les modifications concrètes.\n\nDemande :\n${rawPrompt}`;
+        }
+
+        const pointed = pageContext?.meta?.element;
+        if (pointed) {
+          agentPrompt = `Cible UI pointée par l'utilisateur dans l'ERP (page ${pointed.pathname || pageContext.pathname || '?'}) :
+- sélecteur: ${pointed.selector}
+- tag: ${pointed.tag}${pointed.id ? ` #${pointed.id}` : ''}
+- texte visible: « ${(pointed.text || pointed.label || '').slice(0, 120)} »
+- classes: ${(pointed.classes || []).join(' ') || '—'}
+- heading section: ${pointed.heading || '—'}
+JSON: ${JSON.stringify(pointed)}
+
+Modifie précisément cet élément / cette zone (ou le composant Next.js qui le rend). ${agentPrompt}`;
+        }
+
+        try {
+          const { getHabitsPromptBlock } = await import('./atelier-habits.js');
+          const habits = getHabitsPromptBlock();
+          if (habits) {
+            agentPrompt = `${habits}\n\n---\n\n${agentPrompt}`;
+          }
+        } catch {
+          /* optional */
+        }
+
+        const run = await startAgentRun({
+          prompt: agentPrompt,
+          label: (params.label || rawPrompt || feature || 'modif ERP').slice(0, 80),
+          source: 'assistant_skill',
+        });
+
+        actions.push({
+          type: 'demande_modification_erp',
+          data: { run_id: run.id, status: run.status, label: run.label },
+        });
+        actions.push({ type: 'navigate', data: { href: '/settings?tab=cursor' } });
+
+        return {
+          reply: `Modification ERP lancée via Cursor sur le VPS (run #${run.id}). Backup Git créé automatiquement. Suivi dans Paramètres → Agent Cursor — je m'en occupe, tu peux continuer.`,
+          actions,
+        };
+      } catch (e) {
+        return { reply: `Impossible de lancer Cursor : ${e.message}`, actions: [] };
+      }
     }
 
     default:

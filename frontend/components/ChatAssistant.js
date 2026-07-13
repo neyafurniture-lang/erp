@@ -3,11 +3,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, resolveUploadUrl } from '../lib/api';
-import { getChatPageContext, useChatPageContext } from '../lib/chat-context';
+import { getChatPageContext, useChatPageContext, buildAssistantContext } from '../lib/chat-context';
 import { useSpeechRecognition } from '../lib/useSpeechRecognition';
 import ChatSkillsPanel from './ChatSkillsPanel';
 import VoiceOrb, { TextComposer } from './VoiceOrb';
 import VoicePlanCard from './VoicePlanCard';
+import ElementPicker from './ElementPicker';
 
 const ACCEPT = 'image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip';
 const MAX_FILES = 8;
@@ -81,7 +82,7 @@ function VoiceResponseCard({ userText, reply, loading, contextLabel, onOpenChat,
 
   return (
     <div
-      className="fixed z-[55] right-4 bottom-[calc(8.75rem+env(safe-area-inset-bottom,0px))] lg:right-8 lg:bottom-28 animate-voice-card-in"
+      className="fixed z-[55] right-3 left-3 bottom-[calc(var(--dock-clearance)+4.25rem)] lg:left-auto lg:right-8 lg:bottom-28 lg:w-[min(360px,calc(100vw-12rem))] animate-voice-card-in"
       role="status"
       aria-live="polite"
     >
@@ -160,12 +161,19 @@ export default function ChatAssistant() {
   const [launcherMenuOpen, setLauncherMenuOpen] = useState(false);
   const [textComposerOpen, setTextComposerOpen] = useState(false);
   const [composerText, setComposerText] = useState('');
+  const [pickMode, setPickMode] = useState(false);
+  const [pickedElement, setPickedElement] = useState(null);
+  const pickedElementRef = useRef(null);
   const bottomRef = useRef(null);
   const fileInputRef = useRef(null);
   const dismissTimerRef = useRef(null);
   const sendingRef = useRef(false);
 
-  const contextLabel = pageContext?.label || null;
+  const contextLabel = pickedElement?.label || pageContext?.label || null;
+
+  useEffect(() => {
+    pickedElementRef.current = pickedElement;
+  }, [pickedElement]);
 
   useEffect(() => {
     api('/assistant/history')
@@ -236,7 +244,7 @@ export default function ChatAssistant() {
       const form = new FormData();
       form.append('message', userMsg);
       sentFiles.forEach(f => form.append('files', f));
-      const ctx = getChatPageContext();
+      const ctx = buildAssistantContext(pickedElementRef.current);
       if (ctx) form.append('context', JSON.stringify(ctx));
 
       const result = await api('/assistant/chat', { method: 'POST', body: form });
@@ -253,6 +261,7 @@ export default function ChatAssistant() {
       // Réponse : popup une fois terminé
       setVoiceCard({ userText: userMsg, reply: result.reply, visible: true });
       scheduleDismiss();
+      // Garder l'élément pointé jusqu'à clear manuel (plusieurs messages sur la même cible)
 
       if (result.actions?.length > 0) {
         const nav = result.actions.find(a => a.type === 'navigate');
@@ -311,7 +320,7 @@ export default function ChatAssistant() {
     setVoicePhase(null);
     setLoading(true);
     try {
-      const ctx = getChatPageContext();
+      const ctx = buildAssistantContext(pickedElementRef.current);
       const plan = await api('/assistant/plan', {
         method: 'POST',
         body: JSON.stringify({ transcript: text, context: ctx }),
@@ -430,6 +439,25 @@ export default function ChatAssistant() {
     setTimeout(() => fileInputRef.current?.click(), 150);
   }
 
+  function handleSelectPickElement() {
+    setLauncherMenuOpen(false);
+    setTextComposerOpen(false);
+    setPickMode(true);
+  }
+
+  function handleElementPicked(el) {
+    setPickedElement(el);
+    pickedElementRef.current = el;
+    setPickMode(false);
+    setTextComposerOpen(true);
+    setComposerText((prev) => prev || '');
+  }
+
+  function clearPickedElement() {
+    setPickedElement(null);
+    pickedElementRef.current = null;
+  }
+
   async function sendComposerText() {
     const text = composerText.trim();
     if ((!text && files.length === 0) || loading) return;
@@ -481,9 +509,9 @@ export default function ChatAssistant() {
           ? ['Créer projet depuis cette fiche', 'Liste skills']
           : ['Demain finition banc olive, mail The NNS', 'Tâches du jour', 'Tâches demain', 'Liste projets'];
 
-  const contextBadge = pageContext ? (
+  const contextBadge = (pickedElement || pageContext) ? (
     <span className="text-[10px] px-1.5 py-0.5 border border-neya-border bg-neya-surface text-neya-muted truncate max-w-[200px]">
-      {pageContext.label}
+      {pickedElement ? `◎ ${pickedElement.label}` : pageContext.label}
     </span>
   ) : null;
 
@@ -493,7 +521,7 @@ export default function ChatAssistant() {
     if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files);
   }
 
-  const chatPosition = 'fixed left-0 right-0 lg:left-[var(--sidebar-w)] z-50 bottom-0';
+  const chatPosition = 'fixed left-0 right-0 lg:left-[var(--sidebar-w)] z-[65] bottom-0';
 
   const chatOpen = expanded || mobileSheetOpen;
   const overlayOpen = chatOpen || textComposerOpen;
@@ -658,9 +686,39 @@ export default function ChatAssistant() {
         onSelectVoice={handleSelectVoice}
         onSelectText={handleSelectText}
         onSelectAttach={handleSelectAttach}
+        onSelectPickElement={handleSelectPickElement}
         onCloseMenu={() => setLauncherMenuOpen(false)}
         disabled={false}
       />
+
+      <ElementPicker
+        active={pickMode}
+        onPick={handleElementPicked}
+        onCancel={() => setPickMode(false)}
+      />
+
+      {pickedElement && !pickMode && (
+        <div
+          data-neya-picker-ignore
+          className="fixed z-[61] left-3 right-3 bottom-[calc(var(--dock-clearance)+4.5rem)] lg:left-auto lg:right-28 lg:bottom-28 lg:w-[min(360px,calc(100vw-12rem))] pointer-events-auto"
+        >
+          <div className="flex items-start gap-2 px-3 py-2 bg-white border border-neya-border shadow-sm text-xs">
+            <span className="shrink-0 text-neya-muted font-medium pt-0.5">Cible</span>
+            <span className="min-w-0 flex-1">
+              <span className="block font-medium text-neya-ink truncate">{pickedElement.label}</span>
+              <span className="block text-neya-muted font-mono truncate">{pickedElement.selector}</span>
+            </span>
+            <button
+              type="button"
+              onClick={clearPickedElement}
+              className="shrink-0 text-neya-muted hover:text-neya-ink px-1"
+              aria-label="Retirer la cible"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
 
       {textComposerOpen && !chatOpen && (
         <>
@@ -676,7 +734,16 @@ export default function ChatAssistant() {
             onSend={sendComposerText}
             onClose={() => setTextComposerOpen(false)}
             loading={loading}
-            suggestions={suggestions}
+            suggestions={
+              pickedElement
+                ? [
+                    'Modifie cet élément',
+                    'Rends-le plus visible',
+                    'Explique ce que c’est',
+                    ...suggestions.slice(0, 2),
+                  ]
+                : suggestions
+            }
             contextLabel={contextLabel}
             files={files}
             onAddFiles={addFiles}
@@ -740,7 +807,7 @@ export default function ChatAssistant() {
           <button
             type="button"
             aria-label="Fermer l'assistant"
-            className="lg:hidden fixed inset-0 z-[49] bg-black/30 backdrop-blur-[2px]"
+            className="lg:hidden fixed inset-0 z-[64] bg-black/30 backdrop-blur-[2px]"
             onClick={() => setMobileSheetOpen(false)}
           />
           {chatPanel(() => setMobileSheetOpen(false), true)}

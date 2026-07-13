@@ -30,13 +30,15 @@ export const ERP_MANUAL_SECTIONS = [
       { href: '/manual#assistant', label: 'Cette section' },
       { href: '/settings?tab=assistant', label: 'Clés IA (Claude/OpenAI)' },
       { href: '/settings?tab=skills', label: 'Gérer les skills' },
+      { href: '/settings?tab=cursor', label: 'Agent Cursor (VPS)' },
     ],
     tips: [
       'Parler : enregistrez → révisez le texte → « Construire le plan » → confirmez.',
       'Exemples : « Demain finition banc olive Mehdi, mail client », « Cocher débitage », « Dépense 120$ matériaux ».',
-      'Joindre 📎 : photos, PDF, plans, reçus — l’IA peut lire l’image (scan ticket, facture).',
-      'Sur une fiche projet/client, l’assistant connaît le contexte automatiquement.',
+      'Joindre 📎 : photos, PDF, plans, reçus — l\'IA peut lire l\'image (scan ticket, facture).',
+      'Sur une fiche projet/client, l\'assistant connaît le contexte automatiquement.',
       'Dites « manuel », « aide ERP » ou « comment faire » pour ouvrir ce guide.',
+      'Modifs code / interface : « ajoute la planification des départs dans la boîte mail » → Lia lance Cursor sur le VPS (backup Git auto).',
     ],
   },
   {

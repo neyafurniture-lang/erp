@@ -123,12 +123,20 @@ async function buildSystemPrompt(pageContext) {
   const { formatMemoriesForPrompt } = await import('./assistant-memory.js');
   const { ACTION_TYPES } = await import('./skill-actions.js');
   const { getManualPromptBlock } = await import('../content/erp-manual.js');
+  const { getHabitsPromptBlock } = await import('./atelier-habits.js');
 
   const { rows: skills } = await pool.query(
     'SELECT name, description, action_type FROM assistant_skills WHERE enabled = true'
   );
   const ctxNote = pageContext
-    ? `\nContexte page : ${JSON.stringify({ type: pageContext.type, id: pageContext.id, label: pageContext.label, isCustom: pageContext.isCustom })}.`
+    ? `\nContexte page : ${JSON.stringify({
+      type: pageContext.type,
+      id: pageContext.id,
+      label: pageContext.label,
+      isCustom: pageContext.isCustom,
+      pathname: pageContext.pathname || pageContext.meta?.element?.pathname || null,
+      element: pageContext.meta?.element || null,
+    })}.`
     : '';
   const memoryBlock = await formatMemoriesForPrompt({
     projectId: pageContext?.type === 'project' ? pageContext.id : pageContext?.project_id || null,
@@ -136,6 +144,7 @@ async function buildSystemPrompt(pageContext) {
     quoteId: pageContext?.type === 'quote' ? pageContext.id : null,
   });
   const manualBlock = `\n${getManualPromptBlock()}`;
+  const habitsBlock = `\n${getHabitsPromptBlock()}`;
   const erpBlock = await buildErpContextSnapshot(pageContext);
   let driveBlock = '';
   try {
@@ -204,6 +213,26 @@ AUTONOMIE — tu DOIS agir seule sans demander de cliquer dans l'ERP :
    - update_quote {"status":"sent"|"draft"|"accepted"}
    - send_quote {} pour envoyer le devis ouvert
    - Utilise la mémoire devis/client. « Retiens que… » sauvegarde une préférence.
+12. MODIFICATIONS CODE / INTERFACE / NOUVELLES FONCTIONS — utilise demande_modification_erp (Cursor sur le VPS).
+   INTERDIT : répondre « ouvrez la fiche client » ou lancer create_invoice quand l'utilisateur demande une feature UI.
+   Tu DOIS lancer Cursor seule (sans dire « allez dans Paramètres ») quand l'utilisateur veut :
+   - changer l'interface, un écran, un bouton, le layout, le dashboard
+   - un éditeur visuel, cliquer pour voir/modifier une facture ou un devis, preview document
+   - une vraie feature (ex. planification des départs dans le mail, pré-réponses proposées)
+   - une passerelle / intégration / refactor ERP
+   - « j'aimerais qu'on puisse… », « il faudrait pouvoir… », « rends possible… »
+   create_invoice = créer une facture métier (données). PAS pour coder un éditeur.
+   Params :
+   - {"prompt":"description détaillée de la modif"}
+   - {"feature":"mail_planning"} pour boîte mail + départs + pré-réponses
+   - {"feature":"mail_prereply"} pour pré-réponses seules
+   - {"feature":"ui_change","prompt":"…"} pour UI
+   Si le contexte contient element (élément pointé sur la page), la cible est déjà connue : lance demande_modification_erp avec le prompt utilisateur, sans redemander « quel élément ».
+   Ne dis PAS que tu ne peux pas coder : lance l'action. Backup Git auto sur le VPS.
+13. ÉLÉMENT POINTÉ — si context.element est présent, tu parles DE CET ÉLÉMENT (selector, texte, page). Réponds en le nommant. Pour une modif visuelle/fonctionnelle → demande_modification_erp.
+14. HABITUDES ATELIER — respect strict du bloc BONNES HABITUDES (fichier ATELIER_HABITS.md). Ex. jamais de prix à l'heure dans un devis.
+   - Lister : atelier_habits {}
+   - Ajouter : atelier_habits {"rule":"On signe les mails L’équipe Neya","section":"Courriels & ton"}
 
 Exemples params :
 - {"type":"complete_task","params":{"project_name":"Banc Olive","task_title":"finition"}}
@@ -217,11 +246,14 @@ Exemples params :
 - {"type":"update_quote","params":{"add_line":"Caissons chêne","qty":1,"price":2400}}
 - {"type":"update_quote","params":{"line_match":"table","price":1800}}
 - {"type":"get_quote","params":{}}
+- {"type":"demande_modification_erp","params":{"feature":"mail_planning"}}
+- {"type":"demande_modification_erp","params":{"prompt":"Ajoute un bouton Scanner Gmail plus visible sur le dashboard"}}
+- {"type":"atelier_habits","params":{"rule":"On n'écrit jamais de prix à l'heure dans les devis","section":"Devis & prix"}}
 
 Mémoire conversation : utilise l'historique (« oui », « celui-là », « ce projet »). Ne redemande pas ce qui est déjà dit.
 Ne dis JAMAIS « ouvrez le projet » si tu peux le trouver par nom. Exécute l'action.
 Si l'utilisateur mentionne un fichier sans pièce jointe, demande le bouton 📎.
-Pour « comment faire », renvoie vers /manual.${memoryBlock}${manualBlock}${erpBlock}${driveBlock}${mailBlock}${ctxNote}`;
+Pour « comment faire », renvoie vers /manual.${memoryBlock}${manualBlock}${habitsBlock}${erpBlock}${driveBlock}${mailBlock}${ctxNote}`;
 }
 
 async function callOpenAI({ systemPrompt, history, message }) {

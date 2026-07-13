@@ -81,13 +81,10 @@ export function AdminTasksSummary({ tasks = [], openCount = 0, onChange }) {
   function handleUpdate() { onChange?.(); }
 
   return (
-    <div className="card h-full">
-      <div className="flex items-center justify-between gap-2 mb-3">
-        <h2 className="font-heading text-base sm:text-lg">Gestion admin</h2>
-        {openCount > 0 && (
-          <span className="text-xs font-semibold bg-neya-orange text-white px-2.5 py-0.5 rounded-full">{openCount}</span>
-        )}
-      </div>
+    <div>
+      {openCount > 0 && (
+        <p className="text-xs text-neya-muted mb-2">{openCount} ouverte(s)</p>
+      )}
       {tasks.length === 0 ? (
         <p className="text-sm text-neya-muted py-2">Aucune tâche admin en cours</p>
       ) : (
@@ -97,7 +94,7 @@ export function AdminTasksSummary({ tasks = [], openCount = 0, onChange }) {
           ))}
         </ul>
       )}
-      <Link href="/admin" className="btn-secondary text-xs w-full mt-3 text-center block">
+      <Link href="/admin" className="dash-link inline-block mt-2">
         Voir tout le suivi admin →
       </Link>
     </div>

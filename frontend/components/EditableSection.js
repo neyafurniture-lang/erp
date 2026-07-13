@@ -3,7 +3,8 @@
 import { useRef } from 'react';
 
 /**
- * Section dashboard déplaçable en mode édition (boutons ↑↓ + long-press mobile).
+ * Section dashboard déplaçable en mode édition.
+ * Chrome sobre (barre latérale) — pas d’anneaux orange arrondis.
  */
 export default function EditableSection({
   section,
@@ -15,7 +16,6 @@ export default function EditableSection({
   className = '',
 }) {
   const timerRef = useRef(null);
-  const longPressed = useRef(false);
 
   if (!editMode) {
     return <div className={className}>{children}</div>;
@@ -29,34 +29,26 @@ export default function EditableSection({
   }
 
   function onPointerDown() {
-    longPressed.current = false;
     timerRef.current = setTimeout(() => {
-      longPressed.current = true;
-      if (navigator.vibrate) navigator.vibrate(30);
+      if (navigator.vibrate) navigator.vibrate(20);
     }, 450);
-  }
-
-  function onPointerUp() {
-    clearTimer();
   }
 
   return (
     <div
-      className={`relative rounded-2xl transition-shadow ${editMode ? 'ring-2 ring-neya-orange/40 ring-offset-2' : ''} ${className}`}
+      className={`dash-edit-section relative ${className}`}
       onPointerDown={onPointerDown}
-      onPointerUp={onPointerUp}
+      onPointerUp={clearTimer}
       onPointerCancel={clearTimer}
       onPointerLeave={clearTimer}
     >
-      <div className="absolute -top-2 left-2 right-2 z-10 flex items-center justify-between gap-2 pointer-events-none">
-        <span className="text-[10px] font-semibold uppercase tracking-wide bg-neya-orange text-white px-2 py-0.5 rounded-full shadow">
-          {section.label || section.title || section.id}
-        </span>
-        <div className="flex gap-1 pointer-events-auto">
+      <div className="dash-edit-toolbar">
+        <span className="dash-edit-label">{section.label || section.title || section.id}</span>
+        <div className="flex items-center gap-0.5">
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onMoveUp?.(section.id); }}
-            className="w-9 h-9 rounded-lg bg-white border border-neya-border shadow text-sm font-bold active:bg-neya-cream"
+            className="dash-edit-btn"
             title="Monter"
           >
             ↑
@@ -64,7 +56,7 @@ export default function EditableSection({
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onMoveDown?.(section.id); }}
-            className="w-9 h-9 rounded-lg bg-white border border-neya-border shadow text-sm font-bold active:bg-neya-cream"
+            className="dash-edit-btn"
             title="Descendre"
           >
             ↓
@@ -73,7 +65,7 @@ export default function EditableSection({
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onHide?.(section.id); }}
-              className="w-9 h-9 rounded-lg bg-white border border-red-200 text-red-600 shadow text-xs"
+              className="dash-edit-btn dash-edit-btn-danger"
               title="Retirer"
             >
               ✕
@@ -81,10 +73,7 @@ export default function EditableSection({
           )}
         </div>
       </div>
-      <div className={editMode ? 'pt-5' : ''}>{children}</div>
-      {longPressed.current && (
-        <p className="text-[10px] text-center text-neya-orange mt-1">Utilisez ↑ ↓ pour déplacer</p>
-      )}
+      {children}
     </div>
   );
 }

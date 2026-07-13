@@ -1,21 +1,25 @@
 import { getSetting, setSetting } from './settings.js';
 
+/** Ordre atelier : urgent / aujourd’hui / argent / projets d’abord */
 export const DASHBOARD_SECTION_CATALOG = [
   { id: 'alerts', label: 'Alertes', type: 'builtin' },
-  { id: 'supplier_invoices', label: 'Factures fournisseurs', type: 'builtin' },
-  { id: 'projects_cards', label: 'Projets en cours (cartes)', type: 'builtin' },
-  { id: 'quick_actions', label: 'Actions rapides', type: 'builtin' },
-  { id: 'stats', label: 'Statistiques', type: 'builtin' },
   { id: 'today_week', label: 'Aujourd\'hui & semaine', type: 'builtin' },
-  { id: 'admin_tasks', label: 'Tâches admin', type: 'builtin' },
-  { id: 'todo:main', label: 'Ma todo', type: 'todo', list_key: 'main', title: 'Ma todo' },
+  { id: 'stats', label: 'Vue d\'ensemble', type: 'builtin' },
+  { id: 'projects_cards', label: 'Projets en cours', type: 'builtin' },
   { id: 'finances', label: 'Finances', type: 'builtin' },
-  { id: 'projects_deadlines', label: 'Projets & deadlines', type: 'builtin' },
+  { id: 'admin_tasks', label: 'Tâches admin', type: 'builtin' },
+  { id: 'supplier_invoices', label: 'Factures fournisseurs', type: 'builtin' },
+  { id: 'todo:main', label: 'Ma todo', type: 'todo', list_key: 'main', title: 'Ma todo' },
+  { id: 'quick_actions', label: 'Raccourcis', type: 'builtin' },
+  { id: 'projects_deadlines', label: 'Deadlines', type: 'builtin' },
   { id: 'invoices_web', label: 'Factures & site web', type: 'builtin' },
 ];
 
+export const DASHBOARD_LAYOUT_VERSION = 2;
+
 export function defaultDashboardLayout() {
   return {
+    version: DASHBOARD_LAYOUT_VERSION,
     edit_mode: false,
     sections: DASHBOARD_SECTION_CATALOG.map((s, i) => ({
       ...s,
@@ -30,7 +34,24 @@ export async function getDashboardLayout() {
   if (!stored || typeof stored !== 'object' || !Array.isArray(stored.sections)) {
     return defaultDashboardLayout();
   }
-  // Fusionner avec le catalogue (nouvelles sections natives)
+
+  // Ancienne mise en page (v1) → appliquer le nouvel ordre prioritaire
+  if ((stored.version || 1) < DASHBOARD_LAYOUT_VERSION) {
+    const customTodos = (stored.sections || []).filter(s => s.type === 'todo' && s.id !== 'todo:main');
+    const next = defaultDashboardLayout();
+    next.edit_mode = Boolean(stored.edit_mode);
+    next.sections = [
+      ...next.sections,
+      ...customTodos.map((s, i) => ({
+        ...s,
+        visible: s.visible !== false,
+        sort_order: next.sections.length + i,
+      })),
+    ];
+    await saveDashboardLayout(next);
+    return next;
+  }
+
   const byId = new Map(stored.sections.map(s => [s.id, s]));
   const merged = [];
   for (const cat of DASHBOARD_SECTION_CATALOG) {
@@ -42,12 +63,12 @@ export async function getDashboardLayout() {
       merged.push({ ...cat, visible: true, sort_order: merged.length });
     }
   }
-  // Garder les todos custom ajoutées
   for (const [, s] of byId) {
     if (s.type === 'todo') merged.push(s);
   }
   merged.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
   return {
+    version: DASHBOARD_LAYOUT_VERSION,
     edit_mode: Boolean(stored.edit_mode),
     sections: merged.map((s, i) => ({ ...s, sort_order: i })),
   };
@@ -64,6 +85,7 @@ export async function saveDashboardLayout(layout) {
     sort_order: i,
   }));
   const payload = {
+    version: DASHBOARD_LAYOUT_VERSION,
     edit_mode: Boolean(layout.edit_mode),
     sections,
   };

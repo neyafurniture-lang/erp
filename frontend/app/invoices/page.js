@@ -231,7 +231,14 @@ export default function InvoicesPage() {
                 const paid = Number(item.amount_paid) || 0;
                 const balance = Math.max(0, Math.round(((Number(item.total) || 0) - paid) * 100) / 100);
                 return (
-                  <tr key={item.id} className="border-b border-neya-border hover:bg-neya-cream/30">
+                  <tr
+                    key={item.id}
+                    className="border-b border-neya-border hover:bg-neya-surface cursor-pointer"
+                    onClick={(e) => {
+                      if (e.target.closest('button, select, a')) return;
+                      window.location.href = detailHref;
+                    }}
+                  >
                     <td className="py-3 pr-4 font-medium">
                       <Link href={detailHref} className="text-neya-orange hover:underline">{num}</Link>
                     </td>

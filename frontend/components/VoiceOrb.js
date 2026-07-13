@@ -45,6 +45,15 @@ function ClipIcon({ className }) {
   );
 }
 
+function CrosshairIcon({ className }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2" />
+      <path d="M12 2v4M12 18v4M2 12h4M18 12h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function TextComposer({
   value,
   onChange,
@@ -76,7 +85,7 @@ export function TextComposer({
   }
 
   return (
-    <div className="voice-composer fixed z-[58] left-4 right-4 bottom-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:left-auto lg:right-28 lg:bottom-28 lg:w-[min(420px,calc(100vw-12rem))] animate-voice-card-in">
+    <div className="voice-composer fixed z-[58] left-3 right-3 bottom-[calc(var(--dock-clearance)+4.5rem)] lg:left-auto lg:right-28 lg:bottom-28 lg:w-[min(420px,calc(100vw-12rem))] animate-voice-card-in">
       <div className="voice-response-card rounded p-4 border border-neya-border shadow-sm">
         <div className="flex items-start justify-between gap-2 mb-3">
           <div className="flex items-center gap-2 min-w-0">
@@ -102,7 +111,7 @@ export function TextComposer({
           value={value}
           onChange={e => onChange(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="Ex. Demain finition banc olive, mail The NNS…"
+          placeholder={contextLabel ? `À propos de « ${contextLabel} »…` : 'Ex. Demain finition banc olive, mail The NNS…'}
           rows={3}
           disabled={loading}
           className="input resize-none text-sm min-h-[80px] mb-3"
@@ -182,6 +191,7 @@ export default function VoiceOrb({
   onSelectVoice,
   onSelectText,
   onSelectAttach,
+  onSelectPickElement,
   onCloseMenu,
   disabled,
 }) {
@@ -200,7 +210,7 @@ export default function VoiceOrb({
         />
       )}
 
-      <div className="voice-orb-container fixed z-[60] right-4 bottom-[calc(4.75rem+env(safe-area-inset-bottom,0px))] lg:right-8 lg:bottom-8">
+      <div className="voice-orb-container fixed z-[60] right-3 bottom-[var(--dock-clearance)] lg:right-8 lg:bottom-8" data-neya-picker-ignore>
         {menuOpen && !isListening && !isProcessing && (
           <div className="absolute bottom-[calc(100%+12px)] right-0 w-[min(240px,calc(100vw-2rem))] animate-voice-card-in">
             <div className="voice-response-card rounded p-2 border border-neya-border shadow-sm overflow-hidden">
@@ -231,6 +241,21 @@ export default function VoiceOrb({
                   <span className="block text-[11px] text-neya-muted">Saisir un message</span>
                 </span>
               </button>
+              {onSelectPickElement && (
+                <button
+                  type="button"
+                  onClick={onSelectPickElement}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-neya-surface text-left transition-colors"
+                >
+                  <span className="w-9 h-9 rounded-full border border-neya-border bg-neya-surface text-neya-ink flex items-center justify-center shrink-0">
+                    <CrosshairIcon className="w-4 h-4" />
+                  </span>
+                  <span>
+                    <span className="block text-sm font-medium text-neya-ink">Pointer</span>
+                    <span className="block text-[11px] text-neya-muted">Sélectionner un élément UI</span>
+                  </span>
+                </button>
+              )}
               {onSelectAttach && (
                 <button
                   type="button"

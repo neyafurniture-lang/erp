@@ -42,6 +42,11 @@ else
   echo "Git déjà présent"
 fi
 
+# Ownership Docker ≠ host : requis pour backups Cursor dans le container
+sudo docker compose -f docker-compose.prod.yml --env-file .env.production exec -T backend \
+  git config --global --add safe.directory /workspace 2>/dev/null || true
+
+
 mkdir -p deploy/backups/cursor
 chmod +x deploy/*.sh 2>/dev/null || true
 

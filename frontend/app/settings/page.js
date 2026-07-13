@@ -9,6 +9,7 @@ import SkillsManager, { ACTION_TYPES } from '../../components/SkillsManager';
 import UsersManager from '../../components/UsersManager';
 import CursorAgentPanel from '../../components/CursorAgentPanel';
 import DeployVpsPanel from '../../components/DeployVpsPanel';
+import AtelierHabitsPanel from '../../components/AtelierHabitsPanel';
 import { api, getApiRoot, setApiRoot, getApiUrl, logout, getSavedLogin, saveLoginCredentials } from '../../lib/api';
 import { connectGoogle, disconnectGoogle, getGoogleStatus } from '../../lib/google';
 import { useAuth } from '../../lib/auth-context';
@@ -22,6 +23,7 @@ const TABS = [
   { id: 'security', label: 'Sécurité', icon: '🔒' },
   { id: 'users', label: 'Utilisateurs', icon: '👤', adminOnly: true },
   { id: 'assistant', label: 'Assistant IA', icon: '🤖' },
+  { id: 'habits', label: 'Habitudes atelier', icon: '📋' },
   { id: 'cursor', label: 'Agent Cursor', icon: '◈', adminOnly: true },
   { id: 'deploy', label: 'Déploiement VPS', icon: '🚀', adminOnly: true },
   { id: 'skills', label: 'Skills chat', icon: '💬' },
@@ -700,6 +702,8 @@ function SettingsContent() {
           </section>
         </div>
       )}
+
+      {tab === 'habits' && <AtelierHabitsPanel />}
 
       {tab === 'cursor' && isAdmin(user) && <CursorAgentPanel />}
 

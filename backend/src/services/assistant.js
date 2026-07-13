@@ -31,6 +31,19 @@ async function matchSkill(message) {
 }
 
 async function enrichPageContext(ctx) {
+  if (!ctx) return null;
+
+  // Élément UI pointé (avec ou sans entité page)
+  const pointed = ctx.meta?.element || ctx.element || null;
+  if ((!ctx.type || !ctx.id) && pointed) {
+    return {
+      type: 'ui',
+      label: pointed.label || pointed.text?.slice(0, 40) || 'Élément UI',
+      pathname: ctx.pathname || pointed.pathname || '',
+      meta: { ...(ctx.meta || {}), element: pointed },
+    };
+  }
+
   if (!ctx?.type || !ctx?.id) return null;
 
   if (ctx.type === 'project') {
@@ -40,7 +53,7 @@ async function enrichPageContext(ctx) {
       LEFT JOIN clients c ON c.id = p.client_id
       WHERE p.id = $1
     `, [ctx.id]);
-    if (!rows[0]) return null;
+    if (!rows[0]) return pointed ? { type: 'ui', label: pointed.label, meta: { element: pointed }, pathname: ctx.pathname } : null;
     const { rows: tasks } = await pool.query(
       'SELECT id, title, status, sort_order, type FROM tasks WHERE project_id = $1 ORDER BY sort_order, id',
       [ctx.id]
@@ -51,6 +64,7 @@ async function enrichPageContext(ctx) {
       project: rows[0],
       tasks,
       isCustom: !rows[0].standard_id,
+      meta: { ...(ctx.meta || {}), ...(pointed ? { element: pointed } : {}) },
     };
   }
 
@@ -112,22 +126,29 @@ async function enrichPageContext(ctx) {
 
 function contextPrefix(ctx) {
   if (!ctx) return '';
+  const el = ctx.meta?.element;
+  const elNote = el
+    ? ` [élément pointé: ${el.selector || el.tag} « ${(el.text || el.label || '').slice(0, 60)} » @ ${el.pathname || ctx.pathname || '?'}]`
+    : '';
+  if (ctx.type === 'ui') {
+    return `[Contexte page : élément UI pointé${elNote}]\n`;
+  }
   if (ctx.type === 'project') {
     const custom = ctx.isCustom ? ' (checklist atelier)' : ' (fiche catalogue)';
     const pending = ctx.tasks?.filter(t => t.status !== 'done').length ?? 0;
-    return `[Contexte page : projet « ${ctx.label} »${custom}${pending ? ` — ${pending} tâche(s) en cours` : ''}]\n`;
+    return `[Contexte page : projet « ${ctx.label} »${custom}${pending ? ` — ${pending} tâche(s) en cours` : ''}${elNote}]\n`;
   }
-  if (ctx.type === 'client') return `[Contexte page : client « ${ctx.label} »]\n`;
-  if (ctx.type === 'standard') return `[Contexte page : fiche « ${ctx.label} »${ctx.sku ? ` (${ctx.sku})` : ''}]\n`;
+  if (ctx.type === 'client') return `[Contexte page : client « ${ctx.label} »${elNote}]\n`;
+  if (ctx.type === 'standard') return `[Contexte page : fiche « ${ctx.label} »${ctx.sku ? ` (${ctx.sku})` : ''}${elNote}]\n`;
   if (ctx.type === 'quote') {
     const q = ctx.quote;
     const n = Array.isArray(q?.lines) ? q.lines.length : 0;
-    return `[Contexte page : devis « ${ctx.label} » (${q?.quote_number || '#' + ctx.id}) — ${q?.status || '?'} — ${n} ligne(s) — ${q?.client_name || 'sans client'}]\n`;
+    return `[Contexte page : devis « ${ctx.label} » (${q?.quote_number || '#' + ctx.id}) — ${q?.status || '?'} — ${n} ligne(s) — ${q?.client_name || 'sans client'}${elNote}]\n`;
   }
   if (ctx.type === 'invoice') {
-    return `[Contexte page : facture « ${ctx.label} » (${ctx.invoice?.invoice_number || '#' + ctx.id})]\n`;
+    return `[Contexte page : facture « ${ctx.label} » (${ctx.invoice?.invoice_number || '#' + ctx.id})${elNote}]\n`;
   }
-  return '';
+  return elNote ? `[Contexte${elNote}]\n` : '';
 }
 
 async function executeSkill(skill, message, pageContext = null, actionParams = null) {
@@ -304,6 +325,30 @@ function needsHistoryContext(message) {
   return /^(crée|creer|ajoute|cocher|modifier|supprime|envoie|planifie)\b/i.test(m) && m.length < 60;
 }
 
+/** Demande de feature / UI / code → Cursor VPS, pas une skill métier (ex. create_invoice). */
+export function isErpCodeChangeRequest(message = '') {
+  const m = String(message);
+  if (
+    /demande\s*(à\s*)?cursor|lance\s*cursor|modifie\s*(l['']?)?(erp|interface|code)|change\s*(l['']?)?(interface|code)|améliore\s*(l['']?)?(erp|interface)|planification\s*des\s*d[eé]parts|pr[eé]-?r[eé]ponses?|crée\s*une\s*passerelle|fais\s*[eé]voluer|développe\s*(le\s*)?(module|feature|écran)/i.test(m)
+  ) {
+    return true;
+  }
+  // UX produit : éditeur, clic pour voir/modifier, visualisation document
+  if (
+    /[eé]diteur\s*visuel|[eé]dition\s*visuelle|visualiser\s*(les\s*)?(facture|devis)|en\s*cliquant|cliquer\s*(dessus|pour)|modifier\s*directement|depuis\s*l['']?[eé]diteur|preview\s*(facture|devis)|aper[cç]u\s*(facture|devis)|wysiwyg|document\s*[eé]ditable/i.test(m)
+  ) {
+    return true;
+  }
+  // « j’aimerais qu’on puisse … » / « il faudrait pouvoir … » = feature, pas création métier
+  if (
+    /(j['’]aimerais|on\s+pourrait|il\s+faudrait|fais\s+en\s+sorte|ajoute\s+(la\s+)?possibilit|rends?\s+(possible|cliquable)|pouvoir\s+(visualiser|modifier|cliquer))/i.test(m)
+    && /(interface|page|écran|écran|bouton|facture|devis|dashboard|mail|module|ui)/i.test(m)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function enrichMessageWithHistory(message, history) {
   if (!history?.length || !needsHistoryContext(message)) return message;
   const recent = history.slice(-6).map(h => {
@@ -444,7 +489,18 @@ export async function processMessage(message, attachments = [], rawContext = nul
     if (isDayPlanMessage(msg)) {
       return runSkillAction('plan_day', msg, pageContext);
     }
+    // Feature / UI / éditeur → Cursor VPS (AVANT matchSkill : sinon « facture » vole la demande)
+    if (isErpCodeChangeRequest(msg)) {
+      return runSkillAction('demande_modification_erp', msg, pageContext);
+    }
     const skill = await matchSkill(msg);
+    if (skill?.action_type === 'demande_modification_erp') {
+      return executeSkill(skill, msg, pageContext);
+    }
+    // Ne jamais créer une facture ERP quand l'utilisateur parle d'éditeur / UX / code
+    if (skill?.action_type === 'create_invoice' && isErpCodeChangeRequest(msg)) {
+      return runSkillAction('demande_modification_erp', msg, pageContext);
+    }
     if (skill) return executeSkill(skill, msg, pageContext);
     if (/cocher|marquer|termin|fait|complét/i.test(msg) && /tâche|étape|finition|débitage|assemblage|projet|sur /i.test(msg)) {
       return runSkillAction('complete_task', msg, pageContext);
@@ -683,7 +739,7 @@ export async function seedDefaultSkills() {
     { name: 'create_skill', description: 'Créer une skill', trigger_patterns: ['ajouter skill', 'nouvelle skill', 'nouvelle capacité'], action_type: 'create_skill' },
     { name: 'update_skill', description: 'Modifier une skill', trigger_patterns: ['activer skill', 'désactiver skill', 'modifier skill'], action_type: 'update_skill' },
     { name: 'create_quote', description: 'Créer un devis', trigger_patterns: ['créer devis', 'nouveau devis', 'devis'], action_type: 'create_quote' },
-    { name: 'create_invoice', description: 'Créer une facture', trigger_patterns: ['créer facture', 'nouvelle facture', 'facture'], action_type: 'create_invoice' },
+    { name: 'create_invoice', description: 'Créer une facture', trigger_patterns: ['créer facture', 'creer facture', 'nouvelle facture', 'crée une facture', 'cree une facture'], action_type: 'create_invoice' },
     { name: 'convert_quote', description: 'Convertir devis en facture', trigger_patterns: ['convertir devis', 'facturer devis', 'acompte'], action_type: 'convert_quote' },
     { name: 'send_quote', description: 'Envoyer devis par courriel', trigger_patterns: ['envoyer devis', 'mail devis'], action_type: 'send_quote' },
     { name: 'send_invoice', description: 'Envoyer facture par courriel', trigger_patterns: ['envoyer facture', 'mail facture'], action_type: 'send_invoice' },
@@ -811,6 +867,37 @@ export async function seedDefaultSkills() {
       description: 'Lire le devis ouvert / détail devis',
       triggers: ['voir devis', 'détail devis', 'lignes du devis', 'montre le devis', 'lis le devis'],
       action: 'get_quote',
+    },
+    {
+      name: 'demande_modification_erp',
+      description: 'Lancer Cursor sur le VPS pour modifier le code ERP (UI, mail, modules)',
+      triggers: [
+        'modifie l\'erp', 'modifier l\'erp', 'modification erp', 'change le code',
+        'demande modification', 'améliore l\'erp', 'fais évoluer l\'erp',
+        'modifie l\'interface', 'change l\'interface', 'améliore l\'interface',
+        'modifie la boîte mail', 'modifie la boite mail', 'planification des départs',
+        'pré-réponse', 'préréponse', 'préreponse', 'demande à cursor', 'lance cursor',
+        'crée une passerelle', 'ajoute dans le mail', 'développe le module',
+        'éditeur visuel', 'edition visuelle', 'visualiser les factures', 'en cliquant',
+        'modifier directement', 'aperçu facture', 'preview facture',
+      ],
+      action: 'demande_modification_erp',
+    },
+    {
+      name: 'create_invoice',
+      description: 'Créer une facture (données ERP — pas une modif de code)',
+      triggers: ['créer facture', 'creer facture', 'nouvelle facture', 'crée une facture', 'cree une facture'],
+      action: 'create_invoice',
+    },
+    {
+      name: 'atelier_habits',
+      description: 'Lire ou ajouter une bonne habitude atelier (ATELIER_HABITS.md)',
+      triggers: [
+        'habitudes atelier', 'bonne habitude', 'ajoute une habitude', 'ajouter une habitude',
+        'liste habitudes', 'voir habitudes', 'règles atelier', 'regles atelier',
+        'habitude devis', 'jamais de prix à l\'heure',
+      ],
+      action: 'atelier_habits',
     },
   ];
   for (const s of extraSkills) {

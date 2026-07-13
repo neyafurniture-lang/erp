@@ -36,6 +36,7 @@ import receiptsRoutes from './routes/receipts.js';
 import uiRoutes from './routes/ui.js';
 import cursorAgentRoutes from './routes/cursor-agent.js';
 import manualRoutes from './routes/manual.js';
+import atelierHabitsRoutes from './routes/atelier-habits.js';
 import integrationsRoutes, { handleGoogleCallback } from './routes/integrations.js';
 import googleDriveRoutes from './routes/google-drive.js';
 import googleGmailRoutes from './routes/google-gmail.js';
@@ -129,6 +130,7 @@ protectedRouter.use('/deploy', deployRoutes);
 protectedRouter.use('/ui', uiRoutes);
 protectedRouter.use('/cursor-agent', cursorAgentRoutes);
 protectedRouter.use('/manual', manualRoutes);
+protectedRouter.use('/habits', atelierHabitsRoutes);
 
 app.use('/api', protectedRouter);
 
