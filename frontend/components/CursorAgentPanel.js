@@ -210,13 +210,21 @@ export default function CursorAgentPanel() {
       <section className="card">
         <h2 className="font-heading text-lg mb-1">Passerelle Cursor sur le VPS</h2>
         <p className="text-sm text-neya-muted mb-3">
-          L&apos;agent Cursor SDK tourne sur le serveur et modifie le code monté dans <code className="text-xs">/workspace</code>.
-          Un backup Git (tag + branche) est créé <strong>avant chaque run</strong>.
+          L&apos;agent tourne sur l&apos;hôte Ubuntu (<code className="text-xs">/opt/neya-erp</code>), pas dans Docker.
+          Backup Git obligatoire avant chaque run.
         </p>
         <div className="grid md:grid-cols-2 gap-3 text-sm">
           <div className="border border-neya-border p-3 bg-neya-surface/40">
-            <p className="text-xs uppercase tracking-wide text-neya-muted font-semibold mb-1">Workspace</p>
-            <p className="font-mono text-xs break-all">{config?.cwd || '…'}</p>
+            <p className="text-xs uppercase tracking-wide text-neya-muted font-semibold mb-1">Hôte VPS</p>
+            {config?.host?.available ? (
+              <>
+                <p className="font-mono text-xs break-all">{config.host.hostname}</p>
+                <p className="text-xs text-neya-muted mt-0.5">{config.host.platform}</p>
+                <p className="font-mono text-xs break-all mt-1">{config.host.cwd || config?.cwd}</p>
+              </>
+            ) : (
+              <p className="text-amber-800 text-xs">{config?.host?.error || 'Runner hôte hors ligne'}</p>
+            )}
             <p className="mt-1">
               Runtime : <span className="font-medium">{config?.runtime || '?'}</span>
               {' · '}
@@ -313,7 +321,7 @@ export default function CursorAgentPanel() {
               value={form.cursor_runtime}
               onChange={e => setForm({ ...form, cursor_runtime: e.target.value })}
             >
-              <option value="local">Local VPS (/workspace)</option>
+              <option value="local">Local hôte VPS (/opt/neya-erp)</option>
               <option value="cloud">Cloud GitHub</option>
             </select>
             {form.cursor_runtime === 'cloud' ? (

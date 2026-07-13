@@ -1,0 +1,10 @@
+{
+  "name": "neya-cursor-host-runner",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Cursor Agent SDK sur l'hôte Ubuntu VPS (hors Docker)",
+  "dependencies": {
+    "@cursor/sdk": "^1.0.23"
+  }
+}

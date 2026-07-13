@@ -1,4 +1,5 @@
 import fs from 'fs';
+import http from 'http';
 import path from 'path';
 import { getSetting, setSetting } from './settings.js';
 import {
@@ -53,43 +54,133 @@ export const ROADMAP_ACTIONS = [
   },
 ];
 
+function hostSocketPath() {
+  return (
+    process.env.CURSOR_HOST_AGENT_SOCK ||
+    '/host-run/cursor-agent.sock'
+  );
+}
+
+function hostToken() {
+  return process.env.CURSOR_HOST_TOKEN || '';
+}
+
+function useHostRunner() {
+  return process.env.CURSOR_USE_HOST_RUNNER !== '0';
+}
+
 function resolveAgentCwd(configured) {
   const candidates = [
     configured,
     process.env.CURSOR_AGENT_CWD,
-    '/workspace',
     '/opt/neya-erp',
+    '/workspace',
     process.cwd().replace(/[\\/]backend$/, ''),
   ].filter(Boolean);
 
   for (const c of candidates) {
     if (fs.existsSync(c)) return c;
   }
-  return configured || '/workspace';
+  return configured || '/opt/neya-erp';
+}
+
+function requestHost(method, urlPath, body = null, timeoutMs = 600000) {
+  const socketPath = hostSocketPath();
+  if (!fs.existsSync(socketPath)) {
+    return Promise.reject(
+      new Error(
+        `Runner hôte VPS introuvable (${socketPath}). Installez le service : deploy/vps-install-cursor-host.ps1`
+      )
+    );
+  }
+
+  const payload = body ? JSON.stringify(body) : null;
+  const headers = {
+    Accept: 'application/json',
+    ...(hostToken() ? { 'X-Cursor-Host-Token': hostToken() } : {}),
+  };
+  if (payload) {
+    headers['Content-Type'] = 'application/json';
+    headers['Content-Length'] = Buffer.byteLength(payload);
+  }
+
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        socketPath,
+        path: urlPath,
+        method,
+        headers,
+        timeout: timeoutMs,
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          const raw = Buffer.concat(chunks).toString('utf8');
+          let data = {};
+          try {
+            data = raw ? JSON.parse(raw) : {};
+          } catch {
+            data = { raw };
+          }
+          if (res.statusCode >= 400) {
+            reject(new Error(data.error || `Host runner HTTP ${res.statusCode}`));
+            return;
+          }
+          resolve(data);
+        });
+      }
+    );
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('Délai dépassé — runner hôte VPS'));
+    });
+    req.on('error', reject);
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
+
+export async function getHostRunnerInfo() {
+  try {
+    const info = await requestHost('GET', '/info', null, 8000);
+    return { available: true, ...info };
+  } catch (err) {
+    return {
+      available: false,
+      error: err.message || String(err),
+      socket: hostSocketPath(),
+    };
+  }
 }
 
 export async function getCursorConfig() {
   const apiKey = (await getSetting('cursor_api_key')) || process.env.CURSOR_API_KEY || '';
   const runtime = (await getSetting('cursor_runtime')) || process.env.CURSOR_RUNTIME || 'local';
   const repoUrl = (await getSetting('cursor_repo_url')) || process.env.CURSOR_REPO_URL || '';
-  const cwdRaw = (await getSetting('cursor_cwd')) || process.env.CURSOR_AGENT_CWD || '/workspace';
+  const cwdRaw = (await getSetting('cursor_cwd')) || process.env.CURSOR_AGENT_CWD || '/opt/neya-erp';
   const cwd = resolveAgentCwd(cwdRaw);
   const model = (await getSetting('cursor_model')) || 'composer-2.5';
   const autoBackup = (await getSetting('cursor_auto_backup')) !== false;
-  const git = getWorkspaceGitStatus(cwd);
+  const git = getWorkspaceGitStatus(cwd === '/opt/neya-erp' && fs.existsSync('/workspace') ? '/workspace' : cwd);
+  const host = runtime === 'cloud' ? null : await getHostRunnerInfo();
 
   return {
     configured: Boolean(apiKey && String(apiKey).trim()),
     runtime: runtime === 'cloud' ? 'cloud' : 'local',
     repo_url: repoUrl,
-    cwd,
+    cwd: host?.available ? host.cwd || '/opt/neya-erp' : cwd,
     model,
     auto_backup: autoBackup !== false,
     api_key_preview: apiKey ? `••••${String(apiKey).slice(-4)}` : '',
     git,
+    host,
     gateway: {
-      mode: 'erp-cursor-sdk',
-      note: 'Passerelle ERP → Cursor Agent SDK sur le VPS (pas l’IDE graphique). Backup Git avant chaque run.',
+      mode: host?.available ? 'vps-host-runner' : 'erp-docker-fallback',
+      note: host?.available
+        ? `Agent sur l'hôte VPS ${host.hostname} (${host.platform}) — cwd ${host.cwd}`
+        : 'Runner hôte indisponible — corrigez le service systemd neya-cursor-agent',
     },
   };
 }
@@ -143,6 +234,12 @@ function getJsonlStore(sdk, rootHint) {
   return jsonlStore;
 }
 
+function gitCwdForBackup(cfg) {
+  if (fs.existsSync('/workspace/.git')) return '/workspace';
+  if (cfg?.cwd && fs.existsSync(path.join(cfg.cwd, '.git'))) return cfg.cwd;
+  return cfg?.cwd || '/workspace';
+}
+
 async function executeRun(run) {
   run.status = 'running';
   run.started_at = new Date().toISOString();
@@ -150,43 +247,74 @@ async function executeRun(run) {
     const cfg = await getCursorConfig();
     if (!cfg.configured) throw new Error('Clé Cursor API manquante (Paramètres → Agent Cursor)');
 
-    // Backup Git obligatoire avant modification locale
+    const backupCwd = gitCwdForBackup(cfg);
     if (cfg.runtime !== 'cloud' && cfg.auto_backup !== false) {
       try {
-        run.backup = createPreAgentBackup(cfg.cwd, { label: run.label || `run-${run.id}` });
+        run.backup = createPreAgentBackup(backupCwd, { label: run.label || `run-${run.id}` });
       } catch (backupErr) {
         throw new Error(`Backup Git requis avant Cursor : ${backupErr.message}`);
       }
     }
 
-    const sdk = await loadSdk();
-    const { Agent } = sdk;
     const apiKey = (await getSetting('cursor_api_key')) || process.env.CURSOR_API_KEY;
-    const options = {
-      apiKey,
-      model: { id: cfg.model || 'composer-2.5' },
-    };
 
     if (cfg.runtime === 'cloud') {
       if (!cfg.repo_url) throw new Error('URL GitHub requise pour le mode cloud (ex. https://github.com/org/neya-erp)');
-      options.cloud = {
-        repos: [{ url: cfg.repo_url }],
-      };
-    } else {
-      const cwd = cfg.cwd || '/workspace';
-      if (!fs.existsSync(cwd)) {
-        throw new Error(`Workspace Cursor introuvable (${cwd}). Montez /opt/neya-erp → /workspace dans docker-compose.`);
+      const sdk = await loadSdk();
+      const { Agent } = sdk;
+      const result = await Agent.prompt(run.prompt, {
+        apiKey,
+        model: { id: cfg.model || 'composer-2.5' },
+        cloud: { repos: [{ url: cfg.repo_url }] },
+      });
+      run.status = result.status === 'error' ? 'error' : 'done';
+      run.result = result.result || result.status || '';
+      run.agent_run_id = result.id || null;
+    } else if (useHostRunner()) {
+      const host = await getHostRunnerInfo();
+      if (!host.available) {
+        throw new Error(
+          `Agent doit tourner sur l'hôte VPS, pas dans Docker. ${host.error || ''}`.trim()
+        );
       }
+      run.host = {
+        hostname: host.hostname,
+        platform: host.platform,
+        cwd: host.cwd,
+        mode: host.mode,
+      };
+      const out = await requestHost(
+        'POST',
+        '/run',
+        {
+          prompt: run.prompt,
+          apiKey,
+          model: cfg.model || 'composer-2.5',
+        },
+        900000
+      );
+      run.status = out.status === 'error' ? 'error' : 'done';
+      run.result = out.result || out.status || '';
+      run.agent_run_id = out.id || null;
+      if (out.host) run.host = out.host;
+    } else {
+      // Fallback legacy (conteneur) — désactivé par défaut
+      const cwd = fs.existsSync('/workspace') ? '/workspace' : cfg.cwd;
+      const sdk = await loadSdk();
+      const { Agent } = sdk;
       const store = getJsonlStore(sdk, cwd);
-      options.local = { cwd, store };
+      const result = await Agent.prompt(run.prompt, {
+        apiKey,
+        model: { id: cfg.model || 'composer-2.5' },
+        local: { cwd, store },
+      });
+      run.status = result.status === 'error' ? 'error' : 'done';
+      run.result = result.result || result.status || '';
+      run.agent_run_id = result.id || null;
     }
 
-    const result = await Agent.prompt(run.prompt, options);
-    run.status = result.status === 'error' ? 'error' : 'done';
-    run.result = result.result || result.status || '';
-    run.agent_run_id = result.id || null;
     run.finished_at = new Date().toISOString();
-    run.git_after = getWorkspaceGitStatus(cfg.cwd);
+    run.git_after = getWorkspaceGitStatus(backupCwd);
   } catch (err) {
     run.status = 'error';
     run.error = err.message || String(err);
@@ -208,6 +336,7 @@ export async function startAgentRun({ prompt, label = null, source = 'manual', r
     result: null,
     error: null,
     backup: null,
+    host: null,
     git_after: null,
     agent_run_id: null,
     created_at: new Date().toISOString(),
@@ -240,34 +369,36 @@ export async function startRoadmapAction(roadmapId) {
 
 export async function gatewayGitStatus() {
   const cfg = await getCursorConfig();
+  const cwd = gitCwdForBackup(cfg);
   return {
-    cwd: cfg.cwd,
-    git: cfg.git,
-    backups: listCursorBackups(cfg.cwd),
+    cwd,
+    git: getWorkspaceGitStatus(cwd),
+    backups: listCursorBackups(cwd),
+    host: cfg.host,
   };
 }
 
 export async function gatewayCreateBackup(label) {
   const cfg = await getCursorConfig();
-  return createPreAgentBackup(cfg.cwd, { label: label || 'manual' });
+  return createPreAgentBackup(gitCwdForBackup(cfg), { label: label || 'manual' });
 }
 
 export async function gatewayRestoreBackup(payload) {
   const cfg = await getCursorConfig();
-  return restoreGitBackup(cfg.cwd, payload || {});
+  return restoreGitBackup(gitCwdForBackup(cfg), payload || {});
 }
 
 export async function gatewayCommit(message) {
   const cfg = await getCursorConfig();
-  return gitCommitWorkspace(cfg.cwd, message);
+  return gitCommitWorkspace(gitCwdForBackup(cfg), message);
 }
 
 export async function gatewayPush(payload) {
   const cfg = await getCursorConfig();
-  return gitPushWorkspace(cfg.cwd, payload || {});
+  return gitPushWorkspace(gitCwdForBackup(cfg), payload || {});
 }
 
 export async function gatewayListBackups() {
   const cfg = await getCursorConfig();
-  return listCursorBackups(cfg.cwd);
+  return listCursorBackups(gitCwdForBackup(cfg));
 }

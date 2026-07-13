@@ -102,6 +102,13 @@ services:
 
       CURSOR_REPO_URL: ${CURSOR_REPO_URL:-}
 
+      # Agent Cursor sur l'hôte Ubuntu (pas le conteneur Alpine)
+      CURSOR_USE_HOST_RUNNER: ${CURSOR_USE_HOST_RUNNER:-1}
+
+      CURSOR_HOST_AGENT_SOCK: /host-run/cursor-agent.sock
+
+      CURSOR_HOST_TOKEN: ${CURSOR_HOST_TOKEN:-}
+
     depends_on:
 
       db:
@@ -111,8 +118,10 @@ services:
     volumes:
 
       - neya_uploads:/app/uploads
-      # Code ERP sur l'hôte — passerelle Cursor Agent (édite / déploie via Git)
+      # Code ERP sur l'hôte — Git / backups
       - /opt/neya-erp:/workspace
+      # Socket du runner Cursor sur l'hôte VPS
+      - /opt/neya-erp/deploy/run:/host-run
 
     healthcheck:
 

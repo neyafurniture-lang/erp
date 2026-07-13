@@ -1,0 +1,21 @@
+[Unit]
+Description=NEYA Cursor Agent (hôte VPS Ubuntu)
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/neya-erp/deploy/cursor-host-runner
+Environment=NODE_ENV=production
+Environment=CURSOR_AGENT_CWD=/opt/neya-erp
+Environment=CURSOR_HOST_SOCKET=/opt/neya-erp/deploy/run/cursor-agent.sock
+EnvironmentFile=-/opt/neya-erp/deploy/cursor-host-runner/.env
+ExecStart=/usr/bin/node /opt/neya-erp/deploy/cursor-host-runner/server.mjs
+Restart=always
+RestartSec=3
+# Pas de sandbox Docker — shell réel de l'hôte
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
