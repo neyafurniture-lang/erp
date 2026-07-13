@@ -4,7 +4,7 @@ import { clearCompanyCache } from './company-config.js';
 const DEFAULTS = {
   ai_provider: 'anthropic',
   anthropic_api_key: '',
-  anthropic_model: 'claude-sonnet-5',
+  anthropic_model: 'claude-sonnet-4-20250514',
   openai_api_key: '',
   openai_model: 'gpt-4o-mini',
   assistant_ai_enabled: true,

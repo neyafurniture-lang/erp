@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
+import InvoicePaymentModal from '../../components/InvoicePaymentModal';
+import EasyTable from '../../components/EasyTable';
 import {
   api, formatMoney, formatDate, INVOICE_STATUS, QUOTE_STATUS,
   downloadPdf, calcLineSubtotal, calcTaxes,
@@ -45,16 +47,6 @@ export default function InvoicesPage() {
     setTimeout(() => setToast(''), 4000);
   }
 
-  function addLine() {
-    setForm({ ...form, lines: [...form.lines, { description: '', qty: 1, price: 0 }] });
-  }
-
-  function updateLine(i, field, val) {
-    const lines = [...form.lines];
-    lines[i] = { ...lines[i], [field]: val };
-    setForm({ ...form, lines });
-  }
-
   function openCreateForm() {
     setForm({ ...EMPTY_FORM });
     setShowForm(true);
@@ -94,13 +86,13 @@ export default function InvoicesPage() {
     }
   }
 
-  async function addPayment(e) {
-    e.preventDefault();
+  async function submitPayment(payload) {
     await api('/payments', {
       method: 'POST',
-      body: JSON.stringify({ invoice_id: paymentForm.id, amount: Number(paymentForm.amount) }),
+      body: JSON.stringify(payload),
     });
     setPaymentForm(null);
+    showToast('Paiement enregistré');
     load();
   }
 
@@ -183,19 +175,11 @@ export default function InvoicesPage() {
             </div>
 
             <div>
-              <label className="label">Lignes</label>
-              <div className="space-y-2">
-                {form.lines.map((line, i) => (
-                  <div key={i} className="flex gap-2">
-                    <input className="input flex-1" placeholder="Description" value={line.description} onChange={e => updateLine(i, 'description', e.target.value)} />
-                    <input type="number" className="input w-20" placeholder="Qté" value={line.qty} onChange={e => updateLine(i, 'qty', e.target.value)} min="0" step="any" />
-                    <input type="number" className="input w-28" placeholder="Prix $" value={line.price} onChange={e => updateLine(i, 'price', e.target.value)} min="0" step="0.01" />
-                    <button type="button" onClick={() => setForm({ ...form, lines: form.lines.filter((_, j) => j !== i) })}
-                      className="text-neya-muted hover:text-neya-error px-2" disabled={form.lines.length === 1}>×</button>
-                  </div>
-                ))}
-                <button type="button" onClick={addLine} className="text-sm text-neya-orange">+ Ajouter une ligne</button>
-              </div>
+              <label className="label">Lignes (tableau)</label>
+              <EasyTable
+                rows={form.lines}
+                onChange={lines => setForm({ ...form, lines })}
+              />
             </div>
 
             <div className="bg-neya-cream rounded-lg p-4 text-sm grid grid-cols-2 md:grid-cols-4 gap-2">
@@ -220,13 +204,19 @@ export default function InvoicesPage() {
                 <th className="pb-3 pr-4">Projet / Client</th>
                 <th className="pb-3 pr-4">Date</th>
                 <th className="pb-3 pr-4">Total TTC</th>
+                {tab === 'invoices' && (
+                  <>
+                    <th className="pb-3 pr-4">Déjà payé</th>
+                    <th className="pb-3 pr-4">Reste</th>
+                  </>
+                )}
                 <th className="pb-3 pr-4">Statut</th>
                 <th className="pb-3">Actions</th>
               </tr>
             </thead>
             <tbody>
               {list.length === 0 && (
-                <tr><td colSpan={6} className="py-8 text-center text-neya-muted">
+                <tr><td colSpan={tab === 'invoices' ? 8 : 6} className="py-8 text-center text-neya-muted">
                   {tab === 'quotes' ? 'Aucun devis — cliquez « Nouveau devis »' : 'Aucune facture'}
                 </td></tr>
               )}
@@ -238,6 +228,8 @@ export default function InvoicesPage() {
                 const detailHref = tab === 'quotes'
                   ? `/invoices/quotes/${item.id}`
                   : `/invoices/${item.id}`;
+                const paid = Number(item.amount_paid) || 0;
+                const balance = Math.max(0, Math.round(((Number(item.total) || 0) - paid) * 100) / 100);
                 return (
                   <tr key={item.id} className="border-b border-neya-border hover:bg-neya-cream/30">
                     <td className="py-3 pr-4 font-medium">
@@ -251,6 +243,14 @@ export default function InvoicesPage() {
                     </td>
                     <td className="py-3 pr-4 text-neya-muted">{formatDate(item.created_at)}</td>
                     <td className="py-3 pr-4 font-medium">{formatMoney(item.total)}</td>
+                    {tab === 'invoices' && (
+                      <>
+                        <td className="py-3 pr-4 text-neya-success">{formatMoney(paid)}</td>
+                        <td className={`py-3 pr-4 font-medium ${balance > 0 ? 'text-neya-error' : 'text-neya-success'}`}>
+                          {formatMoney(balance)}
+                        </td>
+                      </>
+                    )}
                     <td className="py-3 pr-4">
                       {tab === 'quotes' ? (
                         <select value={item.status} onChange={e => updateQuoteStatus(item.id, e.target.value)}
@@ -291,9 +291,12 @@ export default function InvoicesPage() {
                             </button>
                           )
                         )}
-                        {tab === 'invoices' && item.status !== 'paid' && (
-                          <button onClick={() => setPaymentForm({ id: item.id, amount: (item.total - (item.amount_paid || 0)).toFixed(2) })}
-                            className="text-xs text-neya-success hover:underline">
+                        {tab === 'invoices' && balance > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setPaymentForm(item)}
+                            className="text-xs text-neya-success hover:underline"
+                          >
                             Paiement
                           </button>
                         )}
@@ -369,17 +372,11 @@ export default function InvoicesPage() {
         )}
 
         {paymentForm && (
-          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-            <form onSubmit={addPayment} className="bg-white rounded-xl p-6 w-96">
-              <h3 className="font-heading text-lg mb-4">Enregistrer paiement</h3>
-              <input type="number" step="0.01" className="input mb-4" value={paymentForm.amount}
-                onChange={e => setPaymentForm({ ...paymentForm, amount: e.target.value })} />
-              <div className="flex gap-2">
-                <button type="submit" className="btn-primary">Confirmer</button>
-                <button type="button" onClick={() => setPaymentForm(null)} className="btn-secondary">Annuler</button>
-              </div>
-            </form>
-          </div>
+          <InvoicePaymentModal
+            invoice={paymentForm}
+            onClose={() => setPaymentForm(null)}
+            onSubmit={submitPayment}
+          />
         )}
       </AppShell>
     </AuthGuard>

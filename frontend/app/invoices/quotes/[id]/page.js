@@ -5,8 +5,9 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import AppShell from '../../../../components/AppShell';
 import AuthGuard from '../../../../components/AuthGuard';
+import EasyTable from '../../../../components/EasyTable';
 import {
-  api, formatMoney, formatDate, QUOTE_STATUS, downloadPdf, calcTaxes,
+  api, formatMoney, formatDate, QUOTE_STATUS, downloadPdf, calcTaxes, calcLineSubtotal,
 } from '../../../../lib/api';
 
 function parseLines(lines) {
@@ -14,7 +15,17 @@ function parseLines(lines) {
   if (typeof lines === 'string') {
     try { return JSON.parse(lines); } catch { return []; }
   }
-  return lines;
+  return Array.isArray(lines) ? lines : [];
+}
+
+function normalizeLines(lines) {
+  const parsed = parseLines(lines);
+  if (!parsed.length) return [{ description: '', qty: 1, price: 0 }];
+  return parsed.map(l => ({
+    description: l.description || '',
+    qty: l.qty ?? 1,
+    price: l.price ?? 0,
+  }));
 }
 
 export default function QuoteDetailPage() {
@@ -27,6 +38,9 @@ export default function QuoteDetailPage() {
   const [pdfLoading, setPdfLoading] = useState(false);
   const [convertForm, setConvertForm] = useState(null);
   const [converting, setConverting] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editLines, setEditLines] = useState([]);
+  const [saving, setSaving] = useState(false);
 
   function load() {
     if (!id) return;
@@ -40,6 +54,35 @@ export default function QuoteDetailPage() {
   function showToast(msg) {
     setToast(msg);
     setTimeout(() => setToast(''), 4000);
+  }
+
+  function startEdit() {
+    setEditLines(normalizeLines(quote.lines));
+    setEditing(true);
+  }
+
+  async function saveLines() {
+    setSaving(true);
+    try {
+      const cleaned = editLines
+        .map(l => ({
+          description: String(l.description || '').trim(),
+          qty: Number(l.qty) || 0,
+          price: Number(l.price) || 0,
+        }))
+        .filter(l => l.description || l.qty || l.price);
+      await api(`/invoices/quotes/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ lines: cleaned.length ? cleaned : [{ description: '', qty: 1, price: 0 }] }),
+      });
+      setEditing(false);
+      load();
+      showToast('Tableau enregistré');
+    } catch (err) {
+      showToast(err.message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function updateStatus(status) {
@@ -116,7 +159,8 @@ export default function QuoteDetailPage() {
 
   const lines = parseLines(quote.lines);
   const st = QUOTE_STATUS[quote.status] || { label: quote.status, color: 'bg-gray-100 text-gray-700' };
-  const taxes = calcTaxes(Number(quote.subtotal) || 0);
+  const previewSub = editing ? calcLineSubtotal(editLines) : (Number(quote.subtotal) || 0);
+  const taxes = calcTaxes(previewSub);
 
   return (
     <AuthGuard>
@@ -165,40 +209,68 @@ export default function QuoteDetailPage() {
           )}
         </div>
 
-        <div className="card mb-6 overflow-x-auto">
-          <h2 className="font-heading text-lg mb-4">Lignes</h2>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-neya-border text-left text-neya-muted">
-                <th className="pb-3 pr-4">Description</th>
-                <th className="pb-3 pr-4 text-right">Qté</th>
-                <th className="pb-3 pr-4 text-right">Prix unit.</th>
-                <th className="pb-3 text-right">Sous-total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lines.length === 0 ? (
-                <tr><td colSpan={4} className="py-6 text-center text-neya-muted">Aucune ligne</td></tr>
-              ) : (
-                lines.map((line, i) => (
-                  <tr key={i} className="border-b border-neya-border">
-                    <td className="py-3 pr-4">{line.description || '—'}</td>
-                    <td className="py-3 pr-4 text-right text-neya-muted">{line.qty}</td>
-                    <td className="py-3 pr-4 text-right">{formatMoney(line.price)}</td>
-                    <td className="py-3 text-right font-medium">
-                      {formatMoney((Number(line.qty) || 0) * (Number(line.price) || 0))}
-                    </td>
+        <div className="card mb-6">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+            <h2 className="font-heading text-lg">Lignes</h2>
+            {!editing ? (
+              <button type="button" onClick={startEdit} className="btn-secondary text-sm min-h-[36px]">
+                Modifier le tableau
+              </button>
+            ) : (
+              <div className="flex gap-2">
+                <button type="button" onClick={saveLines} disabled={saving} className="btn-primary text-sm min-h-[36px]">
+                  {saving ? 'Enregistrement…' : 'Enregistrer'}
+                </button>
+                <button type="button" onClick={() => setEditing(false)} className="btn-secondary text-sm min-h-[36px]">
+                  Annuler
+                </button>
+              </div>
+            )}
+          </div>
+
+          {editing ? (
+            <EasyTable rows={editLines} onChange={setEditLines} />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-neya-border text-left text-neya-muted">
+                    <th className="pb-3 pr-4">Description</th>
+                    <th className="pb-3 pr-4 text-right">Qté</th>
+                    <th className="pb-3 pr-4 text-right">Prix unit.</th>
+                    <th className="pb-3 text-right">Sous-total</th>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                </thead>
+                <tbody>
+                  {lines.length === 0 ? (
+                    <tr><td colSpan={4} className="py-6 text-center text-neya-muted">Aucune ligne</td></tr>
+                  ) : (
+                    lines.map((line, i) => (
+                      <tr key={i} className="border-b border-neya-border">
+                        <td className="py-3 pr-4">{line.description || '—'}</td>
+                        <td className="py-3 pr-4 text-right text-neya-muted">{line.qty}</td>
+                        <td className="py-3 pr-4 text-right">{formatMoney(line.price)}</td>
+                        <td className="py-3 text-right font-medium">
+                          {formatMoney((Number(line.qty) || 0) * (Number(line.price) || 0))}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           <div className="mt-4 pt-4 border-t border-neya-border grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
             <div><span className="text-neya-muted">Sous-total</span><p className="font-medium">{formatMoney(taxes.subtotal)}</p></div>
             <div><span className="text-neya-muted">TPS 5%</span><p className="font-medium">{formatMoney(taxes.gst)}</p></div>
             <div><span className="text-neya-muted">TVQ 9,975%</span><p className="font-medium">{formatMoney(taxes.qst)}</p></div>
-            <div><span className="text-neya-muted">Total TTC</span><p className="font-heading text-lg text-neya-orange">{formatMoney(quote.total)}</p></div>
+            <div>
+              <span className="text-neya-muted">Total TTC</span>
+              <p className="font-heading text-lg text-neya-orange">
+                {formatMoney(editing ? taxes.total : quote.total)}
+              </p>
+            </div>
           </div>
         </div>
 

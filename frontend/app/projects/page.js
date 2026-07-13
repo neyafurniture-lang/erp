@@ -11,6 +11,8 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState([]);
   const [clients, setClients] = useState([]);
   const [showForm, setShowForm] = useState(false);
+  const [filter, setFilter] = useState('active');
+  const [busyId, setBusyId] = useState(null);
   const [form, setForm] = useState({ name: '', client_id: '', deadline: '', budget_estimated: '' });
 
   const load = () => {
@@ -39,11 +41,49 @@ export default function ProjectsPage() {
     load();
   }
 
+  async function toggleDone(e, project) {
+    e.preventDefault();
+    e.stopPropagation();
+    setBusyId(project.id);
+    try {
+      await api(`/projects/${project.id}/toggle-done`, { method: 'POST' });
+      load();
+    } catch (err) {
+      window.alert(err.message || 'Impossible de mettre à jour le projet');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const visible = projects.filter(p => {
+    if (filter === 'all') return true;
+    if (filter === 'done') return p.status === 'done';
+    return p.status !== 'done';
+  });
+
   return (
     <AuthGuard>
       <AppShell title="Projets">
-        <div className="flex justify-between items-center mb-6">
-          <p className="text-neya-muted text-sm">{projects.length} projet(s)</p>
+        <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
+          <div className="flex items-center gap-2">
+            <p className="text-neya-muted text-sm">{visible.length} projet(s)</p>
+            <div className="flex rounded-lg border border-neya-border overflow-hidden text-xs">
+              {[
+                { id: 'active', label: 'En cours' },
+                { id: 'done', label: 'Terminés' },
+                { id: 'all', label: 'Tous' },
+              ].map(f => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setFilter(f.id)}
+                  className={`px-3 py-1.5 font-medium ${filter === f.id ? 'bg-neya-orange text-white' : 'bg-white text-neya-muted hover:text-neya-ink'}`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <button onClick={() => setShowForm(!showForm)} className="btn-primary">
             + Nouveau projet
           </button>
@@ -78,38 +118,58 @@ export default function ProjectsPage() {
         )}
 
         <div className="grid gap-4">
-          {projects.map(p => {
+          {visible.length === 0 && (
+            <div className="card text-center py-10 text-neya-muted text-sm">
+              Aucun projet dans ce filtre.
+            </div>
+          )}
+          {visible.map(p => {
             const st = PROJECT_STATUS.find(s => s.value === p.status) || PROJECT_STATUS[0];
             const custom = isCustomProject(p);
+            const isDone = p.status === 'done';
             return (
-              <Link key={p.id} href={`/projects/${p.id}`} className="card hover:border-neya-orange transition-colors block">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-heading text-lg">{p.name}</h3>
-                      {p.wp_order_id && (
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-800 border border-blue-200">
-                          Web
-                        </span>
-                      )}
+              <div key={p.id} className={`card hover:border-neya-orange transition-colors relative ${isDone ? 'opacity-80' : ''}`}>
+                <Link href={`/projects/${p.id}`} className="block pr-24">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className={`font-heading text-lg ${isDone ? 'line-through text-neya-muted' : ''}`}>{p.name}</h3>
+                        {p.wp_order_id && (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-800 border border-blue-200">
+                            Web
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-neya-muted">{p.client_name || 'Sans client'}</p>
                     </div>
-                    <p className="text-sm text-neya-muted">{p.client_name || 'Sans client'}</p>
+                    <span className={`text-xs px-2 py-1 rounded-full text-white ${st.color}`}>{st.label}</span>
                   </div>
-                  <span className={`text-xs px-2 py-1 rounded-full text-white ${st.color}`}>{st.label}</span>
-                </div>
-                <div className="flex flex-wrap gap-6 mt-3 text-sm text-neya-muted">
-                  <span>Deadline : {formatDate(p.deadline)}</span>
-                  {!custom && <span>Budget : {formatMoney(p.budget_estimated)}</span>}
-                  {custom && p.tasks_total > 0 && (
-                    <span className="text-neya-orange font-medium">
-                      Checklist : {p.tasks_done}/{p.tasks_total}
-                    </span>
-                  )}
-                  {custom && !p.tasks_total && (
-                    <span className="italic">Checklist vide</span>
-                  )}
-                </div>
-              </Link>
+                  <div className="flex flex-wrap gap-6 mt-3 text-sm text-neya-muted">
+                    <span>Deadline : {formatDate(p.deadline)}</span>
+                    {!custom && <span>Budget : {formatMoney(p.budget_estimated)}</span>}
+                    {custom && p.tasks_total > 0 && (
+                      <span className="text-neya-orange font-medium">
+                        Checklist : {p.tasks_done}/{p.tasks_total}
+                      </span>
+                    )}
+                    {custom && !p.tasks_total && (
+                      <span className="italic">Checklist vide</span>
+                    )}
+                  </div>
+                </Link>
+                <button
+                  type="button"
+                  onClick={(e) => toggleDone(e, p)}
+                  disabled={busyId === p.id}
+                  className={`absolute top-4 right-4 text-xs font-semibold px-2.5 py-1.5 rounded-lg border transition-colors disabled:opacity-50 ${
+                    isDone
+                      ? 'bg-white border-neya-orange text-neya-orange hover:bg-neya-orange hover:text-white'
+                      : 'bg-neya-orange text-white border-neya-orange hover:bg-neya-ink'
+                  }`}
+                >
+                  {busyId === p.id ? '…' : isDone ? 'Rouvrir' : 'Terminer'}
+                </button>
+              </div>
             );
           })}
         </div>

@@ -215,8 +215,14 @@ export async function generateInvoicePdf(invoice, res) {
   totalsBlock(doc, subtotal, y, COMPANY);
 
   if (Number(invoice.amount_paid) > 0) {
+    const paid = Number(invoice.amount_paid) || 0;
+    const due = Math.max(0, (Number(invoice.total) || 0) - paid);
+    const yPaid = doc.y + 8;
     doc.font('Helvetica').fontSize(9).fillColor(C.muted)
-      .text(`Paid to date: ${money(invoice.amount_paid)}`, M + 340, doc.y + 8, { align: 'right', width: 172 });
+      .text(`Déjà payé : ${money(paid)}`, M + 340, yPaid, { align: 'right', width: 172 });
+    if (due > 0.009) {
+      doc.text(`Reste à payer : ${money(due)}`, M + 340, yPaid + 14, { align: 'right', width: 172 });
+    }
   }
 
   paymentPage(doc, invoice.invoice_number, COMPANY);

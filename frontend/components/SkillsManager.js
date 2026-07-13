@@ -12,7 +12,9 @@ export const ACTION_TYPES = [
   'list_quotes', 'list_invoices', 'delete_project', 'delete_client', 'delete_expense',
   'update_standard', 'sync_wordpress', 'sync_web_orders', 'list_web_orders', 'sync_web_photos',
   'ui_edit_mode', 'ui_add_todo_list', 'ui_move_section', 'ui_hide_section', 'ui_show_section', 'ui_reset_layout',
-  'erp_manual',
+  'erp_manual', 'search_projects', 'search_memory', 'get_project',
+  'list_emails', 'search_emails', 'get_email', 'list_mail_threads',
+  'create_fabrication_plan',
 ];
 
 export default function SkillsManager({ compact = false }) {

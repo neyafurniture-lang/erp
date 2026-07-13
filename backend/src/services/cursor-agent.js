@@ -1,6 +1,14 @@
 import fs from 'fs';
 import path from 'path';
 import { getSetting, setSetting } from './settings.js';
+import {
+  createPreAgentBackup,
+  getWorkspaceGitStatus,
+  gitCommitWorkspace,
+  gitPushWorkspace,
+  listCursorBackups,
+  restoreGitBackup,
+} from './cursor-git-gateway.js';
 
 const runs = new Map();
 let seq = 1;
@@ -45,19 +53,44 @@ export const ROADMAP_ACTIONS = [
   },
 ];
 
+function resolveAgentCwd(configured) {
+  const candidates = [
+    configured,
+    process.env.CURSOR_AGENT_CWD,
+    '/workspace',
+    '/opt/neya-erp',
+    process.cwd().replace(/[\\/]backend$/, ''),
+  ].filter(Boolean);
+
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return configured || '/workspace';
+}
+
 export async function getCursorConfig() {
   const apiKey = (await getSetting('cursor_api_key')) || process.env.CURSOR_API_KEY || '';
   const runtime = (await getSetting('cursor_runtime')) || process.env.CURSOR_RUNTIME || 'local';
   const repoUrl = (await getSetting('cursor_repo_url')) || process.env.CURSOR_REPO_URL || '';
-  const cwd = (await getSetting('cursor_cwd')) || process.env.CURSOR_AGENT_CWD || process.cwd().replace(/[\\/]backend$/, '') || '/opt/neya-erp';
+  const cwdRaw = (await getSetting('cursor_cwd')) || process.env.CURSOR_AGENT_CWD || '/workspace';
+  const cwd = resolveAgentCwd(cwdRaw);
   const model = (await getSetting('cursor_model')) || 'composer-2.5';
+  const autoBackup = (await getSetting('cursor_auto_backup')) !== false;
+  const git = getWorkspaceGitStatus(cwd);
+
   return {
     configured: Boolean(apiKey && String(apiKey).trim()),
     runtime: runtime === 'cloud' ? 'cloud' : 'local',
     repo_url: repoUrl,
     cwd,
     model,
+    auto_backup: autoBackup !== false,
     api_key_preview: apiKey ? `••••${String(apiKey).slice(-4)}` : '',
+    git,
+    gateway: {
+      mode: 'erp-cursor-sdk',
+      note: 'Passerelle ERP → Cursor Agent SDK sur le VPS (pas l’IDE graphique). Backup Git avant chaque run.',
+    },
   };
 }
 
@@ -69,6 +102,7 @@ export async function saveCursorConfig(patch = {}) {
   if (patch.cursor_repo_url !== undefined) await setSetting('cursor_repo_url', String(patch.cursor_repo_url || '').trim());
   if (patch.cursor_cwd !== undefined) await setSetting('cursor_cwd', String(patch.cursor_cwd || '').trim());
   if (patch.cursor_model !== undefined) await setSetting('cursor_model', String(patch.cursor_model || 'composer-2.5').trim());
+  if (patch.cursor_auto_backup !== undefined) await setSetting('cursor_auto_backup', Boolean(patch.cursor_auto_backup));
   return getCursorConfig();
 }
 
@@ -89,7 +123,7 @@ async function loadSdk() {
     return await import('@cursor/sdk');
   } catch {
     throw new Error(
-      'Package @cursor/sdk absent. Sur le serveur : cd backend && npm install @cursor/sdk — et définissez CURSOR_API_KEY.'
+      'Package @cursor/sdk absent. Sur le serveur : npm install @cursor/sdk dans backend, rebuild Docker.'
     );
   }
 }
@@ -98,12 +132,11 @@ function getJsonlStore(sdk, rootHint) {
   if (jsonlStore) return jsonlStore;
   const { JsonlLocalAgentStore, Cursor } = sdk;
   const root = path.join(
-    rootHint || process.env.CURSOR_AGENT_CWD || '/opt/neya-erp',
+    rootHint || process.env.CURSOR_AGENT_CWD || '/workspace',
     '.cursor-agent-store'
   );
   fs.mkdirSync(root, { recursive: true });
   jsonlStore = new JsonlLocalAgentStore(root);
-  // Évite node:sqlite (Node 20 Docker) — store portable JSONL
   if (Cursor?.configure) {
     Cursor.configure({ local: { store: jsonlStore } });
   }
@@ -116,6 +149,15 @@ async function executeRun(run) {
   try {
     const cfg = await getCursorConfig();
     if (!cfg.configured) throw new Error('Clé Cursor API manquante (Paramètres → Agent Cursor)');
+
+    // Backup Git obligatoire avant modification locale
+    if (cfg.runtime !== 'cloud' && cfg.auto_backup !== false) {
+      try {
+        run.backup = createPreAgentBackup(cfg.cwd, { label: run.label || `run-${run.id}` });
+      } catch (backupErr) {
+        throw new Error(`Backup Git requis avant Cursor : ${backupErr.message}`);
+      }
+    }
 
     const sdk = await loadSdk();
     const { Agent } = sdk;
@@ -131,7 +173,10 @@ async function executeRun(run) {
         repos: [{ url: cfg.repo_url }],
       };
     } else {
-      const cwd = cfg.cwd || '/opt/neya-erp';
+      const cwd = cfg.cwd || '/workspace';
+      if (!fs.existsSync(cwd)) {
+        throw new Error(`Workspace Cursor introuvable (${cwd}). Montez /opt/neya-erp → /workspace dans docker-compose.`);
+      }
       const store = getJsonlStore(sdk, cwd);
       options.local = { cwd, store };
     }
@@ -141,6 +186,7 @@ async function executeRun(run) {
     run.result = result.result || result.status || '';
     run.agent_run_id = result.id || null;
     run.finished_at = new Date().toISOString();
+    run.git_after = getWorkspaceGitStatus(cfg.cwd);
   } catch (err) {
     run.status = 'error';
     run.error = err.message || String(err);
@@ -161,6 +207,8 @@ export async function startAgentRun({ prompt, label = null, source = 'manual', r
     status: 'queued',
     result: null,
     error: null,
+    backup: null,
+    git_after: null,
     agent_run_id: null,
     created_at: new Date().toISOString(),
     started_at: null,
@@ -168,7 +216,6 @@ export async function startAgentRun({ prompt, label = null, source = 'manual', r
   };
   runs.set(run.id, run);
 
-  // Lancer en arrière-plan (ne bloque pas l'UI ERP)
   setImmediate(() => {
     executeRun(run).catch((e) => {
       run.status = 'error';
@@ -189,4 +236,38 @@ export async function startRoadmapAction(roadmapId) {
     source: 'roadmap',
     roadmap_id: action.id,
   });
+}
+
+export async function gatewayGitStatus() {
+  const cfg = await getCursorConfig();
+  return {
+    cwd: cfg.cwd,
+    git: cfg.git,
+    backups: listCursorBackups(cfg.cwd),
+  };
+}
+
+export async function gatewayCreateBackup(label) {
+  const cfg = await getCursorConfig();
+  return createPreAgentBackup(cfg.cwd, { label: label || 'manual' });
+}
+
+export async function gatewayRestoreBackup(payload) {
+  const cfg = await getCursorConfig();
+  return restoreGitBackup(cfg.cwd, payload || {});
+}
+
+export async function gatewayCommit(message) {
+  const cfg = await getCursorConfig();
+  return gitCommitWorkspace(cfg.cwd, message);
+}
+
+export async function gatewayPush(payload) {
+  const cfg = await getCursorConfig();
+  return gitPushWorkspace(cfg.cwd, payload || {});
+}
+
+export async function gatewayListBackups() {
+  const cfg = await getCursorConfig();
+  return listCursorBackups(cfg.cwd);
 }

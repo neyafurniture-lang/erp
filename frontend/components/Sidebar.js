@@ -17,9 +17,9 @@ const NAV = [
   { href: '/purchases', label: 'Achats atelier', section: 'ops', permission: 'purchases' },
   { href: '/inventory', label: 'Stock', section: 'ops', permission: 'inventory' },
   { href: '/team', label: 'Équipe', section: 'ops', permission: 'team' },
+  { href: '/calendar', label: 'Calendrier', section: 'ops', permission: 'calendar' },
   { href: '/drive', label: 'Drive', section: 'integrations', permission: 'drive' },
   { href: '/mail', label: 'Courriel', section: 'integrations', permission: 'mail' },
-  { href: '/calendar', label: 'Calendrier', section: 'ops', permission: 'calendar' },
   { href: '/invoices', label: 'Factures', section: 'finance', permission: 'invoices' },
   { href: '/expenses', label: 'Dépenses', section: 'finance', permission: 'expenses' },
   { href: '/clients', label: 'Clients', section: 'crm', permission: 'clients' },
@@ -28,12 +28,24 @@ const NAV = [
 ];
 
 const SECTIONS = [
-  { id: 'principal', label: 'Principal' },
+  { id: 'principal', label: 'Atelier' },
   { id: 'ops', label: 'Opérations' },
-  { id: 'integrations', label: 'Intégrations' },
+  { id: 'integrations', label: 'Outils' },
   { id: 'finance', label: 'Finance' },
   { id: 'crm', label: 'Commercial' },
 ];
+
+function NavLink({ href, label, active }) {
+  return (
+    <Link
+      href={href}
+      className={`nav-item ${active ? 'nav-item-active' : 'nav-item-idle'}`}
+    >
+      <span className="nav-item-dot" aria-hidden />
+      <span className="truncate">{label}</span>
+    </Link>
+  );
+}
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -42,62 +54,56 @@ export default function Sidebar() {
 
   const visibleNav = NAV.filter(n => hasPermission(user, n.permission));
   const showSettings = hasPermission(user, 'settings');
+  const shopHost = shopUrl.replace(/^https?:\/\//, '');
 
   useEffect(() => {
     api('/wordpress/status').then(s => { if (s?.base) setShopUrl(s.base); }).catch(() => {});
   }, []);
 
   return (
-    <aside className="hidden lg:flex fixed left-0 top-0 h-full w-[var(--sidebar-w)] bg-white border-r border-neya-border text-neya-ink flex-col z-40">
-      <div className="px-5 py-5 border-b border-neya-border">
-        <Image src="/brand/logo-orange.png" alt="Neya" width={88} height={32} className="h-8 w-auto" priority />
-        <p className="text-[10px] text-neya-muted mt-2 tracking-wide">ERP · Neya Furniture</p>
+    <aside className="neya-sidebar hidden lg:flex fixed left-0 top-0 h-full w-[var(--sidebar-w)] flex-col z-40">
+      <div className="neya-sidebar-brand">
+        <Image src="/brand/logo-orange.png" alt="Neya" width={96} height={36} className="h-9 w-auto" priority />
+        <p className="neya-sidebar-tagline">Espace atelier</p>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-2 py-4">
+      <nav className="neya-sidebar-nav" aria-label="Navigation principale">
         {SECTIONS.filter(sec => visibleNav.some(n => n.section === sec.id)).map(sec => (
-          <div key={sec.id} className="mb-6">
-            <div className="flex items-center gap-2 px-3 mb-1">
-              <span className="nav-section-label mb-0 shrink-0">{sec.label}</span>
-              <span className="flex-1 h-px bg-neya-border/60" aria-hidden />
+          <section key={sec.id} className="nav-group">
+            <h2 className="nav-group-title">{sec.label}</h2>
+            <div className="nav-group-list">
+              {visibleNav.filter(n => n.section === sec.id).map(({ href, label }) => {
+                const active = href === '/' ? pathname === '/' : pathname.startsWith(href);
+                return <NavLink key={href} href={href} label={label} active={active} />;
+              })}
             </div>
-            {visibleNav.filter(n => n.section === sec.id).map(({ href, label }) => {
-              const active = href === '/' ? pathname === '/' : pathname.startsWith(href);
-              return (
-                <Link
-                  key={href}
-                  href={href}
-                  className={`nav-item block mb-0.5 ${active ? 'nav-item-active' : 'nav-item-idle'}`}
-                >
-                  <span>{label}</span>
-                </Link>
-              );
-            })}
-          </div>
+          </section>
         ))}
       </nav>
 
-      <div className="p-3 border-t border-neya-border space-y-1">
-        {hasPermission(user, 'dashboard') && (
-          <Link href="/manual" className={`nav-item block ${pathname.startsWith('/manual') ? 'nav-item-active' : 'nav-item-idle'}`}>
-            Manuel ERP
-          </Link>
-        )}
-        {showSettings && (
-          <>
-            <Link href="/settings" className={`nav-item block ${pathname.startsWith('/settings') ? 'nav-item-active' : 'nav-item-idle'}`}>
-              Paramètres
-            </Link>
-            <Link href="/roadmap" className={`nav-item block ${pathname.startsWith('/roadmap') ? 'nav-item-active' : 'nav-item-idle'}`}>
-              Roadmap
-            </Link>
-          </>
-        )}
-        <button type="button" onClick={logout} className="nav-item w-full text-left nav-item-idle text-neya-error hover:bg-red-50">
-          Déconnexion
-        </button>
-        <a href={shopUrl} target="_blank" rel="noopener noreferrer" className="block text-[10px] text-neya-muted hover:text-neya-orange px-3 pt-2">
-          {shopUrl.replace(/^https?:\/\//, '')} ↗
+      <div className="neya-sidebar-footer">
+        <div className="nav-group-list">
+          {hasPermission(user, 'dashboard') && (
+            <NavLink href="/manual" label="Manuel" active={pathname.startsWith('/manual')} />
+          )}
+          {showSettings && (
+            <>
+              <NavLink href="/settings" label="Paramètres" active={pathname.startsWith('/settings')} />
+              <NavLink href="/roadmap" label="Roadmap" active={pathname.startsWith('/roadmap')} />
+            </>
+          )}
+          <button type="button" onClick={logout} className="nav-item nav-item-idle nav-item-danger">
+            <span className="nav-item-dot" aria-hidden />
+            <span>Déconnexion</span>
+          </button>
+        </div>
+        <a
+          href={shopUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="neya-sidebar-shop"
+        >
+          {shopHost}
         </a>
       </div>
     </aside>

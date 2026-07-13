@@ -35,6 +35,7 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
   const [matForm, setMatForm] = useState({ description: '', quantity: 1, unit_cost: 0 });
   const [taskForm, setTaskForm] = useState({ title: '', type: 'assemblage', estimated_minutes: 60 });
   const [taskBusy, setTaskBusy] = useState(false);
+  const [statusBusy, setStatusBusy] = useState(false);
   const custom = isCustomProject(project);
   const meta = typeof project.meta === 'string' ? JSON.parse(project.meta || '{}') : (project.meta || {});
   const standardMeta = project.standard_meta || null;
@@ -108,6 +109,19 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
     onReload();
   }
 
+  async function toggleProjectDone() {
+    if (statusBusy) return;
+    setStatusBusy(true);
+    try {
+      await api(`/projects/${project.id}/toggle-done`, { method: 'POST' });
+      onReload();
+    } catch (err) {
+      window.alert(err.message || 'Impossible de mettre à jour le projet');
+    } finally {
+      setStatusBusy(false);
+    }
+  }
+
   async function syncMaterialsFromQuote() {
     await api(`/analytics/projects/${project.id}/materials/sync-quote`, { method: 'POST' });
     onReload();
@@ -122,10 +136,31 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
       </div>
 
       <header className="mb-8 border-b border-neya-border pb-6">
-        <p className="section-title mb-1">{project.client_name || 'Sans client'}</p>
-        <h1 className="text-2xl sm:text-3xl font-medium text-neya-ink tracking-tight">{project.name}</h1>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="section-title mb-1">{project.client_name || 'Sans client'}</p>
+            <h1 className={`text-2xl sm:text-3xl font-medium tracking-tight ${project.status === 'done' ? 'text-neya-muted line-through' : 'text-neya-ink'}`}>
+              {project.name}
+            </h1>
+          </div>
+          <button
+            type="button"
+            onClick={toggleProjectDone}
+            disabled={statusBusy}
+            className={`shrink-0 text-sm font-semibold px-4 py-2 rounded-xl border transition-colors disabled:opacity-50 ${
+              project.status === 'done'
+                ? 'bg-white border-neya-orange text-neya-orange hover:bg-neya-orange hover:text-white'
+                : 'bg-neya-orange text-white border-neya-orange hover:bg-neya-ink'
+            }`}
+          >
+            {statusBusy ? '…' : project.status === 'done' ? 'Rouvrir le projet' : 'Terminer le projet'}
+          </button>
+        </div>
         <div className="flex flex-wrap gap-2 mt-4">
           <span className="badge border-neya-border bg-neya-surface">{custom ? 'Sur mesure' : 'Catalogue'}</span>
+          <span className={`badge ${project.status === 'done' ? 'border-green-200 text-green-800 bg-green-50' : 'border-neya-border bg-white'}`}>
+            {project.status === 'done' ? 'Terminé' : 'En cours'}
+          </span>
           {project.deadline && <span className="badge border-neya-border">{formatDate(project.deadline)}</span>}
           {costs && <span className="badge border-neya-orange/30 text-neya-orange">Marge {costs.margin_pct}%</span>}
         </div>

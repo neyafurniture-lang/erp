@@ -257,8 +257,11 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
       setThread(processed);
       setLinkClientId(processed.client_id ? String(processed.client_id) : '');
       setLinkProjId(processed.project_id ? String(processed.project_id) : '');
-      if (processed.latest_synthesis?.suggested_reply) {
-        setReply(processed.latest_synthesis.suggested_reply);
+      if (processed.latest_synthesis?.suggested_reply || processed.synthesis?.suggested_reply) {
+        setReply(processed.latest_synthesis?.suggested_reply || processed.synthesis.suggested_reply);
+      }
+      if (processed.synthesis_error) {
+        setThreadWarn(`Synthèse : ${processed.synthesis_error}`);
       }
     } catch (e) {
       setThread(null);
@@ -311,14 +314,21 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
     if (!thread?.id) return;
     setSynthLoading(true);
     setErr('');
+    setThreadWarn('');
     try {
       const result = await threadApi(`/${thread.id}/synthesize`, { method: 'POST' });
       setThread(result.thread);
+      setLinkClientId(result.thread?.client_id ? String(result.thread.client_id) : '');
+      setLinkProjId(result.thread?.project_id ? String(result.thread.project_id) : '');
       if (result.synthesis?.suggested_reply) {
         setReply(result.synthesis.suggested_reply);
       }
+      if (result.thread?.client_name) {
+        setThreadWarn('');
+      }
     } catch (e) {
       setErr(e.message);
+      setThreadWarn(`Synthèse : ${e.message}`);
     } finally {
       setSynthLoading(false);
     }
@@ -373,9 +383,12 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
     if (result.thread) setThread(result.thread);
   }
 
-  const synthesis = thread?.latest_synthesis;
+  const synthesis = thread?.latest_synthesis || thread?.synthesis;
   const keyPoints = parseKeyPoints(synthesis?.key_points);
   const actionItems = parseKeyPoints(synthesis?.action_items);
+  const projectsForClient = linkClientId
+    ? projects.filter(p => !p.client_id || String(p.client_id) === String(linkClientId))
+    : projects;
 
   const selectedSender = useMemo(
     () => parseSender(selected?.from || selected?.from_email || ''),
@@ -725,17 +738,34 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                       <>
                         <div className="space-y-2">
                           <label className="label mb-0">Client</label>
-                          <select className="input text-sm min-h-[40px]" value={linkClientId} onChange={e => setLinkClientId(e.target.value)}>
+                          <select className="input text-sm min-h-[40px]" value={linkClientId} onChange={e => {
+                            setLinkClientId(e.target.value);
+                            if (e.target.value && linkProjId) {
+                              const stillOk = projects.some(p => String(p.id) === String(linkProjId) && (!p.client_id || String(p.client_id) === e.target.value));
+                              if (!stillOk) setLinkProjId('');
+                            }
+                          }}>
                             <option value="">— Non lié —</option>
-                            {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            {clients.map(c => <option key={c.id} value={c.id}>{c.name}{c.email ? ` (${c.email})` : ''}</option>)}
                           </select>
+                          {thread.client_name && (
+                            <p className="text-[11px] text-neya-orange font-medium">Lié : {thread.client_name}</p>
+                          )}
+                          {!thread.client_id && thread.suggested_client_name && (
+                            <p className="text-[11px] text-neya-muted">
+                              Suggestion IA : {thread.suggested_client_name}
+                            </p>
+                          )}
                         </div>
                         <div className="space-y-2">
                           <label className="label mb-0">Projet</label>
                           <select className="input text-sm min-h-[40px]" value={linkProjId} onChange={e => setLinkProjId(e.target.value)}>
                             <option value="">— Non lié —</option>
-                            {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                            {projectsForClient.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                           </select>
+                          {thread.project_name && (
+                            <p className="text-[11px] text-neya-muted">Projet : {thread.project_name}</p>
+                          )}
                         </div>
                         <div className="flex flex-wrap gap-2">
                           <button type="button" onClick={saveLinks} className="btn-secondary text-xs min-h-[36px] flex-1">
@@ -788,7 +818,9 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                           </div>
                         ) : (
                           <p className="text-xs text-neya-muted text-center py-4">
-                            Lancez une synthèse IA pour obtenir un résumé et des actions.
+                            {thread.synthesis_error
+                              ? `Synthèse échouée : ${thread.synthesis_error}`
+                              : 'Ouvrez un message pour générer la synthèse, ou cliquez Synthèse.'}
                           </p>
                         )}
 

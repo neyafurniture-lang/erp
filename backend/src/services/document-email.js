@@ -1,6 +1,7 @@
 import pool from '../db/pool.js';
 import { sendEmail } from './email.js';
 import { generateInvoicePdf, generateQuotePdf } from './pdf.js';
+import { getCompanyConfig, getEmailSignatureText } from './company-config.js';
 import { Writable } from 'stream';
 
 function bufferFromPdf(generator, doc) {
@@ -39,10 +40,12 @@ export async function sendDocumentEmail(type, docId) {
     ? `Devis ${doc.quote_number} — Neya Furniture`
     : `Facture #${doc.invoice_number} — Neya Furniture`;
 
+  const company = await getCompanyConfig();
+  const signature = getEmailSignatureText(company);
   await sendEmail({
     to: doc.email,
     subject,
-    text: `Bonjour${doc.client_name ? ` ${doc.client_name}` : ''},\n\nVeuillez trouver ci-joint votre ${isQuote ? 'devis' : 'facture'}.\n\nNeya Furniture\nneyafurniture.ca`,
+    text: `Bonjour${doc.client_name ? ` ${doc.client_name}` : ''},\n\nVeuillez trouver ci-joint votre ${isQuote ? 'devis' : 'facture'}.\n\n${signature}`,
     attachments: [{ filename, content: pdfBuffer, contentType: 'application/pdf' }],
   });
 

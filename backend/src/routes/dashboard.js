@@ -70,7 +70,8 @@ router.get('/', async (req, res) => {
         SELECT t.*, p.name AS project_name, p.id AS project_id
         FROM tasks t
         LEFT JOIN projects p ON p.id = t.project_id
-        WHERE (DATE(t.start_time) = CURRENT_DATE OR (t.start_time IS NULL AND t.status != 'done'))
+        WHERE t.status != 'done'
+          AND (DATE(t.start_time) = CURRENT_DATE OR t.start_time IS NULL)
         ORDER BY t.start_time NULLS LAST, t.sort_order
         LIMIT 12
       `),

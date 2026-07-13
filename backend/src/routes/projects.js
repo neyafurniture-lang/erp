@@ -110,6 +110,47 @@ router.put('/:id', async (req, res) => {
   }
 });
 
+/** Terminer ou rouvrir un projet en un clic */
+router.post('/:id/toggle-done', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const id = Number(req.params.id);
+    const { rows: existing } = await client.query('SELECT * FROM projects WHERE id = $1', [id]);
+    if (!existing[0]) return res.status(404).json({ error: 'Projet introuvable' });
+
+    const wantDone = existing[0].status !== 'done';
+    await client.query('BEGIN');
+
+    if (wantDone) {
+      await client.query(
+        `UPDATE tasks SET status = 'done' WHERE project_id = $1 AND status != 'done'`,
+        [id]
+      );
+      await client.query(`UPDATE projects SET status = 'done' WHERE id = $1`, [id]);
+    } else {
+      await client.query(`UPDATE projects SET status = 'active' WHERE id = $1`, [id]);
+    }
+
+    await client.query('COMMIT');
+
+    const { rows } = await pool.query(`
+      SELECT p.*, c.name AS client_name,
+        (SELECT COUNT(*)::int FROM tasks WHERE project_id = p.id AND status = 'done') AS tasks_done,
+        (SELECT COUNT(*)::int FROM tasks WHERE project_id = p.id AND status != 'done') AS tasks_open,
+        (SELECT COUNT(*)::int FROM tasks WHERE project_id = p.id) AS tasks_total
+      FROM projects p
+      LEFT JOIN clients c ON c.id = p.client_id
+      WHERE p.id = $1
+    `, [id]);
+    res.json(rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 router.delete('/:id', async (req, res) => {
   try {
     await pool.query('DELETE FROM projects WHERE id = $1', [req.params.id]);

@@ -42,22 +42,39 @@ const HISTORY_LIMIT = 12;
 async function buildErpContextSnapshot(pageContext) {
   const pool = (await import('../db/pool.js')).default;
 
-  const [{ rows: projects }, { rows: clients }] = await Promise.all([
+  const [{ rows: projects }, { rows: clients }, { rows: memories }] = await Promise.all([
     pool.query(`
-      SELECT p.id, p.name, p.status, c.name AS client_name
+      SELECT p.id, p.name, p.status, p.notes, p.deadline, c.name AS client_name,
+        (SELECT COUNT(*)::int FROM tasks t WHERE t.project_id = p.id AND t.status != 'done') AS tasks_open,
+        (SELECT COUNT(*)::int FROM tasks t WHERE t.project_id = p.id AND t.status = 'done') AS tasks_done
       FROM projects p
       LEFT JOIN clients c ON c.id = p.client_id
-      ORDER BY p.created_at DESC
-      LIMIT 15
+      ORDER BY CASE WHEN p.status = 'active' THEN 0 ELSE 1 END, p.created_at DESC
+      LIMIT 30
     `),
-    pool.query('SELECT id, name, email FROM clients ORDER BY name LIMIT 20'),
+    pool.query('SELECT id, name, email FROM clients ORDER BY name LIMIT 25'),
+    pool.query(`
+      SELECT category, content, project_id FROM assistant_memories
+      WHERE active = true
+      ORDER BY confidence DESC, updated_at DESC
+      LIMIT 25
+    `).catch(() => ({ rows: [] })),
   ]);
 
   const lines = [];
-  if (projects.length) {
-    lines.push('Projets récents :');
-    for (const p of projects) {
-      lines.push(`- #${p.id} « ${p.name} » [${p.status}]${p.client_name ? ` — client: ${p.client_name}` : ''}`);
+  const active = projects.filter(p => p.status === 'active');
+  const done = projects.filter(p => p.status === 'done');
+  if (active.length) {
+    lines.push('Projets EN COURS (cherche ici d\'abord) :');
+    for (const p of active) {
+      const notes = p.notes ? ` | notes: ${String(p.notes).slice(0, 100)}` : '';
+      lines.push(`- #${p.id} « ${p.name} »${p.client_name ? ` — ${p.client_name}` : ''} (${p.tasks_done || 0}✓/${(p.tasks_done || 0) + (p.tasks_open || 0)})${notes}`);
+    }
+  }
+  if (done.length) {
+    lines.push('Projets TERMINÉS (anciens, toujours accessibles) :');
+    for (const p of done.slice(0, 12)) {
+      lines.push(`- #${p.id} « ${p.name} » [${p.status}]${p.client_name ? ` — ${p.client_name}` : ''}`);
     }
   }
   if (clients.length) {
@@ -66,11 +83,23 @@ async function buildErpContextSnapshot(pageContext) {
       lines.push(`- #${c.id} « ${c.name} »${c.email ? ` (${c.email})` : ''}`);
     }
   }
-  if (pageContext?.type === 'project' && pageContext.tasks?.length) {
-    const pending = pageContext.tasks.filter(t => t.status !== 'done');
-    lines.push(`Tâches du projet courant « ${pageContext.label} » :`);
-    for (const t of pending.slice(0, 12)) {
-      lines.push(`- [${t.status}] ${t.title}`);
+  if (memories.length) {
+    lines.push('Mémoire atelier (faits retenus) :');
+    for (const m of memories.slice(0, 15)) {
+      lines.push(`- [${m.category}] ${m.content}${m.project_id ? ` (projet #${m.project_id})` : ''}`);
+    }
+  }
+  if (pageContext?.type === 'project') {
+    const allTasks = pageContext.tasks || [];
+    lines.push(`Projet OUVERT maintenant : #${pageContext.id} « ${pageContext.label} »`);
+    if (pageContext.project?.notes) {
+      lines.push(`Descriptif/notes : ${String(pageContext.project.notes).slice(0, 300)}`);
+    }
+    if (allTasks.length) {
+      lines.push('Toutes les tâches (cocher / modifier avec complete_task ou update_task) :');
+      for (const t of allTasks.slice(0, 20)) {
+        lines.push(`- #${t.id} [${t.status}] ${t.title}`);
+      }
     }
   }
   return lines.length ? `\nDonnées ERP actuelles (requête base) :\n${lines.join('\n')}` : '';
@@ -102,17 +131,69 @@ async function buildSystemPrompt(pageContext) {
     }
   } catch { /* Drive optionnel */ }
 
+  let mailBlock = '';
+  try {
+    const { getGoogleTokenRow } = await import('./google-oauth.js');
+    const row = await getGoogleTokenRow();
+    if (row?.access_token) {
+      const gmail = await import('./google-gmail.js');
+      const { enrichInboxMessages } = await import('./mail-sort.js');
+      const { messages: raw } = await gmail.listMessages({ label: 'INBOX', max: 8 });
+      const { messages } = await enrichInboxMessages(raw || []);
+      if (messages.length) {
+        const lines = messages.map(m => {
+          const unread = m.isUnread ? '[non lu] ' : '';
+          return `- ${unread}${m.from || '?'} | ${m.subject || '(sans objet)'} [${m.mailCategory || '?'}] id=${m.id}`;
+        });
+        mailBlock = `\nCourriels INBOX récents (Gmail connecté — utilise list_emails / search_emails / get_email pour plus) :\n${lines.join('\n')}`;
+      } else {
+        mailBlock = '\nGmail connecté — boîte vide. Actions : list_emails, search_emails, get_email, list_mail_threads.';
+      }
+    } else {
+      mailBlock = '\nGmail NON connecté — si l\'utilisateur demande des mails, indique Paramètres → Intégrations.';
+    }
+  } catch {
+    mailBlock = '\nGmail indisponible pour le moment. Actions mail : list_emails, search_emails, get_email.';
+  }
+
   return `Tu es Lia, l'assistant NEYA ERP (atelier meubles Neya Furniture).
 IMPORTANT: ta réponse doit être UNIQUEMENT un objet JSON valide, sans markdown, sans texte avant/après.
 Skills: ${JSON.stringify(skills)}
 Actions: ${ACTION_TYPES.join('|')}
-Format exact: {"reply":"texte pour l'utilisateur","action":{"type":null,"params":{}}}
-Si tu dois exécuter une action ERP, mets le type dans action.type (ex. list_projects, create_task, complete_task).
-Sinon action.type = null.
-Mémoire conversation : utilise l'historique des messages pour les suites (« oui », « le premier », « ce projet », « celui-là »). Ne redemande pas ce qui vient d'être dit.
-Données ERP : utilise le bloc ci-dessous pour les noms/id. Si une info manque, appelle list_projects, list_clients ou list_project_tasks plutôt que d'inventer.
-Lie tâches/dépenses au contexte page quand pertinent. Si l'utilisateur mentionne un fichier sans pièce jointe, demande-lui de joindre le fichier via le bouton 📎.
-Pour toute question « comment faire », renvoie vers /manual et cite la section pertinente.${memoryBlock}${manualBlock}${erpBlock}${driveBlock}${ctxNote}`;
+Format exact: {"reply":"texte court pour l'utilisateur","action":{"type":"nom_action_ou_null","params":{}}}
+
+AUTONOMIE — tu DOIS agir seule sans demander de cliquer dans l'ERP :
+1. Cherche d'abord dans le bloc Données ERP / Mémoire ci-dessous.
+2. Si le projet n'y est pas, utilise search_projects ou get_project avec params {"query":"nom"} ou {"project_id":123}.
+3. Pour cocher : complete_task avec {"project_name":"…","task_title":"finition"} ou {"project_id":1,"task_title":"…"}.
+4. Pour modifier une tâche : update_task avec {"task_title":"…","new_title":"…"} ou {"status":"done"|"todo"}.
+5. Pour le descriptif / notes du projet : update_project avec {"project_name":"…","notes":"texte"} ou {"append_notes":true,"notes":"ajout"}.
+6. Pour le statut projet : update_project {"status":"done"|"active","project_id":…}.
+7. Mémoire atelier : search_memory {"query":"…"}. L'utilisateur peut aussi dire « retiens que … ».
+8. list_project_tasks {"project_name":"Olive"} pour lister les tâches d'un projet non ouvert.
+9. COURRIEL — tu as accès à Gmail. Ne dis JAMAIS que tu n'as pas accès au mail.
+   - list_emails {"max":15} ou {"category":"clients"|"fournisseurs"|"a_repondre"|"projets"}
+   - search_emails {"query":"from:client@… OR facture"}
+   - get_email {"message_id":"…"} ou {"index":1} pour le 1er de la boîte
+   - list_mail_threads pour les fils déjà liés ERP
+10. FICHIERS / PLAN FABRICATION — si l'utilisateur joint un mail/PDF/plan et demande de lier / créer des étapes :
+   - create_fabrication_plan {"project_name":"Olive","steps":[{"title":"Débitage","type":"debitage","estimated_minutes":90}],"notes":"…"}
+   - Ne réponds PAS seulement « j'ai reçu le fichier » : exécute l'action.
+
+Exemples params :
+- {"type":"complete_task","params":{"project_name":"Banc Olive","task_title":"finition"}}
+- {"type":"update_project","params":{"project_id":12,"notes":"Livraison semaine prochaine"}}
+- {"type":"search_projects","params":{"query":"olive"}}
+- {"type":"get_project","params":{"project_id":12}}
+- {"type":"list_emails","params":{"max":10}}
+- {"type":"search_emails","params":{"query":"facture Home Depot"}}
+- {"type":"get_email","params":{"index":1}}
+- {"type":"create_fabrication_plan","params":{"project_name":"Banc Olive","steps":[{"title":"Débitage","type":"debitage"},{"title":"Assemblage","type":"assemblage"},{"title":"Finition","type":"finition"}],"notes":"Infos du mail client"}}
+
+Mémoire conversation : utilise l'historique (« oui », « celui-là », « ce projet »). Ne redemande pas ce qui est déjà dit.
+Ne dis JAMAIS « ouvrez le projet » si tu peux le trouver par nom. Exécute l'action.
+Si l'utilisateur mentionne un fichier sans pièce jointe, demande le bouton 📎.
+Pour « comment faire », renvoie vers /manual.${memoryBlock}${manualBlock}${erpBlock}${driveBlock}${mailBlock}${ctxNote}`;
 }
 
 async function callOpenAI({ systemPrompt, history, message }) {

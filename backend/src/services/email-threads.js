@@ -24,7 +24,14 @@ function parseMessageDate(msg) {
   return d && !Number.isNaN(d.getTime()) ? d.toISOString() : new Date().toISOString();
 }
 
-export async function guessClientAndProject({ subject, snippet, body, participants = [] }) {
+function parseDisplayName(raw) {
+  if (!raw) return null;
+  const m = String(raw).match(/^"?([^"<]+)"?\s*</);
+  const name = (m ? m[1] : '').trim();
+  return name.length >= 2 ? name : null;
+}
+
+export async function guessClientAndProject({ subject, snippet, body, participants = [], fromRaw = null }) {
   const keywords = extractKeywords(subject, snippet, body);
   let client_id = null;
   let client_name = null;
@@ -33,42 +40,80 @@ export async function guessClientAndProject({ subject, snippet, body, participan
   let link_source = null;
   let link_confidence = 0;
 
+  // 1) Match exact email client
   for (const email of participants) {
     const { rows } = await pool.query(
-      'SELECT id, name FROM clients WHERE LOWER(email) = $1 LIMIT 1',
+      `SELECT id, name FROM clients
+       WHERE email IS NOT NULL AND LOWER(TRIM(email)) = $1
+       LIMIT 1`,
       [email]
     );
     if (rows[0]) {
       client_id = rows[0].id;
       client_name = rows[0].name;
-      link_source = 'client_match';
+      link_source = 'client_email';
       link_confidence = 0.95;
       break;
     }
   }
 
+  // 2) Match nom client dans sujet / expéditeur (Jean Tremblay <…>)
+  if (!client_id) {
+    const display = parseDisplayName(fromRaw);
+    const hay = `${subject || ''} ${display || ''} ${snippet || ''}`.toLowerCase();
+    const { rows: allClients } = await pool.query(
+      `SELECT id, name, email FROM clients WHERE LENGTH(TRIM(name)) >= 3 ORDER BY LENGTH(name) DESC LIMIT 200`
+    );
+    for (const c of allClients) {
+      const n = String(c.name).trim().toLowerCase();
+      if (n.length >= 3 && hay.includes(n)) {
+        client_id = c.id;
+        client_name = c.name;
+        link_source = 'client_name';
+        link_confidence = 0.75;
+        break;
+      }
+      // prénom + nom partiels (au moins 2 tokens)
+      const parts = n.split(/\s+/).filter(p => p.length >= 3);
+      if (parts.length >= 2 && parts.every(p => hay.includes(p))) {
+        client_id = c.id;
+        client_name = c.name;
+        link_source = 'client_name_parts';
+        link_confidence = 0.7;
+        break;
+      }
+    }
+  }
+
+  // 3) Projet via règles / nom
   const projectMatch = await matchProjectFromRules('any', keywords);
   if (projectMatch) {
     project_id = projectMatch.project_id;
     project_name = projectMatch.project_name;
-    link_source = link_source || projectMatch.confidence || 'project_name';
+    link_source = link_source || (projectMatch.confidence === 'rule' ? 'project_rule' : 'project_name');
     link_confidence = Math.max(link_confidence, projectMatch.confidence === 'rule' ? 0.85 : 0.65);
   }
 
+  // 4) Si client connu → dernier projet actif de ce client
   if (client_id && !project_id) {
     const { rows } = await pool.query(
-      `SELECT id, name FROM projects WHERE client_id = $1 AND status = 'active'
-       ORDER BY updated_at DESC NULLS LAST, created_at DESC LIMIT 1`,
+      `SELECT id, name FROM projects
+       WHERE client_id = $1 AND status = 'active'
+       ORDER BY created_at DESC
+       LIMIT 1`,
       [client_id]
     );
     if (rows[0]) {
       project_id = rows[0].id;
       project_name = rows[0].name;
-      if (!link_source) link_source = 'client_recent_project';
+      if (!link_source || link_source.startsWith('client_')) {
+        link_source = `${link_source || 'client'}_recent_project`;
+      }
       link_confidence = Math.max(link_confidence, 0.55);
     }
   }
 
+  // 5) Si projet connu sans client → hériter le client du projet
   if (project_id && !client_id) {
     const { rows } = await pool.query(
       `SELECT c.id, c.name FROM projects p JOIN clients c ON c.id = p.client_id WHERE p.id = $1`,
@@ -77,6 +122,7 @@ export async function guessClientAndProject({ subject, snippet, body, participan
     if (rows[0]) {
       client_id = rows[0].id;
       client_name = rows[0].name;
+      link_confidence = Math.max(link_confidence, 0.8);
     }
   }
 
@@ -127,6 +173,7 @@ export async function syncGmailThread(gmailThreadId, hints = {}) {
       snippet: last.snippet,
       body: last.body,
       participants,
+      fromRaw: last.from || first.from,
     });
   }
 
@@ -212,9 +259,22 @@ export async function syncGmailThread(gmailThreadId, hints = {}) {
   return getThreadDetail(threadRow.id);
 }
 
-export async function processGmailMessage(messageId) {
+export async function processGmailMessage(messageId, { synthesize = true } = {}) {
   const msg = await gmail.getMessage(messageId);
-  return syncGmailThread(msg.threadId);
+  let thread = await syncGmailThread(msg.threadId);
+  if (synthesize && !thread.latest_synthesis) {
+    try {
+      const result = await synthesizeThread(thread.id);
+      return {
+        ...result.thread,
+        synthesis: result.synthesis,
+        suggested_client_name: result.thread.suggested_client_name || null,
+      };
+    } catch (err) {
+      return { ...thread, synthesis_error: err.message };
+    }
+  }
+  return thread;
 }
 
 export async function getThreadDetail(threadId) {
@@ -265,19 +325,46 @@ export async function listThreads({ client_id, project_id, status, unlinked, lim
 }
 
 export async function linkThread(threadId, { client_id, project_id, link_source = 'manual' }) {
+  let resolvedClient = client_id != null && client_id !== '' ? Number(client_id) : null;
+  let resolvedProject = project_id != null && project_id !== '' ? Number(project_id) : null;
+
+  // Projet choisi → hériter le client si absent
+  if (resolvedProject && !resolvedClient) {
+    const { rows } = await pool.query('SELECT client_id FROM projects WHERE id = $1', [resolvedProject]);
+    if (rows[0]?.client_id) resolvedClient = rows[0].client_id;
+  }
+
   const { rows } = await pool.query(
     `UPDATE email_threads SET
-      client_id = COALESCE($1, client_id),
-      project_id = COALESCE($2, project_id),
+      client_id = $1,
+      project_id = $2,
       link_source = $3,
       link_confidence = 1,
       updated_at = NOW()
      WHERE id = $4 RETURNING *`,
-    [client_id || null, project_id || null, link_source, threadId]
+    [resolvedClient, resolvedProject, link_source, threadId]
   );
   if (!rows[0]) throw new Error('Fil introuvable');
 
-  if (project_id) {
+  // Si client lié mais sans email ERP : proposer l'email du fil
+  if (resolvedClient) {
+    const { rows: msgs } = await pool.query(
+      `SELECT from_email FROM email_messages
+       WHERE thread_id = $1 AND is_outbound = false AND from_email IS NOT NULL
+       ORDER BY sent_at DESC LIMIT 1`,
+      [threadId]
+    );
+    const email = msgs[0]?.from_email;
+    if (email) {
+      await pool.query(
+        `UPDATE clients SET email = COALESCE(NULLIF(TRIM(email), ''), $1)
+         WHERE id = $2 AND (email IS NULL OR TRIM(email) = '')`,
+        [email, resolvedClient]
+      );
+    }
+  }
+
+  if (resolvedProject) {
     const { rows: msgs } = await pool.query(
       'SELECT gmail_message_id, subject, from_email, snippet FROM email_messages WHERE thread_id = $1',
       [threadId]
@@ -288,7 +375,7 @@ export async function linkThread(threadId, { client_id, project_id, link_source 
         `INSERT INTO project_emails (project_id, gmail_message_id, thread_id, subject, from_email, snippet)
          VALUES ($1,$2,$3,$4,$5,$6)
          ON CONFLICT (gmail_message_id) DO UPDATE SET project_id = $1`,
-        [project_id, m.gmail_message_id, thread[0]?.gmail_thread_id, m.subject, m.from_email, m.snippet]
+        [resolvedProject, m.gmail_message_id, thread[0]?.gmail_thread_id, m.subject, m.from_email, m.snippet]
       );
     }
   }
@@ -298,17 +385,20 @@ export async function linkThread(threadId, { client_id, project_id, link_source 
 
 async function callSynthesisLLM(prompt) {
   if (!(await isAssistantAiEnabled())) {
-    throw new Error('Assistant IA désactivé — activez-le dans Paramètres');
+    throw new Error('Assistant IA désactivé — activez-le dans Paramètres → Assistant IA');
   }
 
-  const provider = (await getSetting('ai_provider')) || 'anthropic';
   const system = 'Tu synthétises des fils de courriel pour un atelier de meubles (NEYA). Réponds UNIQUEMENT en JSON valide.';
+  const preferred = (await getSetting('ai_provider')) || 'anthropic';
+  const errors = [];
 
-  if (provider === 'openai' && await getOpenAIKey()) {
+  async function tryOpenAI() {
+    const key = await getOpenAIKey();
+    if (!key) throw new Error('Clé OpenAI absente');
     const model = (await getSetting('openai_model')) || 'gpt-4o-mini';
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await getOpenAIKey()}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
       body: JSON.stringify({
         model,
         temperature: 0.2,
@@ -316,18 +406,22 @@ async function callSynthesisLLM(prompt) {
         response_format: { type: 'json_object' },
       }),
     });
-    if (!res.ok) throw new Error('Synthèse IA échouée (OpenAI)');
-    const data = await res.json();
+    const raw = await res.text();
+    if (!res.ok) throw new Error(`OpenAI ${res.status}: ${raw.slice(0, 180)}`);
+    const data = JSON.parse(raw);
     return JSON.parse(data.choices[0].message.content);
   }
 
-  if (await getAnthropicKey()) {
-    const model = (await getSetting('anthropic_model')) || 'claude-sonnet-5';
+  async function tryClaude() {
+    const key = await getAnthropicKey();
+    if (!key) throw new Error('Clé Claude absente');
+    let model = (await getSetting('anthropic_model')) || 'claude-sonnet-4-20250514';
+    if (model === 'claude-sonnet-5') model = 'claude-sonnet-4-20250514';
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': await getAnthropicKey(),
+        'x-api-key': key,
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
@@ -337,35 +431,94 @@ async function callSynthesisLLM(prompt) {
         messages: [{ role: 'user', content: prompt }],
       }),
     });
-    if (!res.ok) throw new Error('Synthèse IA échouée (Claude)');
-    const data = await res.json();
-    const text = data.content?.[0]?.text || '{}';
-    const match = text.match(/\{[\s\S]*\}/);
-    return JSON.parse(match ? match[0] : text);
+    const raw = await res.text();
+    if (!res.ok) throw new Error(`Claude ${res.status}: ${raw.slice(0, 180)}`);
+    const data = JSON.parse(raw);
+    const text = data.content?.find(b => b.type === 'text')?.text || data.content?.[0]?.text || '{}';
+    const fenced = String(text).match(/```(?:json)?\s*([\s\S]*?)```/i);
+    const candidate = fenced ? fenced[1].trim() : String(text).trim();
+    const match = candidate.match(/\{[\s\S]*\}/);
+    return JSON.parse(match ? match[0] : candidate);
   }
 
-  throw new Error('Aucune clé IA configurée pour la synthèse');
+  const order = preferred === 'openai' ? [tryOpenAI, tryClaude] : [tryClaude, tryOpenAI];
+  for (const fn of order) {
+    try {
+      return await fn();
+    } catch (e) {
+      errors.push(e.message);
+    }
+  }
+  throw new Error(`Synthèse IA impossible — ${errors.join(' | ')}`);
 }
 
 export async function synthesizeThread(threadId) {
   const detail = await getThreadDetail(threadId);
   if (!detail) throw new Error('Fil introuvable');
 
-  const transcript = (detail.messages || []).map(m => ({
+  // Relancer matching client si pas encore lié
+  if (!detail.client_id) {
+    try {
+      const participants = detail.participant_emails
+        || [...new Set((detail.messages || []).flatMap(m => {
+          const emails = [];
+          if (m.from_email) emails.push(String(m.from_email).toLowerCase());
+          if (Array.isArray(m.to_emails)) emails.push(...m.to_emails.map(e => String(e).toLowerCase()));
+          return emails;
+        }))];
+      const lastMsg = (detail.messages || [])[(detail.messages || []).length - 1];
+      const allText = (detail.messages || [])
+        .map(m => `${m.snippet || ''} ${m.body_text || ''}`)
+        .join(' ')
+        .slice(0, 4000);
+      const guess = await guessClientAndProject({
+        subject: detail.subject,
+        snippet: allText || lastMsg?.snippet,
+        body: lastMsg?.body_text,
+        participants,
+        fromRaw: lastMsg?.from_email,
+      });
+      if (guess.client_id || guess.project_id) {
+        await linkThread(threadId, {
+          client_id: guess.client_id,
+          project_id: guess.project_id || detail.project_id,
+          link_source: guess.link_source || 'synth_relink',
+        });
+      }
+    } catch { /* best effort */ }
+  }
+
+  const fresh = await getThreadDetail(threadId);
+  const transcript = (fresh.messages || []).map(m => ({
     from: m.from_email,
     date: m.sent_at,
     outbound: m.is_outbound,
     body: (m.body_text || m.snippet || '').slice(0, 1500),
   }));
 
+  if (!transcript.length) {
+    throw new Error('Aucun message dans le fil — resynchronisez d\'abord');
+  }
+
+  let signature = '';
+  try {
+    const { getCompanyConfig, getEmailSignatureText } = await import('./company-config.js');
+    signature = getEmailSignatureText(await getCompanyConfig());
+  } catch { /* optional */ }
+
   const prompt = `Analyse ce fil de courriel et produis une synthèse pour l'équipe NEYA.
 
-Client lié: ${detail.client_name || 'non lié'}
-Projet lié: ${detail.project_name || 'non lié'}
-Sujet: ${detail.subject}
+Client lié: ${fresh.client_name || 'non lié'} (id: ${fresh.client_id || 'null'})
+Projet lié: ${fresh.project_name || 'non lié'} (id: ${fresh.project_id || 'null'})
+Sujet: ${fresh.subject}
 
 Messages (${transcript.length}):
 ${JSON.stringify(transcript, null, 2)}
+
+Signature à utiliser à la fin de suggested_reply (obligatoire si tu proposes une réponse) :
+---
+${signature || 'Mehdi\nDesigner / Producteur\nNeya Furniture'}
+---
 
 JSON attendu:
 {
@@ -373,13 +526,31 @@ JSON attendu:
   "key_points": [{"type":"demande|info|délai|prix|problème", "text":"..."}],
   "action_items": [{"text":"...", "due":"YYYY-MM-DD ou null", "priority":"haute|normale|basse"}],
   "sentiment": "urgent|positif|neutre|tendu",
-  "suggested_reply": "brouillon de réponse professionnelle en français (ou null si rien à répondre)",
+  "suggested_reply": "brouillon de réponse professionnelle en français, terminé par la signature ci-dessus (ou null si rien à répondre)",
   "client_intent": "devis|suivi|plainte|confirmation|autre",
-  "needs_response": true
+  "needs_response": true,
+  "suggested_client_name": "nom client ERP si identifiable sinon null"
 }`;
 
   const parsed = await callSynthesisLLM(prompt);
   const model = (await getSetting('ai_provider')) || 'anthropic';
+
+  if (!fresh.client_id && parsed.suggested_client_name) {
+    const needle = String(parsed.suggested_client_name).trim().toLowerCase();
+    if (needle.length >= 2) {
+      const { rows: hit } = await pool.query(
+        `SELECT id FROM clients WHERE LOWER(name) = $1 OR LOWER(name) LIKE $2 LIMIT 1`,
+        [needle, `%${needle}%`]
+      );
+      if (hit[0]) {
+        await linkThread(threadId, {
+          client_id: hit[0].id,
+          project_id: fresh.project_id,
+          link_source: 'synth_client_suggest',
+        });
+      }
+    }
+  }
 
   const { rows } = await pool.query(
     `INSERT INTO email_thread_syntheses (
@@ -396,7 +567,7 @@ JSON attendu:
       parsed.client_intent || null,
       parsed.needs_response === true,
       model,
-      detail.messages?.length || 0,
+      fresh.messages?.length || 0,
     ]
   );
 
@@ -407,7 +578,11 @@ JSON attendu:
     await classifyAndStoreThread(threadId);
   } catch { /* optional */ }
 
-  return { thread: await getThreadDetail(threadId), synthesis: rows[0] };
+  const threadOut = await getThreadDetail(threadId);
+  if (!threadOut.client_id && parsed.suggested_client_name) {
+    threadOut.suggested_client_name = parsed.suggested_client_name;
+  }
+  return { thread: threadOut, synthesis: rows[0] };
 }
 
 export async function processRecentInbox(max = 15) {

@@ -82,7 +82,10 @@ export const ERP_MANUAL_SECTIONS = [
     ],
     tips: [
       'Première fois : Paramètres → Intégrations → Connecter Google (Gmail + Drive).',
-      'Ouvrir un message → panneau « Assistant ERP » : liens client/projet + synthèse IA.',
+      'Ouvrir un message → panneau Contexte ERP : liaison auto client (email ou nom) + projet, puis synthèse IA.',
+      'Si la synthèse échoue : Paramètres → Assistant IA activé + clé Claude ou OpenAI. Bouton « Synthèse » pour relancer.',
+      'Renseigner l’email sur la fiche client améliore le lien automatique des fils.',
+      'Brouillons IA et envois devis/facture utilisent la signature Mehdi (company.json → emailSignature).',
       '« Analyser (20) » : pré-traite les derniers fils (liaison auto + base conversation).',
       'Scan factures fournisseurs (Home Depot, Rona…) : file en haut de la page Courriel.',
       'Erreur 404 ? Le backend VPS doit être à jour (Paramètres → Déploiement VPS).',
@@ -129,7 +132,9 @@ export const ERP_MANUAL_SECTIONS = [
     tips: [
       'Client doit avoir un courriel pour l’envoi PDF.',
       'Assistant : « Créer devis », « Envoyer facture », « Convertir devis ».',
-      'Paiements partiels suivis sur la fiche facture.',
+      'Lignes devis/facture : tableau éditable (Entrée = nouvelle ligne, coller depuis Excel/Sheets).',
+      'Liste factures : colonnes Déjà payé et Reste. Bouton Paiement → options rapides (solde, 50 %, 30 %, Interac…).',
+      'Fiche facture : barre de progression, historique des paiements, suppression d’un paiement si erreur.',
     ],
   },
   {

@@ -210,7 +210,7 @@ export default function VoiceOrb({
                 onClick={onSelectVoice}
                 className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-neya-surface text-left transition-colors"
               >
-                <span className="w-9 h-9 rounded border border-neya-border bg-neya-surface text-neya-ink flex items-center justify-center shrink-0">
+                <span className="w-9 h-9 rounded-full border border-neya-border bg-neya-surface text-neya-ink flex items-center justify-center shrink-0">
                   <MicIcon className="w-4 h-4" />
                 </span>
                 <span>
@@ -223,7 +223,7 @@ export default function VoiceOrb({
                 onClick={onSelectText}
                 className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-neya-surface text-left transition-colors"
               >
-                <span className="w-9 h-9 rounded border border-neya-border bg-neya-surface text-neya-ink flex items-center justify-center shrink-0">
+                <span className="w-9 h-9 rounded-full border border-neya-border bg-neya-surface text-neya-ink flex items-center justify-center shrink-0">
                   <TextIcon className="w-4 h-4" />
                 </span>
                 <span>
@@ -237,7 +237,7 @@ export default function VoiceOrb({
                   onClick={onSelectAttach}
                   className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-neya-surface text-left transition-colors"
                 >
-                  <span className="w-9 h-9 rounded border border-neya-border bg-neya-surface text-neya-ink flex items-center justify-center shrink-0">
+                  <span className="w-9 h-9 rounded-full border border-neya-border bg-neya-surface text-neya-ink flex items-center justify-center shrink-0">
                     <ClipIcon className="w-4 h-4" />
                   </span>
                   <span>
@@ -251,11 +251,6 @@ export default function VoiceOrb({
         )}
 
         <div className="voice-orb-core relative flex items-center justify-center w-16 h-16">
-          {isProcessing && (
-            <span className="voice-orb-busy-pill" aria-live="polite">
-              IA en cours…
-            </span>
-          )}
           <div
             className={`voice-orb-halo voice-orb-halo--outer ${isListening ? 'voice-orb-halo--active' : ''} ${isProcessing ? 'voice-orb-halo--processing' : ''} ${menuOpen ? 'voice-orb-halo--active' : ''}`}
             aria-hidden
@@ -276,7 +271,7 @@ export default function VoiceOrb({
             aria-label={STATE_LABELS[state] || STATE_LABELS.idle}
             aria-expanded={menuOpen}
             aria-pressed={isListening}
-            className="voice-orb-hit relative z-10 flex items-center justify-center w-full h-full bg-transparent border-0 p-0 cursor-pointer transition-transform active:scale-95 hover:scale-[1.03] disabled:opacity-50 disabled:cursor-not-allowed outline-none"
+            className="voice-orb-hit relative z-10 flex items-center justify-center w-full h-full bg-transparent border-0 p-0 cursor-pointer transition-transform active:scale-95 hover:scale-[1.03] disabled:opacity-50 disabled:cursor-not-allowed outline-none rounded-full"
           >
             <span
               className={`voice-orb-disc absolute ${discActive ? 'voice-orb-disc--active' : ''} ${isProcessing ? 'voice-orb-disc--busy' : ''}`}
@@ -293,20 +288,14 @@ export default function VoiceOrb({
               )}
             </span>
 
-            {isListening && (
+            {(isListening || isProcessing) && (
               <>
-                <span className="voice-orb-ring voice-orb-ring--1" aria-hidden />
-                <span className="voice-orb-ring voice-orb-ring--2" aria-hidden />
-                <span className="voice-orb-ring voice-orb-ring--3" aria-hidden />
+                <span className={`voice-orb-ring voice-orb-ring--1 ${isProcessing ? 'border-blue-400/50' : ''}`} aria-hidden />
+                <span className={`voice-orb-ring voice-orb-ring--2 ${isProcessing ? 'border-blue-400/40' : ''}`} aria-hidden />
+                <span className={`voice-orb-ring voice-orb-ring--3 ${isProcessing ? 'border-blue-400/30' : ''}`} aria-hidden />
               </>
             )}
           </button>
-
-          {(isListening || isProcessing) && (
-            <p className="absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] font-medium text-neya-orange/80 animate-pulse pointer-events-none">
-              {STATE_LABELS[state]}
-            </p>
-          )}
         </div>
       </div>
     </>

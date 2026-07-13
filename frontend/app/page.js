@@ -296,7 +296,9 @@ export default function DashboardPage() {
               </div>
             ) : (
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {data?.projectCards?.map(p => <ProjectCard key={p.id} project={p} large />)}
+                {data?.projectCards?.map(p => (
+                  <ProjectCard key={p.id} project={p} large onStatusChange={() => load()} />
+                ))}
               </div>
             )}
           </section>

@@ -27,3 +27,17 @@ export async function getCompanyConfig() {
 export function clearCompanyCache() {
   cache = null;
 }
+
+/** Signature plain-text pour courriels sortants / brouillons IA */
+export function getEmailSignatureText(config = BASE) {
+  if (config?.emailSignature) return String(config.emailSignature).trim();
+  const lines = [
+    config?.signatoryName || 'Mehdi',
+    config?.signatoryTitle || 'Designer / Producteur',
+    config?.phone ? `📞 ${String(config.phone).replace(/^\+1\s*/, '')}` : null,
+    config?.email ? `📧 ${config.email}` : null,
+    config?.instagram ? `📸 ${config.instagram}` : null,
+    (config?.website || '').replace(/^https?:\/\//, '') || null,
+  ].filter(Boolean);
+  return lines.join('\n');
+}

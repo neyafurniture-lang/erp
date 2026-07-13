@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import pool from '../db/pool.js';
+import { syncProjectStatusFromTasks } from '../services/project-status-sync.js';
 
 const router = Router();
 
@@ -106,6 +107,9 @@ router.post('/', async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
       [project_id, title, description, type || 'admin', status || 'todo', assigned_to, minutes, start_time, end_time, sortOrder]
     );
+    if (project_id) {
+      await syncProjectStatusFromTasks(project_id, { fromStatus: 'done', toStatus: status || 'todo' });
+    }
     res.status(201).json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -157,6 +161,13 @@ router.put('/:id', async (req, res) => {
        WHERE id=$11 RETURNING *`,
       [t.title, t.description, t.type, t.status, t.assigned_to, t.estimated_minutes, t.start_time, t.end_time, t.project_id, t.sort_order ?? 0, req.params.id]
     );
+    const projectIds = new Set([existing[0].project_id, rows[0].project_id].filter(Boolean));
+    for (const pid of projectIds) {
+      await syncProjectStatusFromTasks(pid, {
+        fromStatus: existing[0].status,
+        toStatus: rows[0].status,
+      });
+    }
     res.json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -179,7 +190,14 @@ router.patch('/:id/schedule', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
   try {
+    const { rows: existing } = await pool.query('SELECT project_id, status FROM tasks WHERE id = $1', [req.params.id]);
     await pool.query('DELETE FROM tasks WHERE id = $1', [req.params.id]);
+    if (existing[0]?.project_id) {
+      await syncProjectStatusFromTasks(existing[0].project_id, {
+        deleted: true,
+        fromStatus: existing[0].status,
+      });
+    }
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

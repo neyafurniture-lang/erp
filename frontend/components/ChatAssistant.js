@@ -81,65 +81,59 @@ function VoiceResponseCard({ userText, reply, loading, contextLabel, onOpenChat,
 
   return (
     <div
-      className="fixed z-[55] left-4 right-[5.5rem] bottom-[calc(8.5rem+env(safe-area-inset-bottom,0px))] lg:left-auto lg:right-28 lg:bottom-28 lg:max-w-md lg:w-[min(420px,calc(100vw-12rem))] animate-voice-card-in"
+      className="fixed z-[55] right-4 bottom-[calc(8.75rem+env(safe-area-inset-bottom,0px))] lg:right-8 lg:bottom-28 animate-voice-card-in"
       role="status"
       aria-live="polite"
     >
-      <div className="voice-response-card rounded p-4 border border-neya-border shadow-sm">
-        <div className="flex items-start justify-between gap-2 mb-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="w-1.5 h-1.5 bg-neya-ink shrink-0" />
-            <span className="text-[11px] font-medium text-neya-ink truncate">
-              Lia
-            </span>
-            {contextLabel && (
-              <span className="text-[10px] px-1.5 py-0.5 border border-neya-border bg-neya-surface text-neya-muted truncate max-w-[120px]">
-                {contextLabel}
-              </span>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={onDismiss}
-            className="text-neya-muted hover:text-neya-ink text-lg leading-none shrink-0 w-8 h-8 flex items-center justify-center"
-            aria-label="Fermer"
-          >
-            ×
-          </button>
-        </div>
+      <div className={`voice-halo-bubble relative ${loading ? 'voice-halo-bubble--busy' : ''}`}>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="absolute top-[18%] right-[18%] w-8 h-8 rounded-full bg-white/80 border border-neya-border text-neya-muted hover:text-neya-ink flex items-center justify-center text-lg leading-none"
+          aria-label="Fermer"
+        >
+          ×
+        </button>
+
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-neya-orange mb-1">
+          {loading ? 'En cours' : 'Lia'}
+        </p>
+        {contextLabel && (
+          <p className="text-[10px] text-neya-muted mb-2 truncate max-w-[70%]">{contextLabel}</p>
+        )}
 
         {userText && (
-          <p className="text-sm text-neya-muted mb-2 line-clamp-2">
-            <span className="text-neya-ink font-medium">Vous :</span> {userText}
+          <p className="text-[11px] text-neya-muted mb-2 line-clamp-2 max-w-[85%]">
+            <span className="font-medium text-neya-ink">Vous :</span> {userText}
           </p>
         )}
 
         {loading ? (
-          <div className="flex items-center gap-2 text-sm text-neya-muted">
+          <div className="flex flex-col items-center gap-2 text-sm text-neya-muted">
             <span className="voice-dots flex gap-1">
               <span /><span /><span />
             </span>
             Réflexion…
           </div>
         ) : (
-          reply && <p className="text-sm text-neya-ink whitespace-pre-wrap line-clamp-6">{reply}</p>
+          reply && <div className="voice-halo-bubble-body">{reply}</div>
         )}
 
-        <div className="flex flex-wrap items-center gap-3 mt-3">
+        <div className="mt-3 flex flex-col items-center gap-1">
           <button
             type="button"
             onClick={onOpenChat}
-            className="text-xs text-neya-ink font-medium hover:underline"
+            className="text-[11px] text-neya-orange font-medium hover:underline"
           >
-            Ouvrir l'historique ▴
+            Historique
           </button>
           {onAttach && (
             <button
               type="button"
               onClick={onAttach}
-              className="text-xs text-neya-muted font-medium hover:text-neya-ink"
+              className="text-[11px] text-neya-muted font-medium hover:text-neya-orange"
             >
-              📎 Joindre un fichier
+              📎 Joindre
             </button>
           )}
         </div>
@@ -447,12 +441,6 @@ export default function ChatAssistant() {
   }
 
   function handleOrbClick() {
-    // Pendant l'IA : on ne coupe pas l'opération — navigation libre ailleurs
-    if (loading) {
-      setLauncherMenuOpen(false);
-      return;
-    }
-
     if (voicePhase === 'recording' || speech.listening) {
       handleStopRecording();
       return;
@@ -462,6 +450,14 @@ export default function ChatAssistant() {
 
     if (textComposerOpen) {
       setTextComposerOpen(false);
+      return;
+    }
+
+    // Pendant l'IA ou s'il y a une dernière réponse : afficher/masquer la bulle ronde
+    if (loading || voiceCard.userText || voiceCard.reply) {
+      setLauncherMenuOpen(false);
+      clearTimeout(dismissTimerRef.current);
+      setVoiceCard(v => ({ ...v, visible: !v.visible }));
       return;
     }
 
@@ -498,8 +494,9 @@ export default function ChatAssistant() {
   const chatPosition = 'fixed left-0 right-0 lg:left-[var(--sidebar-w)] z-50 bottom-0';
 
   const chatOpen = expanded || mobileSheetOpen;
-  const overlayOpen = chatOpen || textComposerOpen || launcherMenuOpen;
+  const overlayOpen = chatOpen || textComposerOpen;
   const showAttachPrompt = voiceCard.reply?.includes('📎') || /joindre/i.test(voiceCard.reply || '');
+  const showHaloBubble = !voicePhase && voiceCard.visible && (voiceCard.reply || loading || voiceCard.userText) && !overlayOpen && !launcherMenuOpen;
 
   const chatPanel = (onClose, isMobileSheet = false) => (
     <div
@@ -709,20 +706,20 @@ export default function ChatAssistant() {
         />
       )}
 
-      {/* Popup réponse uniquement quand l'IA a fini */}
-      {!voicePhase && voiceCard.visible && voiceCard.reply && !overlayOpen && (
+      {/* Bulle ronde : en cours (si ouverte) ou dernière réponse */}
+      {showHaloBubble && (
         <VoiceResponseCard
           userText={voiceCard.userText}
           reply={voiceCard.reply}
-          loading={false}
+          loading={loading && !voiceCard.reply}
           contextLabel={contextLabel}
           onOpenChat={openChatHistory}
           onDismiss={() => setVoiceCard(v => ({ ...v, visible: false }))}
-          onAttach={showAttachPrompt ? handleSelectAttach : null}
+          onAttach={showAttachPrompt && !loading ? handleSelectAttach : null}
         />
       )}
 
-      {speech.error && !voicePhase && !overlayOpen && (
+      {speech.error && !voicePhase && !overlayOpen && !launcherMenuOpen && (
         <VoiceResponseCard
           userText=""
           reply={speech.error}

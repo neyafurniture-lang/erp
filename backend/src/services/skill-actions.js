@@ -10,6 +10,9 @@ export const ACTION_TYPES = [
   'create_task', 'create_project', 'schedule_task', 'plan_day', 'create_expense', 'list_today', 'list_tomorrow', 'create_client',
   'complete_task', 'update_task', 'delete_task', 'list_project_tasks',
   'update_project', 'update_client', 'list_projects', 'list_clients', 'list_expenses',
+  'search_projects', 'search_memory', 'get_project',
+  'list_emails', 'search_emails', 'get_email', 'list_mail_threads',
+  'create_fabrication_plan',
   'list_skills', 'create_skill', 'update_skill',
   'create_quote', 'create_invoice', 'convert_quote', 'send_quote', 'send_invoice',
   'list_quotes', 'list_invoices', 'delete_project', 'delete_client', 'delete_expense',
@@ -17,6 +20,26 @@ export const ACTION_TYPES = [
   'ui_edit_mode', 'ui_add_todo_list', 'ui_move_section', 'ui_hide_section', 'ui_show_section', 'ui_reset_layout',
   'erp_manual',
 ];
+
+/** Extrait un éventuel objet params JSON préfixé au message (mode LLM). */
+export function extractActionParams(message) {
+  const raw = String(message || '').trim();
+  if (raw.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return { params: parsed, text: '' };
+      }
+    } catch { /* maybe JSON + text */ }
+    const m = raw.match(/^(\{[\s\S]*?\})\s+([\s\S]*)$/);
+    if (m) {
+      try {
+        return { params: JSON.parse(m[1]), text: m[2] };
+      } catch { /* fallthrough */ }
+    }
+  }
+  return { params: {}, text: raw };
+}
 
 export function extractAmount(text) {
   const m = text.match(/(\d+(?:[.,]\d+)?)\s*\$?/);
@@ -89,11 +112,74 @@ function parseStatus(message) {
 }
 
 function parseProjectStatus(message) {
-  if (/terminé|termine|livré|livre|completed/i.test(message)) return 'completed';
-  if (/pause|en pause|on hold/i.test(message)) return 'on_hold';
-  if (/actif|active|en cours/i.test(message)) return 'active';
+  if (/terminé|termine|livré|livre|completed|done|fermer/i.test(message)) return 'done';
+  if (/pause|en pause|on hold/i.test(message)) return 'paused';
+  if (/actif|active|en cours|rouvrir|réouvrir|reouvrir/i.test(message)) return 'active';
   if (/annulé|annule|cancel/i.test(message)) return 'cancelled';
   return null;
+}
+
+async function resolveProjectByHint(hint, pageContext = null) {
+  if (pageContext?.type === 'project' && pageContext.id && !hint) {
+    const { rows } = await pool.query(
+      `SELECT p.*, c.name AS client_name FROM projects p
+       LEFT JOIN clients c ON c.id = p.client_id WHERE p.id = $1`,
+      [pageContext.id]
+    );
+    return rows[0] || null;
+  }
+  if (hint != null && String(hint).match(/^\d+$/)) {
+    const { rows } = await pool.query(
+      `SELECT p.*, c.name AS client_name FROM projects p
+       LEFT JOIN clients c ON c.id = p.client_id WHERE p.id = $1`,
+      [Number(hint)]
+    );
+    if (rows[0]) return rows[0];
+  }
+  const q = String(hint || '').trim().toLowerCase();
+  if (!q) {
+    if (pageContext?.type === 'project' && pageContext.id) {
+      const { rows } = await pool.query(
+        `SELECT p.*, c.name AS client_name FROM projects p
+         LEFT JOIN clients c ON c.id = p.client_id WHERE p.id = $1`,
+        [pageContext.id]
+      );
+      return rows[0] || null;
+    }
+    return null;
+  }
+  const { rows } = await pool.query(
+    `SELECT p.*, c.name AS client_name FROM projects p
+     LEFT JOIN clients c ON c.id = p.client_id
+     WHERE LOWER(p.name) LIKE $1
+        OR LOWER(COALESCE(c.name, '')) LIKE $1
+        OR LOWER(COALESCE(p.notes, '')) LIKE $1
+     ORDER BY
+       CASE WHEN p.status = 'active' THEN 0 ELSE 1 END,
+       CASE WHEN LOWER(p.name) = $2 THEN 0 WHEN LOWER(p.name) LIKE $2 || '%' THEN 1 ELSE 2 END,
+       p.created_at DESC
+     LIMIT 8`,
+    [`%${q}%`, q]
+  );
+  if (!rows.length) return null;
+  const exact = rows.find(p => p.name.toLowerCase() === q);
+  return exact || rows[0];
+}
+
+async function resolveProjectId(params, message, pageContext) {
+  if (params?.project_id) return Number(params.project_id);
+  const hint = params?.project_name || params?.project || params?.query
+    || extractQuotedText(message)
+    || (/projet\s+[«"']?([^«"'.,\n]+)/i.exec(message)?.[1])
+    || (/\b(?:sur|pour|du|de)\s+(?:le\s+)?projet\s+([^\n,.]+)/i.exec(message)?.[1])
+    || (/\b(?:sur|pour)\s+([A-Za-zÀ-ÿ0-9][A-Za-zÀ-ÿ0-9\s-]{1,40})(?:\s*$|,|\.|et\b)/i.exec(message)?.[1])
+    || null;
+  const cleaned = hint ? String(hint).trim().replace(/\s+(tâche|etape|étape|finition|cocher).*$/i, '').trim() : null;
+  if (cleaned || pageContext?.type === 'project') {
+    const p = await resolveProjectByHint(cleaned, pageContext);
+    return p?.id || null;
+  }
+  return pageContext?.type === 'project' ? pageContext.id : null;
 }
 
 function taskHintFromMessage(message) {
@@ -424,26 +510,115 @@ async function listTomorrow() {
   return { reply: `Demain :\n${list}`, actions: [{ type: 'list_tomorrow', data: rows }] };
 }
 
-export async function runSkillAction(actionType, message, pageContext = null, skill = {}) {
+export async function runSkillAction(actionType, message, pageContext = null, skill = {}, actionParams = null) {
   const actions = [];
-  const projectId = pageContext?.type === 'project' ? pageContext.id : null;
+  const extracted = extractActionParams(message);
+  const params = { ...(extracted.params || {}), ...(actionParams || {}) };
+  const text = extracted.text || (Object.keys(extracted.params || {}).length ? '' : String(message || ''));
+  const msg = text || String(message || '');
+
+  let projectId = pageContext?.type === 'project' ? pageContext.id : null;
+  // Aussi résoudre le projet depuis le message même sans params explicites
+  if (!projectId) {
+    projectId = await resolveProjectId(params, msg, pageContext) || projectId;
+  }
   const clientId = pageContext?.type === 'client' ? pageContext.id : null;
 
   switch (actionType) {
+    case 'search_projects':
+    case 'list_projects': {
+      const q = String(params.query || params.project_name || params.q || extractQuotedText(msg) || '').trim();
+      const statusFilter = params.status || null;
+      const values = [];
+      let sql = `
+        SELECT p.*, c.name AS client_name,
+          (SELECT COUNT(*)::int FROM tasks t WHERE t.project_id = p.id AND t.status != 'done') AS tasks_open,
+          (SELECT COUNT(*)::int FROM tasks t WHERE t.project_id = p.id AND t.status = 'done') AS tasks_done
+        FROM projects p
+        LEFT JOIN clients c ON c.id = p.client_id
+        WHERE 1=1`;
+      if (q) {
+        values.push(`%${q.toLowerCase()}%`);
+        sql += ` AND (LOWER(p.name) LIKE $${values.length}
+          OR LOWER(COALESCE(c.name,'')) LIKE $${values.length}
+          OR LOWER(COALESCE(p.notes,'')) LIKE $${values.length})`;
+      }
+      if (statusFilter) {
+        values.push(statusFilter);
+        sql += ` AND p.status = $${values.length}`;
+      }
+      sql += ` ORDER BY CASE WHEN p.status = 'active' THEN 0 ELSE 1 END, p.created_at DESC LIMIT 25`;
+      const { rows } = await pool.query(sql, values);
+      if (!rows.length) {
+        return { reply: q ? `Aucun projet trouvé pour « ${q} ».` : 'Aucun projet.', actions };
+      }
+      const list = rows.map(p => {
+        const notes = p.notes ? ` — notes: ${String(p.notes).slice(0, 80)}` : '';
+        return `• #${p.id} « ${p.name} » [${p.status}]${p.client_name ? ` — ${p.client_name}` : ''} (${p.tasks_done || 0}✓/${(p.tasks_done || 0) + (p.tasks_open || 0)})${notes}`;
+      }).join('\n');
+      actions.push({ type: actionType, data: rows });
+      return { reply: `Projets${q ? ` « ${q} »` : ''} :\n${list}`, actions };
+    }
+
+    case 'get_project': {
+      const id = await resolveProjectId(params, msg, pageContext);
+      if (!id) return { reply: 'Précisez le projet (nom ou id).', actions: [] };
+      const { rows } = await pool.query(
+        `SELECT p.*, c.name AS client_name FROM projects p
+         LEFT JOIN clients c ON c.id = p.client_id WHERE p.id = $1`,
+        [id]
+      );
+      if (!rows[0]) return { reply: 'Projet introuvable.', actions: [] };
+      const p = rows[0];
+      const { rows: tasks } = await pool.query(
+        'SELECT id, title, status, type FROM tasks WHERE project_id = $1 ORDER BY sort_order, id',
+        [id]
+      );
+      const taskLines = tasks.slice(0, 20).map(t => `${t.status === 'done' ? '✓' : '○'} ${t.title}`).join('\n');
+      actions.push({ type: 'get_project', data: { ...p, tasks } });
+      return {
+        reply: `Projet #${p.id} « ${p.name} » [${p.status}]${p.client_name ? ` — ${p.client_name}` : ''}\n`
+          + `Deadline: ${p.deadline || '—'} | Budget: ${p.budget_estimated || 0}$\n`
+          + `Notes: ${p.notes || '(aucune)'}\n`
+          + (taskLines ? `Tâches:\n${taskLines}` : 'Aucune tâche.'),
+        actions,
+      };
+    }
+
+    case 'search_memory': {
+      const q = String(params.query || params.q || extractQuotedText(msg) || msg.replace(/mémoire|memoire|cherche|retiens|souvenir/gi, '').trim()).trim();
+      const { rows } = await pool.query(
+        `SELECT * FROM assistant_memories
+         WHERE active = true
+           AND ($1::text = '' OR LOWER(content) LIKE $2 OR LOWER(COALESCE(category,'')) LIKE $2)
+         ORDER BY confidence DESC, updated_at DESC
+         LIMIT 20`,
+        [q, `%${q.toLowerCase()}%`]
+      );
+      if (!rows.length) return { reply: q ? `Rien en mémoire pour « ${q} ».` : 'Mémoire vide.', actions };
+      const list = rows.map(m => `• [${m.category}] ${m.content}${m.project_id ? ` (projet #${m.project_id})` : ''}`).join('\n');
+      actions.push({ type: 'search_memory', data: rows });
+      return { reply: `Mémoire atelier${q ? ` « ${q} »` : ''} :\n${list}`, actions };
+    }
+
     case 'create_task': {
-      const title = extractQuotedText(message)
-        || extractAfterKeyword(message, ['tâche', 'task', 'étape', 'checklist', 'ajouter'])
+      const title = params.title || extractQuotedText(msg)
+        || extractAfterKeyword(msg, ['tâche', 'task', 'étape', 'checklist', 'ajouter'])
         || 'Nouvelle tâche';
-      let type = 'admin';
-      if (/débitage|cnc|usinage/i.test(message)) type = /cnc|usinage/i.test(message) ? 'usinage' : 'debitage';
-      else if (/assemblage/i.test(message)) type = 'assemblage';
-      else if (/finition|vernis|ponçage/i.test(message)) type = 'finition';
-      const minutes = extractDuration(message);
-      const task = await insertTaskForProject(projectId, title, type, minutes);
+      let pid = projectId || await resolveProjectId(params, msg, pageContext);
+      let type = params.type || 'admin';
+      if (!params.type) {
+        if (/débitage|cnc|usinage/i.test(msg)) type = /cnc|usinage/i.test(msg) ? 'usinage' : 'debitage';
+        else if (/assemblage/i.test(msg)) type = 'assemblage';
+        else if (/finition|vernis|ponçage/i.test(msg)) type = 'finition';
+      }
+      const minutes = params.estimated_minutes || extractDuration(msg);
+      if (!pid) {
+        return { reply: 'Précisez le projet (ex. « ajoute finition sur projet Olive »).', actions: [] };
+      }
+      const task = await insertTaskForProject(pid, title, type, minutes);
       actions.push({ type: 'create_task', data: task });
-      const linked = projectId ? ` dans le projet « ${pageContext.label} »` : '';
-      const dur = task.estimated_minutes != null ? ` (${task.estimated_minutes} min)` : '';
-      return { reply: `Tâche créée${linked} : « ${task.title} »${dur}`, actions };
+      return { reply: `Tâche créée dans le projet #${pid} : « ${task.title} »`, actions };
     }
 
     case 'create_project': {
@@ -535,23 +710,38 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
 
     case 'complete_task':
     case 'update_task': {
-      const tasks = await resolveProjectTasks(projectId, pageContext);
-      const rename = parseRename(message);
-      const hint = rename?.hint || taskHintFromMessage(message);
-      const taskRef = findTaskByHint(hint, tasks);
+      const pid = projectId || await resolveProjectId(params, msg, pageContext);
+      const tasks = await resolveProjectTasks(pid, pid === pageContext?.id ? pageContext : null);
+      const rename = parseRename(msg);
+      const hint = params.task_title || params.task || params.title || rename?.hint || taskHintFromMessage(msg);
+      let taskRef = null;
+      if (params.task_id) {
+        taskRef = tasks.find(t => t.id === Number(params.task_id))
+          || (await pool.query('SELECT * FROM tasks WHERE id = $1', [Number(params.task_id)])).rows[0];
+      } else {
+        taskRef = findTaskByHint(hint, tasks);
+      }
+      if (!taskRef && !pid) {
+        return { reply: 'Précisez le projet et la tâche (ex. « cocher finition sur Olive »).', actions: [] };
+      }
       if (!taskRef) {
-        return { reply: projectId
-          ? `Aucune tâche trouvée dans « ${pageContext.label} ».`
-          : 'Ouvrez un projet ou précisez la tâche entre guillemets.', actions };
+        return { reply: pid
+          ? `Aucune tâche trouvée${hint ? ` pour « ${hint} »` : ''} dans le projet #${pid}.`
+          : 'Ouvrez un projet ou précisez la tâche.', actions: [] };
       }
       const { rows: existing } = await pool.query('SELECT * FROM tasks WHERE id = $1', [taskRef.id]);
       const t = existing[0];
-      const status = parseStatus(message) || (actionType === 'complete_task' ? 'done' : t.status);
-      const newTitle = rename?.newTitle || (extractQuotedText(message) && /renommer|appeler/i.test(message) ? extractQuotedText(message) : null);
+      const status = params.status
+        || parseStatus(msg)
+        || (actionType === 'complete_task' ? 'done' : t.status);
+      const newTitle = params.new_title || rename?.newTitle
+        || (extractQuotedText(msg) && /renommer|appeler/i.test(msg) ? extractQuotedText(msg) : null);
       const { rows } = await pool.query(
         `UPDATE tasks SET title=$1, status=$2 WHERE id=$3 RETURNING *`,
         [newTitle || t.title, status, t.id]
       );
+      const { syncProjectStatusFromTasks } = await import('./project-status-sync.js');
+      await syncProjectStatusFromTasks(t.project_id, { fromStatus: t.status, toStatus: status });
       actions.push({ type: 'update_task', data: rows[0] });
       const parts = [];
       if (status !== t.status) parts.push(`statut → ${status}`);
@@ -563,52 +753,73 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
     }
 
     case 'delete_task': {
-      const tasks = await resolveProjectTasks(projectId, pageContext);
-      const hint = taskHintFromMessage(message);
-      const taskRef = findTaskByHint(hint, tasks, false);
-      if (!taskRef) return { reply: 'Tâche introuvable.', actions };
+      const pid = projectId || await resolveProjectId(params, msg, pageContext);
+      const tasks = await resolveProjectTasks(pid, pid === pageContext?.id ? pageContext : null);
+      const hint = params.task_title || params.task || taskHintFromMessage(msg);
+      const taskRef = params.task_id
+        ? (tasks.find(t => t.id === Number(params.task_id)) || { id: Number(params.task_id) })
+        : findTaskByHint(hint, tasks, false);
+      if (!taskRef?.id) return { reply: 'Tâche introuvable.', actions };
+      const { rows: existing } = await pool.query('SELECT * FROM tasks WHERE id = $1', [taskRef.id]);
+      if (!existing[0]) return { reply: 'Tâche introuvable.', actions };
+      const projectIdForSync = existing[0].project_id;
       await pool.query('DELETE FROM tasks WHERE id = $1', [taskRef.id]);
-      actions.push({ type: 'delete_task', data: { id: taskRef.id, title: taskRef.title } });
-      return { reply: `Tâche supprimée : « ${taskRef.title} »`, actions };
+      if (projectIdForSync) {
+        const { syncProjectStatusFromTasks } = await import('./project-status-sync.js');
+        await syncProjectStatusFromTasks(projectIdForSync, {
+          deleted: true,
+          fromStatus: existing[0].status,
+        });
+      }
+      actions.push({ type: 'delete_task', data: { id: existing[0].id, title: existing[0].title } });
+      return { reply: `Tâche supprimée : « ${existing[0].title} »`, actions };
     }
 
     case 'list_project_tasks': {
-      const id = projectId;
-      if (!id) return { reply: 'Ouvrez un projet pour voir ses tâches, ou dites « tâches du jour ».', actions: [] };
-      const tasks = await resolveProjectTasks(id, pageContext);
-      if (!tasks.length) return { reply: `Aucune tâche dans « ${pageContext?.label || 'ce projet'} ».`, actions };
+      const id = projectId || await resolveProjectId(params, msg, pageContext);
+      if (!id) return { reply: 'Précisez le projet (nom ou page ouverte).', actions: [] };
+      const { rows: proj } = await pool.query('SELECT name FROM projects WHERE id = $1', [id]);
+      const tasks = await resolveProjectTasks(id, id === pageContext?.id ? pageContext : null);
+      if (!tasks.length) return { reply: `Aucune tâche dans « ${proj[0]?.name || id} ».`, actions };
       const list = tasks.map(t => {
         const mark = t.status === 'done' ? '✓' : '○';
         return `${mark} ${t.title}${t.status !== 'todo' ? ` [${t.status}]` : ''}`;
       }).join('\n');
       actions.push({ type: 'list_project_tasks', data: tasks });
-      return { reply: `Tâches — ${pageContext.label} :\n${list}`, actions };
+      return { reply: `Tâches — ${proj[0]?.name || `#${id}`} :\n${list}`, actions };
     }
 
     case 'update_project': {
-      const id = projectId;
-      if (!id) return { reply: 'Ouvrez la page d\'un projet pour le modifier.', actions };
+      const id = projectId || await resolveProjectId(params, msg, pageContext);
+      if (!id) return { reply: 'Précisez le projet à modifier (nom ou id).', actions };
       const { rows: existing } = await pool.query('SELECT * FROM projects WHERE id = $1', [id]);
       const p = existing[0];
       if (!p) return { reply: 'Projet introuvable.', actions };
-      const name = extractQuotedText(message) || (/renommer|appeler/i.test(message) ? extractAfterKeyword(message, ['renommer', 'appeler']) : null);
-      const status = parseProjectStatus(message);
-      const deadline = parseDateHint(message);
-      const budget = extractAmount(message);
-      const notes = /note/i.test(message) ? extractAfterKeyword(message, ['note', 'notes']) : null;
+      const name = params.name || extractQuotedText(msg)
+        || (/renommer|appeler/i.test(msg) ? extractAfterKeyword(msg, ['renommer', 'appeler']) : null);
+      const status = params.status || parseProjectStatus(msg);
+      const deadline = params.deadline ? new Date(params.deadline) : parseDateHint(msg);
+      const budget = params.budget_estimated != null ? Number(params.budget_estimated) : extractAmount(msg);
+      let notes = params.notes ?? params.description ?? null;
+      if (notes == null && /note|descriptif|description|ajoute.*(note|descript)/i.test(msg)) {
+        notes = extractAfterKeyword(msg, ['note', 'notes', 'descriptif', 'description']) || extractQuotedText(msg);
+      }
+      if (notes != null && params.append_notes && p.notes) {
+        notes = `${p.notes}\n${notes}`;
+      }
       const { rows } = await pool.query(
         `UPDATE projects SET name=$1, status=$2, deadline=$3, budget_estimated=$4, notes=$5 WHERE id=$6 RETURNING *`,
         [
           name || p.name,
           status || p.status,
-          deadline ? deadline.toISOString().slice(0, 10) : p.deadline,
-          budget != null && /budget/i.test(message) ? budget : p.budget_estimated,
-          notes ?? p.notes,
+          deadline ? (deadline instanceof Date ? deadline.toISOString().slice(0, 10) : String(deadline).slice(0, 10)) : p.deadline,
+          budget != null && (params.budget_estimated != null || /budget/i.test(msg)) ? budget : p.budget_estimated,
+          notes != null ? notes : p.notes,
           id,
         ]
       );
       actions.push({ type: 'update_project', data: rows[0] });
-      return { reply: `Projet « ${rows[0].name} » mis à jour.`, actions };
+      return { reply: `Projet « ${rows[0].name} » mis à jour${notes != null ? ' (notes/descriptif)' : ''}.`, actions };
     }
 
     case 'update_client': {
@@ -628,18 +839,6 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
       return { reply: `Client « ${rows[0].name} » mis à jour.`, actions };
     }
 
-    case 'list_projects': {
-      const { rows } = await pool.query(`
-        SELECT p.*, c.name AS client_name FROM projects p
-        LEFT JOIN clients c ON c.id = p.client_id
-        ORDER BY p.created_at DESC LIMIT 20
-      `);
-      if (!rows.length) return { reply: 'Aucun projet.', actions };
-      const list = rows.map(p => `• ${p.name} [${p.status}]${p.client_name ? ` — ${p.client_name}` : ''}`).join('\n');
-      actions.push({ type: 'list_projects', data: rows });
-      return { reply: `Projets (${rows.length}) :\n${list}`, actions };
-    }
-
     case 'list_clients': {
       const { rows } = await pool.query('SELECT * FROM clients ORDER BY name LIMIT 30');
       if (!rows.length) return { reply: 'Aucun client.', actions };
@@ -650,14 +849,270 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
 
     case 'list_expenses': {
       let q = 'SELECT e.*, p.name AS project_name FROM expenses e LEFT JOIN projects p ON p.id = e.project_id';
-      const params = [];
-      if (projectId) { params.push(projectId); q += ` WHERE e.project_id = $${params.length}`; }
+      const sqlParams = [];
+      if (projectId) { sqlParams.push(projectId); q += ` WHERE e.project_id = $${sqlParams.length}`; }
       q += ' ORDER BY e.date DESC, e.created_at DESC LIMIT 20';
-      const { rows } = await pool.query(q, params);
+      const { rows } = await pool.query(q, sqlParams);
       if (!rows.length) return { reply: projectId ? 'Aucune dépense pour ce projet.' : 'Aucune dépense.', actions };
       const list = rows.map(e => `• ${Number(e.amount).toFixed(2)} $ — ${e.category}${e.project_name ? ` (${e.project_name})` : ''}`).join('\n');
       actions.push({ type: 'list_expenses', data: rows });
       return { reply: `Dépenses :\n${list}`, actions };
+    }
+
+    case 'list_emails': {
+      try {
+        const gmail = await import('./google-gmail.js');
+        const { enrichInboxMessages } = await import('./mail-sort.js');
+        const max = Math.min(Number(params.max) || 15, 30);
+        const category = String(params.category || params.section || '').trim().toLowerCase();
+        const { messages: raw } = await gmail.listMessages({ label: 'INBOX', max: Math.max(max, 25) });
+        const { messages: enriched } = await enrichInboxMessages(raw || []);
+        let list = enriched;
+        if (category && category !== 'inbox') {
+          list = enriched.filter(m => m.mailCategory === category);
+        }
+        list = list.slice(0, max);
+        if (!list.length) {
+          return {
+            reply: category
+              ? `Aucun courriel dans la section « ${category} ».`
+              : 'Boîte de réception vide (ou Gmail non connecté).',
+            actions,
+          };
+        }
+        const lines = list.map((m, i) => {
+          const unread = m.isUnread ? '● ' : '';
+          const cat = m.mailCategory ? ` [${m.mailCategory}]` : '';
+          const proj = m.project_name ? ` → ${m.project_name}` : '';
+          return `${i + 1}. ${unread}${m.from || '?'} — ${m.subject || '(sans objet)'}${cat}${proj}\n   ${String(m.snippet || '').slice(0, 120)}`;
+        }).join('\n');
+        actions.push({ type: 'list_emails', data: list });
+        return {
+          reply: `Courriels récents (${list.length})${category ? ` — ${category}` : ''} :\n${lines}\n\nPour lire un message : « ouvre le mail 2 » ou get_email avec message_id.`,
+          actions,
+        };
+      } catch (err) {
+        return {
+          reply: `Impossible d'accéder à Gmail : ${err.message}. Connectez Google dans Paramètres → Intégrations.`,
+          actions,
+        };
+      }
+    }
+
+    case 'search_emails': {
+      try {
+        const gmail = await import('./google-gmail.js');
+        const q = String(
+          params.query || params.q || extractQuotedText(msg)
+          || extractAfterKeyword(msg, ['cherche mail', 'chercher mail', 'cherche courriel', 'rechercher mail', 'mails de', 'courriels de', 'email de'])
+          || msg.replace(/^(cherche|rechercher|trouver|liste)\s+(les?\s+)?(mails?|courriels?|emails?)\s*/i, '')
+        ).trim();
+        if (!q || q.length < 2) {
+          return { reply: 'Précisez la recherche, ex. « cherche mails de The NNS » ou « mails facture ».', actions };
+        }
+        const max = Math.min(Number(params.max) || 12, 25);
+        const { messages } = await gmail.searchMessages(q, max);
+        if (!messages?.length) {
+          return { reply: `Aucun courriel trouvé pour « ${q} ».`, actions };
+        }
+        const lines = messages.map((m, i) => (
+          `${i + 1}. ${m.from || '?'} — ${m.subject || '(sans objet)'}\n   ${String(m.snippet || '').slice(0, 120)}`
+        )).join('\n');
+        actions.push({ type: 'search_emails', data: { query: q, messages } });
+        return {
+          reply: `Résultats Gmail pour « ${q} » (${messages.length}) :\n${lines}\n\nPour le contenu : get_email avec {"message_id":"…"} ou « ouvre le mail 1 ».`,
+          actions,
+        };
+      } catch (err) {
+        return {
+          reply: `Recherche Gmail impossible : ${err.message}. Vérifiez la connexion Google.`,
+          actions,
+        };
+      }
+    }
+
+    case 'get_email': {
+      try {
+        const gmail = await import('./google-gmail.js');
+        let messageId = params.message_id || params.id || null;
+        const indexHint = Number(params.index || params.n || msg.match(/(?:mail|courriel|message)\s*(?:n[o°]?\s*)?(\d+)/i)?.[1]);
+
+        if (!messageId && indexHint >= 1) {
+          const { messages } = await gmail.listMessages({ label: 'INBOX', max: Math.max(indexHint, 15) });
+          messageId = messages?.[indexHint - 1]?.id || null;
+        }
+        if (!messageId) {
+          const q = String(params.query || extractQuotedText(msg) || '').trim();
+          if (q) {
+            const { messages } = await gmail.searchMessages(q, 5);
+            messageId = messages?.[0]?.id || null;
+          }
+        }
+        if (!messageId) {
+          return {
+            reply: 'Indiquez quel mail : « ouvre le mail 1 », un message_id, ou un sujet entre guillemets.',
+            actions,
+          };
+        }
+
+        const full = await gmail.getMessage(messageId);
+        const body = String(full.body || full.snippet || '').replace(/\s+/g, ' ').trim().slice(0, 2500);
+        let erpHint = '';
+        try {
+          const { processGmailMessage } = await import('./email-threads.js');
+          const thread = await processGmailMessage(messageId);
+          if (thread?.client_name || thread?.project_name) {
+            erpHint = `\nLien ERP : ${[thread.client_name && `client ${thread.client_name}`, thread.project_name && `projet ${thread.project_name}`].filter(Boolean).join(' · ')}`;
+          }
+          if (thread?.latest_synthesis?.summary) {
+            erpHint += `\nSynthèse : ${thread.latest_synthesis.summary}`;
+          }
+        } catch { /* optional */ }
+
+        actions.push({
+          type: 'get_email',
+          data: {
+            id: full.id,
+            threadId: full.threadId,
+            subject: full.subject,
+            from: full.from,
+            date: full.date,
+            snippet: full.snippet,
+          },
+        });
+        return {
+          reply: `De : ${full.from}\nObjet : ${full.subject}\nDate : ${full.date || '—'}${erpHint}\n\n${body || '(corps vide)'}`,
+          actions,
+        };
+      } catch (err) {
+        return { reply: `Lecture du courriel impossible : ${err.message}`, actions };
+      }
+    }
+
+    case 'list_mail_threads': {
+      try {
+        const { listThreads } = await import('./email-threads.js');
+        const rows = await listThreads({
+          client_id: params.client_id || clientId || undefined,
+          project_id: params.project_id || projectId || undefined,
+          unlinked: params.unlinked,
+          limit: Math.min(Number(params.max) || 15, 40),
+        });
+        if (!rows.length) {
+          return {
+            reply: 'Aucun fil ERP synchronisé. Sur /mail, lancez « Trier la boîte » ou ouvrez un message.',
+            actions,
+          };
+        }
+        const lines = rows.map(t => {
+          const link = [t.client_name, t.project_name].filter(Boolean).join(' / ') || 'non lié';
+          const cat = t.mail_category ? ` [${t.mail_category}]` : '';
+          return `• ${t.subject || '(sans objet)'}${cat} — ${link}`;
+        }).join('\n');
+        actions.push({ type: 'list_mail_threads', data: rows });
+        return { reply: `Fils courriel ERP (${rows.length}) :\n${lines}`, actions };
+      } catch (err) {
+        return { reply: `Fils courriel indisponibles : ${err.message}`, actions };
+      }
+    }
+
+    case 'create_fabrication_plan': {
+      const pid = projectId || await resolveProjectId(params, msg, pageContext);
+      if (!pid) {
+        return {
+          reply: 'Indiquez le projet (ouvrez-le ou « plan fabrication sur projet Olive ») pour y créer les étapes.',
+          actions,
+        };
+      }
+      const { rows: projRows } = await pool.query(
+        'SELECT p.*, c.name AS client_name FROM projects p LEFT JOIN clients c ON c.id = p.client_id WHERE p.id = $1',
+        [pid]
+      );
+      const project = projRows[0];
+      if (!project) return { reply: 'Projet introuvable.', actions };
+
+      let steps = Array.isArray(params.steps) ? params.steps : [];
+      if (!steps.length && params.plan_text) {
+        steps = String(params.plan_text)
+          .split(/\n+/)
+          .map(l => l.replace(/^[-*•\d.)\s]+/, '').trim())
+          .filter(l => l.length > 2)
+          .map(title => ({ title, type: inferTaskType(title), estimated_minutes: defaultMinutesForType(inferTaskType(title)) }));
+      }
+      if (!steps.length) {
+        // Découper le message après "plan" / "étapes"
+        const after = extractAfterKeyword(msg, ['plan de fabrication', 'plan fabrication', 'étapes', 'checklist', 'plan'])
+          || extractQuotedText(msg)
+          || '';
+        const bits = splitPlanItems(after || msg).slice(0, 12);
+        steps = bits.map(title => ({
+          title: title.slice(0, 200),
+          type: inferTaskType(title),
+          estimated_minutes: defaultMinutesForType(inferTaskType(title)),
+        }));
+      }
+      steps = steps
+        .map(s => ({
+          title: String(s.title || s.description || '').trim().slice(0, 200),
+          type: ['debitage', 'usinage', 'assemblage', 'finition', 'admin'].includes(s.type)
+            ? s.type
+            : inferTaskType(String(s.title || '')),
+          estimated_minutes: Number(s.estimated_minutes) > 0
+            ? Number(s.estimated_minutes)
+            : defaultMinutesForType(inferTaskType(String(s.title || ''))),
+        }))
+        .filter(s => s.title.length > 1)
+        .slice(0, 20);
+
+      if (!steps.length) {
+        return {
+          reply: `Projet « ${project.name} » trouvé, mais aucune étape détectée. Joignez le mail/PDF ou listez les étapes.`,
+          actions,
+        };
+      }
+
+      const created = [];
+      for (const step of steps) {
+        const task = await insertTaskForProject(pid, step.title, step.type, step.estimated_minutes);
+        created.push(task);
+        actions.push({ type: 'create_task', data: task });
+      }
+
+      const notesExtra = params.notes || params.summary || null;
+      const fileNote = params.source_files?.length
+        ? `Fichiers liés : ${params.source_files.join(', ')}`
+        : null;
+      const noteParts = [project.notes, notesExtra, fileNote].filter(Boolean);
+      if (notesExtra || fileNote) {
+        await pool.query(
+          'UPDATE projects SET notes = $1 WHERE id = $2',
+          [noteParts.join('\n\n').slice(0, 4000), pid]
+        );
+      }
+
+      // Lier un fil courriel récent au projet si demandé
+      if (params.link_email !== false) {
+        try {
+          const { listThreads, linkThread } = await import('./email-threads.js');
+          const q = (params.project_query || project.name || '').toLowerCase();
+          const threads = await listThreads({ unlinked: true, limit: 20 });
+          const match = threads.find(t => {
+            const hay = `${t.subject || ''} ${(t.participant_emails || []).join(' ')}`.toLowerCase();
+            return q && hay.includes(q.split(/\s+/)[0]);
+          });
+          if (match?.id) {
+            await linkThread(match.id, { project_id: pid, client_id: project.client_id, link_source: 'assistant_plan' });
+            actions.push({ type: 'link_email_thread', data: { thread_id: match.id, subject: match.subject } });
+          }
+        } catch { /* optional */ }
+      }
+
+      actions.push({ type: 'create_fabrication_plan', data: { project_id: pid, tasks: created } });
+      const list = created.map((t, i) => `${i + 1}. ${t.title} (${t.type})`).join('\n');
+      return {
+        reply: `Plan de fabrication créé sur « ${project.name} » (${created.length} étapes) :\n${list}${notesExtra ? `\n\nNotes : ${notesExtra}` : ''}`,
+        actions,
+      };
     }
 
     case 'create_quote': {

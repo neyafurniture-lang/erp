@@ -94,6 +94,14 @@ services:
 
       GIT_COMMIT: ${GIT_COMMIT:-unknown}
 
+      CURSOR_API_KEY: ${CURSOR_API_KEY:-}
+
+      CURSOR_RUNTIME: ${CURSOR_RUNTIME:-local}
+
+      CURSOR_AGENT_CWD: /workspace
+
+      CURSOR_REPO_URL: ${CURSOR_REPO_URL:-}
+
     depends_on:
 
       db:
@@ -103,6 +111,8 @@ services:
     volumes:
 
       - neya_uploads:/app/uploads
+      # Code ERP sur l'hôte — passerelle Cursor Agent (édite / déploie via Git)
+      - /opt/neya-erp:/workspace
 
     healthcheck:
 

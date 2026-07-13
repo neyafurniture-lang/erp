@@ -82,7 +82,7 @@ function contextPrefix(ctx) {
   return '';
 }
 
-async function executeSkill(skill, message, pageContext = null) {
+async function executeSkill(skill, message, pageContext = null, actionParams = null) {
   const actionType = skill.action_type;
 
   if (actionType === 'list_skills') {
@@ -105,7 +105,7 @@ async function executeSkill(skill, message, pageContext = null) {
     return handleUpdateSkillFromChat(message);
   }
 
-  return runSkillAction(actionType, message, pageContext, skill);
+  return runSkillAction(actionType, message, pageContext, skill, actionParams);
 }
 
 function parseSkillName(message) {
@@ -213,8 +213,7 @@ async function tryOpenAI(message, history, pageContext = null) {
 
   if (actionType && ACTION_TYPES.includes(actionType)) {
     const fakeSkill = { action_type: actionType, name: actionType };
-    const syntheticMsg = JSON.stringify(actionParams || {}) + ' ' + message;
-    const result = await executeSkill(fakeSkill, syntheticMsg, pageContext);
+    const result = await executeSkill(fakeSkill, message, pageContext, actionParams || {});
     return { reply: parsed.reply || result.reply, actions: result.actions };
   }
   return { reply: parsed.reply || 'OK', actions: [] };
@@ -264,8 +263,72 @@ function enrichMessageWithHistory(message, history) {
   return `${message}\n\n[Suite de conversation — ne redemande pas ce qui est déjà ci-dessus]\n${recent}`;
 }
 
+function wantsFabricationPlan(message) {
+  const m = String(message || '').toLowerCase();
+  return /plan\s*(de\s*)?fabrication|checklist\s*(atelier|prod)?|étapes?\s+(atelier|prod|fabrication)|creer?\s+(les\s+)?étapes|crée\s+(les\s+)?étapes|a\s+partir\s+de|à\s+partir\s+de|linker|lier\s+(au\s+)?projet|dans\s+le\s+projet|ajoute\s+(les\s+)?étapes/.test(m);
+}
+
+async function buildFabricationFromAttachments(message, attachments, pageContext) {
+  const {
+    extractAllAttachments,
+    formatExtractsForPrompt,
+    proposeFabricationPlanFromText,
+  } = await import('./attachment-extract.js');
+
+  const extracts = await extractAllAttachments(attachments);
+  const hasText = extracts.some(e => (e.text || '').trim().length > 40);
+  if (!hasText) {
+    return {
+      reply: `Fichier(s) reçu(s) (${attachments.map(a => a.name).join(', ')}), mais je n'ai pas pu en extraire assez de texte.\n`
+        + 'Réessayez avec un PDF texte, un .txt, ou une capture claire — ou listez les étapes à créer.',
+      actions: [{ type: 'store_attachments', data: attachments }],
+      attachments,
+    };
+  }
+
+  const projectHint = pageContext?.type === 'project' ? pageContext.label : null;
+  const proposed = await proposeFabricationPlanFromText({ message, extracts, projectHint });
+  if (!proposed) {
+    return {
+      reply: `J'ai lu le fichier, mais je n'ai pas pu construire un plan clair. Contenu extrait (extrait) :\n`
+        + `${extracts.map(e => e.text).join('\n').slice(0, 800)}\n\n`
+        + 'Précisez le projet et les étapes, ou rouvrez le projet et renvoyez.',
+      actions: [{ type: 'store_attachments', data: attachments }],
+      attachments,
+    };
+  }
+
+  const result = await runSkillAction('create_fabrication_plan', message, pageContext, {}, {
+    project_name: proposed.project_query || proposed.project_name,
+    project_query: proposed.project_query,
+    steps: proposed.steps,
+    notes: proposed.notes || proposed.summary,
+    summary: proposed.summary,
+    source_files: attachments.map(a => a.name),
+    link_email: proposed.link_email,
+  });
+
+  return {
+    reply: result.reply,
+    actions: [...(result.actions || []), { type: 'store_attachments', data: attachments }],
+    attachments,
+  };
+}
+
 export async function processMessage(message, attachments = [], rawContext = null) {
   const pageContext = await enrichPageContext(rawContext);
+
+  let attachmentExtractNote = '';
+  let extracts = [];
+  if (attachments.length) {
+    try {
+      const { extractAllAttachments, formatExtractsForPrompt } = await import('./attachment-extract.js');
+      extracts = await extractAllAttachments(attachments);
+      attachmentExtractNote = formatExtractsForPrompt(extracts);
+    } catch (err) {
+      attachmentExtractNote = `\n[Extraction fichiers échouée: ${err.message}]`;
+    }
+  }
 
   const attachmentNote = attachments.length
     ? `\n[${attachments.length} fichier(s): ${attachments.map(a => a.name).join(', ')}]`
@@ -285,7 +348,7 @@ export async function processMessage(message, attachments = [], rawContext = nul
   );
   const chronHistory = history.reverse();
   const contextualMessage = enrichMessageWithHistory(
-    message + attachmentNote + contextNote,
+    message + attachmentNote + contextNote + attachmentExtractNote,
     chronHistory
   );
 
@@ -312,23 +375,40 @@ export async function processMessage(message, attachments = [], rawContext = nul
     return attachResult;
   }
 
+  // Fichier + demande de plan / lien projet → exécuter vraiment (ne pas juste « j'ai reçu »)
+  if (attachments.length && wantsFabricationPlan(message)) {
+    const fab = await buildFabricationFromAttachments(message, attachments, pageContext);
+    await pool.query(
+      'INSERT INTO assistant_messages (role, content, actions_taken, attachments) VALUES ($1,$2,$3,$4)',
+      ['assistant', fab.reply, JSON.stringify(fab.actions || []), JSON.stringify(fab.attachments || [])]
+    );
+    return fab;
+  }
+
   async function runKeywordActions(msg = message) {
     if (isDayPlanMessage(msg)) {
       return runSkillAction('plan_day', msg, pageContext);
     }
     const skill = await matchSkill(msg);
     if (skill) return executeSkill(skill, msg, pageContext);
-    if (pageContext?.type === 'project' && /cocher|marquer|termin|fait|complét/i.test(msg)) {
+    if (/cocher|marquer|termin|fait|complét/i.test(msg) && /tâche|étape|finition|débitage|assemblage|projet|sur /i.test(msg)) {
       return runSkillAction('complete_task', msg, pageContext);
     }
-    if (pageContext?.type === 'project' && /supprimer|retirer|effacer/i.test(msg) && /tâche|étape/i.test(msg)) {
+    if (/supprimer|retirer|effacer/i.test(msg) && /tâche|étape/i.test(msg)) {
       return runSkillAction('delete_task', msg, pageContext);
     }
-    if (pageContext?.type === 'project' && /ajouter|ajoute|étape|checklist|nouvelle tâche|créer tâche|tâche/i.test(msg)) {
+    if (/ajouter|ajoute|étape|checklist|nouvelle tâche|créer tâche/i.test(msg)) {
       return runSkillAction('create_task', msg, pageContext);
+    }
+    if (/descriptif|description|note(s)? (du )?projet|modifier (le )?projet|deadline|budget|renommer projet/i.test(msg)) {
+      return runSkillAction('update_project', msg, pageContext);
     }
     if (pageContext?.type === 'project' && /modifier|deadline|budget|renommer/i.test(msg)) {
       return runSkillAction('update_project', msg, pageContext);
+    }
+    if (/cherche.*(projet|mémoire)|trouve.*(projet)|anciens? projets|projets? termin/i.test(msg)) {
+      if (/mémoire|souvenir/i.test(msg)) return runSkillAction('search_memory', msg, pageContext);
+      return runSkillAction('search_projects', msg, pageContext);
     }
     if (pageContext?.type === 'client' && /projet|nouveau/i.test(msg)) {
       return runSkillAction('create_project', msg, pageContext);
@@ -391,6 +471,10 @@ export async function processMessage(message, attachments = [], rawContext = nul
 }
 
 async function handleAttachments(message, attachments, pageContext = null) {
+  if (wantsFabricationPlan(message)) {
+    return buildFabricationFromAttachments(message, attachments, pageContext);
+  }
+
   const names = attachments.map(a => a.name).join(', ');
   const hasReceipt = attachments.some(a => /image|pdf/i.test(a.type || ''));
   const projectId = pageContext?.type === 'project' ? pageContext.id : null;
@@ -407,9 +491,14 @@ async function handleAttachments(message, attachments, pageContext = null) {
     }
   }
 
+  // Si le fichier contient assez de texte et un projet est ouvert → proposer / créer un plan
+  if (projectId || /projet|plan|étape|fabrication/i.test(message)) {
+    return buildFabricationFromAttachments(message, attachments, pageContext);
+  }
+
   const ctxHint = projectId
-    ? `\n\nContexte : projet « ${pageContext.label} » — décrivez l'étape ou la dépense à créer.`
-    : '\n\nDécrivez ce que vous voulez en faire (projet, tâche, dépense…).';
+    ? `\n\nContexte : projet « ${pageContext.label} » — dites « crée un plan de fabrication » pour générer les étapes.`
+    : '\n\nDites par ex. « Crée un plan de fabrication sur le projet Olive à partir de ce fichier ».';
 
   return {
     reply: `J'ai bien reçu ${attachments.length} fichier(s) : ${names}.${
@@ -581,4 +670,79 @@ export async function seedDefaultSkills() {
       JSON.stringify({ instruction: ERP_MANUAL_SKILL_INSTRUCTION }),
     ]
   );
+
+  const extraSkills = [
+    {
+      name: 'search_projects',
+      description: 'Chercher projets (en cours ou anciens) par nom/client/notes',
+      triggers: ['cherche projet', 'trouver projet', 'projet olive', 'anciens projets', 'projets terminés', 'liste projets'],
+      action: 'search_projects',
+    },
+    {
+      name: 'get_project',
+      description: 'Détail complet d\'un projet + tâches',
+      triggers: ['détail projet', 'voir projet', 'infos projet', 'montre le projet'],
+      action: 'get_project',
+    },
+    {
+      name: 'search_memory',
+      description: 'Chercher dans la mémoire atelier',
+      triggers: ['mémoire', 'qu\'est-ce que tu retiens', 'souvenir', 'cherche en mémoire'],
+      action: 'search_memory',
+    },
+    {
+      name: 'list_emails',
+      description: 'Lister les courriels Gmail (boîte / sections)',
+      triggers: [
+        'liste mails', 'liste courriels', 'mes mails', 'boîte mail', 'boite mail',
+        'voir mails', 'mails non lus', 'courriels clients', 'mails fournisseurs',
+      ],
+      action: 'list_emails',
+    },
+    {
+      name: 'search_emails',
+      description: 'Rechercher dans Gmail',
+      triggers: [
+        'cherche mail', 'chercher mail', 'cherche courriel', 'rechercher mail',
+        'mails de', 'courriels de', 'trouve le mail', 'cherche dans gmail',
+      ],
+      action: 'search_emails',
+    },
+    {
+      name: 'get_email',
+      description: 'Lire le contenu d\'un courriel',
+      triggers: [
+        'ouvre le mail', 'ouvrir mail', 'lis le mail', 'lire mail', 'contenu du mail',
+        'montre le mail', 'détail mail', 'ouvre le courriel',
+      ],
+      action: 'get_email',
+    },
+    {
+      name: 'list_mail_threads',
+      description: 'Lister les fils courriel liés ERP',
+      triggers: ['fils courriel', 'conversations mail', 'mails liés', 'threads mail'],
+      action: 'list_mail_threads',
+    },
+    {
+      name: 'create_fabrication_plan',
+      description: 'Créer un plan de fabrication (étapes) sur un projet depuis un texte/fichier',
+      triggers: [
+        'plan de fabrication', 'plan fabrication', 'crée les étapes', 'créer checklist',
+        'étapes atelier', 'à partir du fichier', 'à partir du mail', 'linker dans le projet',
+      ],
+      action: 'create_fabrication_plan',
+    },
+  ];
+  for (const s of extraSkills) {
+    await pool.query(
+      `INSERT INTO assistant_skills (name, description, trigger_patterns, action_type, enabled)
+       VALUES ($1,$2,$3,$4,true)
+       ON CONFLICT (name) DO UPDATE SET
+         description = EXCLUDED.description,
+         trigger_patterns = EXCLUDED.trigger_patterns,
+         action_type = EXCLUDED.action_type,
+         enabled = true`,
+      [s.name, s.description, JSON.stringify(s.triggers), s.action]
+    );
+  }
 }
