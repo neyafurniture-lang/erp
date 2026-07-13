@@ -77,7 +77,10 @@ async function runAgent({ prompt, apiKey, model }) {
 
   const sdk = await loadSdk();
   const { Agent, JsonlLocalAgentStore, Cursor } = sdk;
-  const storeRoot = path.join(CWD, '.cursor-agent-store');
+  // Hors /opt/neya-erp : évite EACCES quand Docker crée des fichiers en root
+  const storeRoot =
+    process.env.CURSOR_AGENT_STORE ||
+    path.join(os.homedir(), '.neya-cursor-agent-store');
   fs.mkdirSync(storeRoot, { recursive: true });
   const store = new JsonlLocalAgentStore(storeRoot);
   if (Cursor?.configure) {
