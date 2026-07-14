@@ -43,11 +43,7 @@ export default function EasyTable({
   showLineTotal = true,
   minRows = 1,
   className = '',
-  variant = 'default',
 }) {
-  const wrapClass = variant === 'flat'
-    ? 'overflow-x-auto border border-neya-border'
-    : 'overflow-x-auto border border-neya-border rounded-lg';
   const tableRef = useRef(null);
 
   const setRows = useCallback((next) => {
@@ -150,7 +146,7 @@ export default function EasyTable({
 
   return (
     <div className={className}>
-      <div className={wrapClass}>
+      <div className="overflow-x-auto border border-neya-border rounded-lg">
         <table ref={tableRef} className="w-full text-sm min-w-[480px]">
           <thead>
             <tr className="bg-neya-cream/70 text-left text-neya-muted border-b border-neya-border">

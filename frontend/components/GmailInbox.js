@@ -158,7 +158,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
   const [linkClientId, setLinkClientId] = useState('');
   const [linkProjId, setLinkProjId] = useState('');
   const [mobileDetail, setMobileDetail] = useState(false);
-  const [erpOpen, setErpOpen] = useState(false);
+  const [erpOpen, setErpOpen] = useState(true);
   const [threadWarn, setThreadWarn] = useState('');
   const [activeFolder, setActiveFolder] = useState('inbox');
   const [sections, setSections] = useState(MAIL_SECTIONS.map(s => ({ ...s, count: 0 })));
@@ -237,6 +237,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
     setErr('');
     setThreadWarn('');
     setMobileDetail(true);
+    setErpOpen(true);
 
     try {
       const full = m.body ? m : await api(`/gmail/messages/${id}`);
@@ -629,8 +630,8 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
             </EmptyState>
           ) : (
             <>
-              <div className="flex flex-col lg:flex-row flex-1 min-h-0 overflow-hidden">
-                <div className="flex-1 flex flex-col min-w-0 min-h-0">
+              <div className="flex flex-1 min-h-0">
+                <div className="flex-1 flex flex-col min-w-0">
                   <header className="mail-reading-header">
                     <div className="flex items-start gap-3">
                       <button

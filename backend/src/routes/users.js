@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import pool from '../db/pool.js';
 import { validatePassword } from '../config.js';
 import { requireAdmin } from '../middleware/permissions.js';

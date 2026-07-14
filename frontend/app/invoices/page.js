@@ -1,8 +1,7 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
 import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
 import InvoicePaymentModal from '../../components/InvoicePaymentModal';
@@ -11,6 +10,8 @@ import {
   api, formatMoney, formatDate, INVOICE_STATUS, QUOTE_STATUS,
   downloadPdf, calcLineSubtotal, calcTaxes,
 } from '../../lib/api';
+import DocRowMenu from '../../components/DocRowMenu';
+import SendDocumentModal from '../../components/SendDocumentModal';
 
 const EMPTY_FORM = {
   client_id: '',
@@ -25,20 +26,6 @@ const EMPTY_FORM = {
 };
 
 export default function InvoicesPage() {
-  return (
-    <AuthGuard>
-      <AppShell title="Facturation">
-        <Suspense fallback={<p className="text-neya-muted">Chargement…</p>}>
-          <InvoicesContent />
-        </Suspense>
-      </AppShell>
-    </AuthGuard>
-  );
-}
-
-function InvoicesContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
   const [invoices, setInvoices] = useState([]);
   const [quotes, setQuotes] = useState([]);
   const [clients, setClients] = useState([]);
@@ -47,6 +34,7 @@ function InvoicesContent() {
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [paymentForm, setPaymentForm] = useState(null);
   const [convertForm, setConvertForm] = useState(null);
+  const [sendDoc, setSendDoc] = useState(null); // { type, id }
   const [toast, setToast] = useState('');
 
   const load = () => {
@@ -56,18 +44,6 @@ function InvoicesContent() {
   };
 
   useEffect(() => { load(); }, []);
-
-  useEffect(() => {
-    const tabParam = searchParams.get('tab');
-    if (tabParam === 'invoices' || tabParam === 'quotes') setTab(tabParam);
-    if (searchParams.get('new') !== '1') return;
-    const clientName = searchParams.get('client');
-    if (clientName && clients.length) {
-      const match = clients.find(c => c.name.toLowerCase().includes(clientName.toLowerCase()));
-      if (match) setForm(prev => ({ ...prev, client_id: String(match.id) }));
-    }
-    setShowForm(true);
-  }, [searchParams, clients]);
 
   function showToast(msg) {
     setToast(msg);
@@ -82,15 +58,11 @@ function InvoicesContent() {
   async function createDoc(e) {
     e.preventDefault();
     const endpoint = tab === 'quotes' ? '/invoices/quotes' : '/invoices';
-    const created = await api(endpoint, { method: 'POST', body: JSON.stringify(form) });
+    await api(endpoint, { method: 'POST', body: JSON.stringify(form) });
     setShowForm(false);
     setForm({ ...EMPTY_FORM });
     showToast(tab === 'quotes' ? 'Devis créé' : 'Facture créée');
     load();
-    const detailHref = tab === 'quotes'
-      ? `/invoices/quotes/${created.id}`
-      : `/invoices/${created.id}`;
-    router.push(detailHref);
   }
 
   async function updateQuoteStatus(id, status) {
@@ -132,11 +104,39 @@ function InvoicesContent() {
     await downloadPdf(path, `${type}-${id}.pdf`);
   }
 
+  async function deleteDoc(item) {
+    const isQuote = tab === 'quotes';
+    const num = item.invoice_number || item.quote_number;
+    const label = isQuote ? `devis ${num}` : `facture ${num}`;
+    if (!window.confirm(`Supprimer définitivement ${label} ?`)) return;
+    try {
+      if (isQuote) {
+        try {
+          await api(`/invoices/quotes/${item.id}`, { method: 'DELETE' });
+        } catch (err) {
+          if (String(err.message || '').includes('liée à la facture')) {
+            if (!window.confirm(`${err.message}\n\nForcer la suppression du devis (la facture restera) ?`)) return;
+            await api(`/invoices/quotes/${item.id}?force=1`, { method: 'DELETE' });
+          } else {
+            throw err;
+          }
+        }
+      } else {
+        await api(`/invoices/${item.id}`, { method: 'DELETE' });
+      }
+      showToast(`${isQuote ? 'Devis' : 'Facture'} ${num} supprimé(e)`);
+      load();
+    } catch (err) {
+      showToast(err.message || 'Suppression impossible');
+    }
+  }
+
   const list = tab === 'invoices' ? invoices : quotes;
   const preview = calcTaxes(calcLineSubtotal(form.lines));
 
   return (
-    <>
+    <AuthGuard>
+      <AppShell title="Facturation">
         {toast && (
           <div className="fixed top-4 right-4 z-50 bg-neya-ink text-white px-4 py-2 rounded-lg shadow-lg text-sm">
             {toast}
@@ -144,23 +144,23 @@ function InvoicesContent() {
         )}
 
         {/* Workflow guide */}
-        <div className="border border-neya-border bg-neya-surface px-4 py-3 mb-6">
+        <div className="card mb-6 bg-neya-cream/50 border-neya-orange/30">
           <p className="text-sm text-neya-muted">
-            <span className="font-medium text-neya-ink">1. Devis</span> → créer et envoyer au client
-            <span className="mx-2 text-neya-border">·</span>
-            <span className="font-medium text-neya-ink">2. Convertir</span> en facture (complète ou acompte)
-            <span className="mx-2 text-neya-border">·</span>
-            <span className="font-medium text-neya-ink">3. PDF</span> + paiement
+            <span className="font-medium text-neya-orange">1. Devis</span> → créer et envoyer au client
+            <span className="mx-2">→</span>
+            <span className="font-medium text-neya-orange">2. Convertir</span> en facture (complète ou acompte 50%)
+            <span className="mx-2">→</span>
+            <span className="font-medium text-neya-orange">3. PDF</span> + paiement
           </p>
         </div>
 
-        <div className="flex gap-2 mb-6 border-b border-neya-border">
+        <div className="flex gap-4 mb-6">
           <button onClick={() => { setTab('quotes'); setShowForm(false); }}
-            className={`px-4 py-2 text-sm border-b-2 -mb-px ${tab === 'quotes' ? 'border-neya-ink text-neya-ink font-medium' : 'border-transparent text-neya-muted hover:text-neya-ink'}`}>
+            className={`px-4 py-2 rounded-lg text-sm ${tab === 'quotes' ? 'bg-neya-orange text-white' : 'bg-white border'}`}>
             Devis ({quotes.length})
           </button>
           <button onClick={() => { setTab('invoices'); setShowForm(false); }}
-            className={`px-4 py-2 text-sm border-b-2 -mb-px ${tab === 'invoices' ? 'border-neya-ink text-neya-ink font-medium' : 'border-transparent text-neya-muted hover:text-neya-ink'}`}>
+            className={`px-4 py-2 rounded-lg text-sm ${tab === 'invoices' ? 'bg-neya-orange text-white' : 'bg-white border'}`}>
             Factures ({invoices.length})
           </button>
           <div className="flex-1" />
@@ -241,12 +241,13 @@ function InvoicesContent() {
                   </>
                 )}
                 <th className="pb-3 pr-4">Statut</th>
-                <th className="pb-3">Actions</th>
+                <th className="pb-3 pr-2">Actions</th>
+                <th className="pb-3 w-10" />
               </tr>
             </thead>
             <tbody>
               {list.length === 0 && (
-                <tr><td colSpan={tab === 'invoices' ? 8 : 6} className="py-8 text-center text-neya-muted">
+                <tr><td colSpan={tab === 'invoices' ? 9 : 7} className="py-8 text-center text-neya-muted">
                   {tab === 'quotes' ? 'Aucun devis — cliquez « Nouveau devis »' : 'Aucune facture'}
                 </td></tr>
               )}
@@ -260,20 +261,46 @@ function InvoicesContent() {
                   : `/invoices/${item.id}`;
                 const paid = Number(item.amount_paid) || 0;
                 const balance = Math.max(0, Math.round(((Number(item.total) || 0) - paid) * 100) / 100);
+                const menuItems = [
+                  {
+                    id: 'open',
+                    label: 'Ouvrir',
+                    onClick: () => { window.location.href = detailHref; },
+                  },
+                  {
+                    id: 'send',
+                    label: 'Envoyer par courriel…',
+                    onClick: () => setSendDoc({
+                      type: tab === 'quotes' ? 'quote' : 'invoice',
+                      id: item.id,
+                    }),
+                  },
+                  {
+                    id: 'pdf',
+                    label: 'Télécharger le PDF',
+                    onClick: () => openPdf(item.id, tab === 'quotes' ? 'quote' : 'invoice'),
+                  },
+                  {
+                    id: 'delete',
+                    label: 'Supprimer',
+                    danger: true,
+                    onClick: () => deleteDoc(item),
+                  },
+                ];
                 return (
                   <tr
                     key={item.id}
                     className="border-b border-neya-border hover:bg-neya-surface cursor-pointer"
                     onClick={(e) => {
                       if (e.target.closest('button, select, a')) return;
-                      router.push(detailHref);
+                      window.location.href = detailHref;
                     }}
                   >
                     <td className="py-3 pr-4 font-medium">
-                      <Link href={detailHref} className="text-neya-ink hover:underline">{num}</Link>
+                      <Link href={detailHref} className="text-neya-orange hover:underline">{num}</Link>
                     </td>
                     <td className="py-3 pr-4">
-                      <Link href={detailHref} className="hover:underline">
+                      <Link href={detailHref} className="hover:text-neya-orange">
                         <p className="font-medium">{item.title || item.project_name || '—'}</p>
                       </Link>
                       <p className="text-xs text-neya-muted">{item.client_name}</p>
@@ -301,10 +328,20 @@ function InvoicesContent() {
                         <span className={`text-xs px-2 py-1 rounded-full ${st.color}`}>{st.label}</span>
                       )}
                     </td>
-                    <td className="py-3">
+                    <td className="py-3 pr-2">
                       <div className="flex gap-2 flex-wrap items-center">
+                        <button
+                          type="button"
+                          onClick={() => setSendDoc({
+                            type: tab === 'quotes' ? 'quote' : 'invoice',
+                            id: item.id,
+                          })}
+                          className="text-xs btn-primary py-1 px-2"
+                        >
+                          Envoyer
+                        </button>
                         <button onClick={() => openPdf(item.id, tab === 'quotes' ? 'quote' : 'invoice')}
-                          className="text-xs border border-neya-border hover:bg-neya-surface px-2 py-1 text-neya-ink">
+                          className="text-xs bg-neya-cream hover:bg-neya-cream-dark px-2 py-1 rounded text-neya-orange">
                           PDF
                         </button>
                         {tab === 'quotes' && (
@@ -338,6 +375,9 @@ function InvoicesContent() {
                           </button>
                         )}
                       </div>
+                    </td>
+                    <td className="py-3 pl-1 text-right align-middle">
+                      <DocRowMenu items={menuItems} />
                     </td>
                   </tr>
                 );
@@ -415,6 +455,19 @@ function InvoicesContent() {
             onSubmit={submitPayment}
           />
         )}
-    </>
+
+        {sendDoc && (
+          <SendDocumentModal
+            type={sendDoc.type}
+            docId={sendDoc.id}
+            onClose={() => setSendDoc(null)}
+            onSent={() => {
+              showToast('Courriel envoyé');
+              load();
+            }}
+          />
+        )}
+      </AppShell>
+    </AuthGuard>
   );
 }

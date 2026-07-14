@@ -60,6 +60,7 @@ function SettingsContent() {
     google_client_id: '',
     google_client_secret: '',
     google_redirect_uri: '',
+    project_admin_pin: '',
   });
   const [passwordForm, setPasswordForm] = useState({ current_password: '', new_password: '', confirm: '' });
   const [securityInfo, setSecurityInfo] = useState(null);
@@ -311,6 +312,19 @@ function SettingsContent() {
               <div>
                 <label className="label">Téléphone</label>
                 <input className="input" value={form.company_phone} onChange={e => setForm({ ...form, company_phone: e.target.value })} />
+              </div>
+              <div>
+                <label className="label">Code Notes admin (projets)</label>
+                <input
+                  className="input"
+                  type="password"
+                  inputMode="numeric"
+                  autoComplete="new-password"
+                  placeholder={settings?.project_admin_pin_configured ? 'Laisser vide pour conserver' : 'ex. 3125'}
+                  value={form.project_admin_pin}
+                  onChange={e => setForm({ ...form, project_admin_pin: e.target.value })}
+                />
+                <p className="text-xs text-neya-muted mt-1">Protège les prix / budgets sur la fiche projet.</p>
               </div>
             </div>
             <button type="button" onClick={() => saveSettings()} disabled={saving} className="btn-primary mt-4">

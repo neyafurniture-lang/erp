@@ -1,12 +1,6 @@
 import pool from '../db/pool.js';
 import { tryMemoryCommand } from './assistant-memory.js';
 import {
-  resolveAssistantRoute,
-  validateLlmAction,
-  isExplicitCursorRequest,
-  formatRoutingLog,
-} from './ai-router.js';
-import {
   ACTION_TYPES,
   extractAmount,
   extractQuotedText,
@@ -14,6 +8,9 @@ import {
   createProjectFromStandard,
   isDayPlanMessage,
   runSkillAction,
+  detectMailIntent,
+  detectImportMailDatesIntent,
+  detectCreateProjectFromQuoteEmailIntent,
 } from './skill-actions.js';
 
 export { ACTION_TYPES };
@@ -64,16 +61,11 @@ async function enrichPageContext(ctx) {
       'SELECT id, title, status, sort_order, type FROM tasks WHERE project_id = $1 ORDER BY sort_order, id',
       [ctx.id]
     );
-    const projectMeta = typeof rows[0].meta === 'string'
-      ? (() => { try { return JSON.parse(rows[0].meta || '{}'); } catch { return {}; } })()
-      : (rows[0].meta || {});
-    const products = Array.isArray(projectMeta.products) ? projectMeta.products : [];
     return {
       ...ctx,
       label: rows[0].name,
       project: rows[0],
       tasks,
-      products,
       isCustom: !rows[0].standard_id,
       meta: { ...(ctx.meta || {}), ...(pointed ? { element: pointed } : {}) },
     };
@@ -147,8 +139,7 @@ function contextPrefix(ctx) {
   if (ctx.type === 'project') {
     const custom = ctx.isCustom ? ' (checklist atelier)' : ' (fiche catalogue)';
     const pending = ctx.tasks?.filter(t => t.status !== 'done').length ?? 0;
-    const productNote = ctx.products?.length ? ` — ${ctx.products.length} SKU catalogue` : '';
-    return `[Contexte page : projet « ${ctx.label} »${custom}${productNote}${pending ? ` — ${pending} tâche(s) en cours` : ''}${elNote}]\n`;
+    return `[Contexte page : projet « ${ctx.label} »${custom}${pending ? ` — ${pending} tâche(s) en cours` : ''}${elNote}]\n`;
   }
   if (ctx.type === 'client') return `[Contexte page : client « ${ctx.label} »${elNote}]\n`;
   if (ctx.type === 'standard') return `[Contexte page : fiche « ${ctx.label} »${ctx.sku ? ` (${ctx.sku})` : ''}${elNote}]\n`;
@@ -276,34 +267,20 @@ async function handleUpdateSkillFromChat(message) {
   };
 }
 
-async function tryOpenAI(message, history, pageContext = null, { validateActions = true } = {}) {
-  const { callAssistantLLM } = await import('./ai-chat.js');
+async function tryOpenAI(message, history, pageContext = null) {
+  const { runLiaActionLoop } = await import('./assistant-protocol.js');
 
-  const parsed = await callAssistantLLM(message, history, pageContext);
-  if (!parsed) return null;
+  // Boucle : décision IA → exécution skill → ACTION_CHECK → réinterprétation → suite ou finale
+  const result = await runLiaActionLoop({ message, history, pageContext });
+  if (!result) return null;
 
-  let actionType = parsed.action?.type || parsed.action_type || null;
-  let actionParams = parsed.action?.params || parsed.params || {};
-  if (!actionType && Array.isArray(parsed.actions) && parsed.actions[0]) {
-    actionType = parsed.actions[0].type || parsed.actions[0].action_type;
-    actionParams = parsed.actions[0].params || {};
-  }
-  if (actionType === 'null' || actionType === 'none') actionType = null;
-
-  if (actionType && validateActions) {
-    const check = validateLlmAction(actionType, message, pageContext);
-    if (!check.valid) {
-      return { reply: parsed.reply || 'OK', actions: [], _rejectedAction: actionType, _rejectReason: check.reason };
-    }
-    if (check.redirected) actionType = check.actionType;
-  }
-
-  if (actionType && ACTION_TYPES.includes(actionType)) {
-    const fakeSkill = { action_type: actionType, name: actionType };
-    const result = await executeSkill(fakeSkill, message, pageContext, actionParams || {});
-    return { reply: parsed.reply || result.reply, actions: result.actions };
-  }
-  return { reply: parsed.reply || 'OK', actions: [] };
+  return {
+    reply: result.reply || 'OK',
+    actions: result.actions || [],
+    checks: result.checks || [],
+    done: result.done !== false,
+    steps: result.steps,
+  };
 }
 
 function contextExamples(ctx) {
@@ -343,7 +320,29 @@ function needsHistoryContext(message) {
   return /^(crée|creer|ajoute|cocher|modifier|supprime|envoie|planifie)\b/i.test(m) && m.length < 60;
 }
 
-export { isExplicitCursorRequest, isExplicitCursorRequest as isErpCodeChangeRequest } from './ai-router.js';
+/** Demande de feature / UI / code → Cursor VPS, pas une skill métier (ex. create_invoice). */
+export function isErpCodeChangeRequest(message = '') {
+  const m = String(message);
+  if (
+    /demande\s*(à\s*)?cursor|lance\s*cursor|modifie\s*(l['']?)?(erp|interface|code)|change\s*(l['']?)?(interface|code)|améliore\s*(l['']?)?(erp|interface)|planification\s*des\s*d[eé]parts|pr[eé]-?r[eé]ponses?|crée\s*une\s*passerelle|fais\s*[eé]voluer|développe\s*(le\s*)?(module|feature|écran)/i.test(m)
+  ) {
+    return true;
+  }
+  // UX produit : éditeur, clic pour voir/modifier, visualisation document
+  if (
+    /[eé]diteur\s*visuel|[eé]dition\s*visuelle|visualiser\s*(les\s*)?(facture|devis)|en\s*cliquant|cliquer\s*(dessus|pour)|modifier\s*directement|depuis\s*l['']?[eé]diteur|preview\s*(facture|devis)|aper[cç]u\s*(facture|devis)|wysiwyg|document\s*[eé]ditable/i.test(m)
+  ) {
+    return true;
+  }
+  // « j’aimerais qu’on puisse … » / « il faudrait pouvoir … » = feature, pas création métier
+  if (
+    /(j['’]aimerais|on\s+pourrait|il\s+faudrait|fais\s+en\s+sorte|ajoute\s+(la\s+)?possibilit|rends?\s+(possible|cliquable)|pouvoir\s+(visualiser|modifier|cliquer))/i.test(m)
+    && /(interface|page|écran|écran|bouton|facture|devis|dashboard|mail|module|ui)/i.test(m)
+  ) {
+    return true;
+  }
+  return false;
+}
 
 function enrichMessageWithHistory(message, history) {
   if (!history?.length || !needsHistoryContext(message)) return message;
@@ -481,22 +480,61 @@ export async function processMessage(message, attachments = [], rawContext = nul
     return fab;
   }
 
-  async function runKeywordActions(msg = message, { skipCursor = false } = {}) {
+  async function runKeywordActions(msg = message) {
     if (isDayPlanMessage(msg)) {
       return runSkillAction('plan_day', msg, pageContext);
     }
-    if (!skipCursor && isExplicitCursorRequest(msg, pageContext)) {
+    // Feature / UI / éditeur → Cursor VPS (AVANT matchSkill)
+    if (isErpCodeChangeRequest(msg)) {
       return runSkillAction('demande_modification_erp', msg, pageContext);
     }
+
+    // Courriel : regex avant matchSkill (sinon « mes mails » bat une vraie recherche)
+    // Devis Gmail/PDF → créer projets (AVANT search_emails générique)
+    const quoteImport = detectCreateProjectFromQuoteEmailIntent(msg);
+    if (quoteImport) {
+      return runSkillAction(quoteImport, msg, pageContext);
+    }
+
+    const mailIntent = detectMailIntent(msg);
+    if (mailIntent) {
+      return runSkillAction(mailIntent, msg, pageContext);
+    }
+
+    // Dates mails → projet (+ carnet d'heures) même sans le mot « mail »
+    const importDates = detectImportMailDatesIntent(msg);
+    if (importDates) {
+      return runSkillAction(importDates, msg, pageContext);
+    }
+
+    // Client : créer / maj contacts depuis le langage naturel
+    if (/(nouveau|ajouter|ajoute|crée|creer|créer)\s+(un\s+|le\s+)?(client|contact)/i.test(msg)) {
+      return runSkillAction('create_client', msg, pageContext);
+    }
+    if (
+      (/(email|courriel|téléphone|telephone|tel|phone|adresse|coordonn)/i.test(msg)
+        && /(client|contact|de\s+[A-ZÀ-Ÿa-zà-ÿ])/i.test(msg))
+      || (/(mets?|ajoute|change|modifie|renseigne|enregistre).{0,30}(email|courriel|téléphone|telephone|adresse)/i.test(msg))
+    ) {
+      return runSkillAction('update_client', msg, pageContext);
+    }
+
     const skill = await matchSkill(msg);
-    if (!skipCursor && skill?.action_type === 'demande_modification_erp') {
+    if (skill?.action_type === 'demande_modification_erp') {
       return executeSkill(skill, msg, pageContext);
     }
-    if (skill?.action_type === 'demande_modification_erp') {
-      // skipCursor : ignorer le skill Cursor, chercher une autre correspondance
+    if (skill?.action_type === 'create_invoice' && isErpCodeChangeRequest(msg)) {
+      return runSkillAction('demande_modification_erp', msg, pageContext);
+    }
+    // Empêcher complete_task / schedule_task de voler sur des mots trop courts hors contexte
+    if (skill?.action_type === 'complete_task' && !/(tâche|tache|étape|etape|finition|débitage|assemblage|cocher|projet|sur )/i.test(msg)) {
+      /* ignore match trop vague */
+    } else if (skill?.action_type === 'schedule_task' && /^(demain|lundi|mardi|mercredi|jeudi|vendredi)\s*$/i.test(msg.trim())) {
+      return runSkillAction('list_tomorrow', msg, pageContext);
     } else if (skill) {
       return executeSkill(skill, msg, pageContext);
     }
+
     if (/cocher|marquer|termin|fait|complét/i.test(msg) && /tâche|étape|finition|débitage|assemblage|projet|sur /i.test(msg)) {
       return runSkillAction('complete_task', msg, pageContext);
     }
@@ -519,7 +557,7 @@ export async function processMessage(message, attachments = [], rawContext = nul
     if (pageContext?.type === 'client' && /projet|nouveau/i.test(msg)) {
       return runSkillAction('create_project', msg, pageContext);
     }
-    if (pageContext?.type === 'client' && /email|téléphone|telephone|renommer|modifier/i.test(msg)) {
+    if (pageContext?.type === 'client' && /email|téléphone|telephone|renommer|modifier|adresse|coordonn/i.test(msg)) {
       return runSkillAction('update_client', msg, pageContext);
     }
     if (pageContext?.type === 'standard' && /projet|créer|depuis/i.test(msg)) {
@@ -541,42 +579,34 @@ export async function processMessage(message, attachments = [], rawContext = nul
     return null;
   }
 
-  const route = await resolveAssistantRoute({
-    message: contextualMessage,
-    pageContext,
-    attachments,
-    matchSkillFn: matchSkill,
-    isDayPlanFn: isDayPlanMessage,
-  });
-  console.log(formatRoutingLog(route));
+  let result = await tryOpenAI(contextualMessage, chronHistory, pageContext);
 
-  let result = null;
-
-  if (route.channel === 'skill_only') {
-    result = await runKeywordActions(contextualMessage, { skipCursor: true });
-    if (!result && route.skill) {
-      result = await executeSkill(route.skill, contextualMessage, pageContext);
-    }
-  } else if (route.channel === 'cursor') {
-    result = await runSkillAction('demande_modification_erp', contextualMessage, pageContext);
-  } else if (route.channel === 'llm_only') {
-    result = await tryOpenAI(contextualMessage, chronHistory, pageContext, { validateActions: false });
-  } else {
-    result = await tryOpenAI(contextualMessage, chronHistory, pageContext);
-    if (result && (!result.actions || result.actions.length === 0)) {
-      const skillResult = await runKeywordActions(contextualMessage, { skipCursor: true });
-      if (skillResult?.actions?.length) {
-        result = {
-          reply: skillResult.reply || result.reply,
-          actions: skillResult.actions,
-          attachments: skillResult.attachments,
-        };
-      }
+  // Si le LLM bavarde sans action, forcer le chemin opérationnel (mail / client / planning…)
+  if (result && (!result.actions || result.actions.length === 0)) {
+    const skillResult = await runKeywordActions(contextualMessage);
+    if (skillResult?.actions?.length) {
+      result = {
+        reply: skillResult.reply || result.reply,
+        actions: skillResult.actions,
+        attachments: skillResult.attachments,
+      };
+    } else if (
+      skillResult?.reply
+      && (detectMailIntent(contextualMessage) || detectImportMailDatesIntent(contextualMessage)
+        || isDayPlanMessage(contextualMessage)
+        || /(nouveau|ajouter|crée|creer).{0,20}client|email|téléphone|telephone|adresse|coordonn/i.test(contextualMessage))
+    ) {
+      // Intent clair même sans rows (ex. Gmail erreur) : ne pas garder la prose inventée
+      result = {
+        reply: skillResult.reply,
+        actions: skillResult.actions || [],
+        attachments: skillResult.attachments,
+      };
     }
   }
 
   if (!result) {
-    result = await runKeywordActions(contextualMessage, { skipCursor: true });
+    result = await runKeywordActions(contextualMessage);
     if (!result) {
       if (pageContext) {
         result = {
@@ -733,27 +763,27 @@ export async function getChatHistory() {
 
 export async function seedDefaultSkills() {
   const defaults = [
-    { name: 'create_task', description: 'Créer une tâche', trigger_patterns: ['créer tâche', 'ajouter tâche', 'nouvelle tâche', 'task', 'ajouter étape'], action_type: 'create_task' },
-    { name: 'create_project', description: 'Créer un projet', trigger_patterns: ['créer projet', 'nouveau projet', 'project'], action_type: 'create_project' },
-    { name: 'plan_day', description: 'Planifier plusieurs étapes', trigger_patterns: ['planifier demain', 'journée de demain', 'étapes demain', 'pour demain', 'planning demain'], action_type: 'plan_day' },
-    { name: 'schedule_task', description: 'Planifier au calendrier', trigger_patterns: ['planifier', 'programmer', 'calendrier', 'demain', 'lundi'], action_type: 'schedule_task' },
+    { name: 'create_task', description: 'Créer une tâche', trigger_patterns: ['créer tâche', 'ajouter tâche', 'nouvelle tâche', 'ajouter étape'], action_type: 'create_task' },
+    { name: 'create_project', description: 'Créer un projet', trigger_patterns: ['créer projet', 'nouveau projet'], action_type: 'create_project' },
+    { name: 'plan_day', description: 'Planifier plusieurs étapes', trigger_patterns: ['planifier demain', 'journée de demain', 'étapes demain', 'pour demain', 'planning demain', 'organise demain'], action_type: 'plan_day' },
+    { name: 'schedule_task', description: 'Planifier au calendrier', trigger_patterns: ['planifier tâche', 'programmer tâche', 'mettre au calendrier'], action_type: 'schedule_task' },
     { name: 'create_expense', description: 'Enregistrer une dépense', trigger_patterns: ['dépense', 'acheté', 'payé pour'], action_type: 'create_expense' },
-    { name: 'list_today', description: 'Tâches du jour', trigger_patterns: ["aujourd'hui", 'tâches du jour', 'planning jour'], action_type: 'list_today' },
-    { name: 'list_tomorrow', description: 'Tâches de demain', trigger_patterns: ['demain matin', 'tâches demain', 'planning demain', 'voir demain'], action_type: 'list_tomorrow' },
-    { name: 'create_client', description: 'Ajouter un client', trigger_patterns: ['nouveau client', 'ajouter client'], action_type: 'create_client' },
-    { name: 'complete_task', description: 'Marquer tâche terminée', trigger_patterns: ['cocher', 'marquer fait', 'terminé', 'complété', 'fait'], action_type: 'complete_task' },
+    { name: 'list_today', description: 'Tâches du jour', trigger_patterns: ["tâches d'aujourd'hui", 'tâches du jour', 'planning du jour'], action_type: 'list_today' },
+    { name: 'list_tomorrow', description: 'Tâches de demain', trigger_patterns: ['tâches demain', 'planning demain', 'voir demain', 'demain matin'], action_type: 'list_tomorrow' },
+    { name: 'create_client', description: 'Ajouter un client', trigger_patterns: ['nouveau client', 'ajouter client', 'crée un client', 'creer un client', 'ajouter un contact'], action_type: 'create_client' },
+    { name: 'complete_task', description: 'Marquer tâche terminée', trigger_patterns: ['cocher', 'marquer fait', 'tâche terminée', 'tache terminee', 'compléter tâche'], action_type: 'complete_task' },
     { name: 'update_task', description: 'Modifier une tâche', trigger_patterns: ['modifier tâche', 'renommer tâche', 'mettre à jour tâche'], action_type: 'update_task' },
     { name: 'delete_task', description: 'Supprimer une tâche', trigger_patterns: ['supprimer tâche', 'retirer tâche', 'effacer tâche'], action_type: 'delete_task' },
     { name: 'list_project_tasks', description: 'Lister tâches du projet', trigger_patterns: ['liste tâches', 'tâches du projet', 'voir tâches'], action_type: 'list_project_tasks' },
     { name: 'update_project', description: 'Modifier le projet', trigger_patterns: ['modifier projet', 'deadline', 'budget projet', 'statut projet'], action_type: 'update_project' },
-    { name: 'update_client', description: 'Modifier le client', trigger_patterns: ['modifier client', 'email client', 'téléphone client'], action_type: 'update_client' },
+    { name: 'update_client', description: 'Modifier le client', trigger_patterns: ['modifier client', 'email client', 'téléphone client', 'adresse client', 'coordonnées client'], action_type: 'update_client' },
     { name: 'list_projects', description: 'Lister les projets', trigger_patterns: ['liste projets', 'mes projets', 'voir projets'], action_type: 'list_projects' },
     { name: 'list_clients', description: 'Lister les clients', trigger_patterns: ['liste clients', 'voir clients'], action_type: 'list_clients' },
     { name: 'list_expenses', description: 'Lister les dépenses', trigger_patterns: ['liste dépenses', 'dépenses du projet', 'voir dépenses'], action_type: 'list_expenses' },
-    { name: 'list_skills', description: 'Lister les skills', trigger_patterns: ['liste skills', 'capacités', 'commandes disponibles', 'skills'], action_type: 'list_skills' },
+    { name: 'list_skills', description: 'Lister les skills', trigger_patterns: ['liste skills', 'capacités', 'commandes disponibles'], action_type: 'list_skills' },
     { name: 'create_skill', description: 'Créer une skill', trigger_patterns: ['ajouter skill', 'nouvelle skill', 'nouvelle capacité'], action_type: 'create_skill' },
     { name: 'update_skill', description: 'Modifier une skill', trigger_patterns: ['activer skill', 'désactiver skill', 'modifier skill'], action_type: 'update_skill' },
-    { name: 'create_quote', description: 'Créer un devis', trigger_patterns: ['créer devis', 'nouveau devis', 'devis'], action_type: 'create_quote' },
+    { name: 'create_quote', description: 'Créer un devis', trigger_patterns: ['créer devis', 'nouveau devis', 'crée un devis'], action_type: 'create_quote' },
     { name: 'create_invoice', description: 'Créer une facture', trigger_patterns: ['créer facture', 'creer facture', 'nouvelle facture', 'crée une facture', 'cree une facture'], action_type: 'create_invoice' },
     { name: 'convert_quote', description: 'Convertir devis en facture', trigger_patterns: ['convertir devis', 'facturer devis', 'acompte'], action_type: 'convert_quote' },
     { name: 'send_quote', description: 'Envoyer devis par courriel', trigger_patterns: ['envoyer devis', 'mail devis'], action_type: 'send_quote' },
@@ -778,8 +808,13 @@ export async function seedDefaultSkills() {
 
   for (const s of defaults) {
     await pool.query(
-      `INSERT INTO assistant_skills (name, description, trigger_patterns, action_type)
-       VALUES ($1,$2,$3,$4) ON CONFLICT (name) DO NOTHING`,
+      `INSERT INTO assistant_skills (name, description, trigger_patterns, action_type, enabled)
+       VALUES ($1,$2,$3,$4,true)
+       ON CONFLICT (name) DO UPDATE SET
+         description = EXCLUDED.description,
+         trigger_patterns = EXCLUDED.trigger_patterns,
+         action_type = EXCLUDED.action_type,
+         enabled = true`,
       [s.name, s.description, JSON.stringify(s.trigger_patterns), s.action_type]
     );
   }
@@ -830,7 +865,7 @@ export async function seedDefaultSkills() {
       name: 'list_emails',
       description: 'Lister les courriels Gmail (boîte / sections)',
       triggers: [
-        'liste mails', 'liste courriels', 'mes mails', 'boîte mail', 'boite mail',
+        'liste mails', 'liste courriels', 'voir mes mails', 'boîte mail', 'boite mail',
         'voir mails', 'mails non lus', 'courriels clients', 'mails fournisseurs',
       ],
       action: 'list_emails',
@@ -841,6 +876,8 @@ export async function seedDefaultSkills() {
       triggers: [
         'cherche mail', 'chercher mail', 'cherche courriel', 'rechercher mail',
         'mails de', 'courriels de', 'trouve le mail', 'cherche dans gmail',
+        'cherche dans mes mails', 'cherche dans mes courriels', 'regarde le mail de',
+        'mail de', 'courriel de',
       ],
       action: 'search_emails',
     },
@@ -849,7 +886,7 @@ export async function seedDefaultSkills() {
       description: 'Lire le contenu d\'un courriel',
       triggers: [
         'ouvre le mail', 'ouvrir mail', 'lis le mail', 'lire mail', 'contenu du mail',
-        'montre le mail', 'détail mail', 'ouvre le courriel',
+        'montre le mail', 'détail mail', 'ouvre le courriel', 'regarde le mail',
       ],
       action: 'get_email',
     },
@@ -867,6 +904,18 @@ export async function seedDefaultSkills() {
         'étapes atelier', 'à partir du fichier', 'à partir du mail', 'linker dans le projet',
       ],
       action: 'create_fabrication_plan',
+    },
+    {
+      name: 'create_project_from_quote_email',
+      description: 'Chercher les devis Gmail/PDF d’un client et créer projets + devis + tâches',
+      triggers: [
+        'projet depuis devis', 'créer projet depuis devis', 'cree projet depuis devis',
+        'page projet grâce au pdf', 'page projet grace au pdf', 'projet à partir du devis',
+        'analyse le devis et crée', 'analyse les devis', 'devis envoyer', 'devis envoyés',
+        'créer projet depuis mail', 'importe devis', 'importer devis', 'projet from devis',
+        'cherche les devis', 'derniers devis',
+      ],
+      action: 'create_project_from_quote_email',
     },
     {
       name: 'update_quote',

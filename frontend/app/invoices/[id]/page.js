@@ -7,6 +7,7 @@ import AppShell from '../../../components/AppShell';
 import AuthGuard from '../../../components/AuthGuard';
 import InvoicePaymentModal, { paymentMethodLabel } from '../../../components/InvoicePaymentModal';
 import DocumentVisualEditor from '../../../components/DocumentVisualEditor';
+import SendDocumentModal from '../../../components/SendDocumentModal';
 import {
   api, formatMoney, formatDate, INVOICE_STATUS, downloadPdf,
 } from '../../../lib/api';
@@ -26,7 +27,7 @@ export default function InvoiceDetailPage() {
   const [payments, setPayments] = useState([]);
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
-  const [sending, setSending] = useState(false);
+  const [showSend, setShowSend] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -82,19 +83,6 @@ export default function InvoiceDetailPage() {
     }
   }
 
-  async function handleSend() {
-    setSending(true);
-    try {
-      const result = await api(`/invoices/${id}/send`, { method: 'POST' });
-      showToast(result.message || 'Facture envoyée par courriel');
-      load();
-    } catch (err) {
-      showToast(err.message);
-    } finally {
-      setSending(false);
-    }
-  }
-
   async function submitPayment(payload) {
     await api('/payments', { method: 'POST', body: JSON.stringify(payload) });
     setShowPayment(false);
@@ -138,6 +126,7 @@ export default function InvoiceDetailPage() {
       showToast('Facture enregistrée');
     } catch (err) {
       showToast(err.message);
+      throw err;
     } finally {
       setSaving(false);
     }
@@ -194,10 +183,10 @@ export default function InvoiceDetailPage() {
           </Link>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={handlePdf} disabled={pdfLoading} className="btn-secondary text-sm min-h-[36px]">
-              {pdfLoading ? 'PDF…' : 'PDF'}
+              {pdfLoading ? 'PDF…' : 'Télécharger PDF'}
             </button>
-            <button type="button" onClick={handleSend} disabled={sending} className="btn-primary text-sm min-h-[36px]">
-              {sending ? 'Envoi…' : 'Envoyer'}
+            <button type="button" onClick={() => setShowSend(true)} className="btn-primary text-sm min-h-[36px]">
+              Envoyer par courriel
             </button>
             {balance > 0 && (
               <button type="button" onClick={() => setShowPayment(true)} className="btn-secondary text-sm min-h-[36px]">
@@ -262,6 +251,18 @@ export default function InvoiceDetailPage() {
             invoice={invoice}
             onClose={() => setShowPayment(false)}
             onSubmit={submitPayment}
+          />
+        )}
+
+        {showSend && (
+          <SendDocumentModal
+            type="invoice"
+            docId={id}
+            onClose={() => setShowSend(false)}
+            onSent={() => {
+              showToast('Facture envoyée par courriel');
+              load();
+            }}
           />
         )}
       </AppShell>

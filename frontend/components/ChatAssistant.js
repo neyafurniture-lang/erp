@@ -9,6 +9,7 @@ import ChatSkillsPanel from './ChatSkillsPanel';
 import VoiceOrb, { TextComposer } from './VoiceOrb';
 import VoicePlanCard from './VoicePlanCard';
 import ElementPicker from './ElementPicker';
+import CopyTextButton from './CopyTextButton';
 
 const ACCEPT = 'image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip';
 const MAX_FILES = 8;
@@ -96,9 +97,12 @@ function VoiceResponseCard({ userText, reply, loading, contextLabel, onOpenChat,
           ×
         </button>
 
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-neya-orange mb-1">
-          {loading ? 'En cours' : 'Lia'}
-        </p>
+        <div className="flex items-start justify-between gap-2 pr-8">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-neya-orange mb-1">
+            {loading ? 'En cours' : 'Lia'}
+          </p>
+          {!loading && reply && <CopyTextButton text={reply} className="-mt-1" />}
+        </div>
         {contextLabel && (
           <p className="text-[10px] text-neya-muted mb-2 truncate max-w-[70%]">{contextLabel}</p>
         )}
@@ -584,12 +588,17 @@ export default function ChatAssistant() {
           {messages.map((m, i) => (
             <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div
-                className={`max-w-[75%] px-3 py-2.5 rounded text-sm whitespace-pre-wrap ${
+                className={`relative max-w-[75%] px-3 py-2.5 rounded text-sm whitespace-pre-wrap ${
                   m.role === 'user'
                     ? 'bg-neya-ink text-white'
                     : 'bg-white border border-neya-border text-neya-ink'
                 }`}
               >
+                {m.role === 'assistant' && m.content && (
+                  <div className="flex justify-end -mt-0.5 -mr-1 mb-1">
+                    <CopyTextButton text={m.content} />
+                  </div>
+                )}
                 {m.content}
                 <MessageAttachments attachments={m.attachments} />
               </div>

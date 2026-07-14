@@ -1,23 +1,26 @@
 import { Router } from 'express';
-import multer from 'multer';
 import pool from '../db/pool.js';
-import {
-  getInstallationBilling,
-  scanProjectInstallationDates,
-  saveInstallationBilling,
-  syncInstallationInvoice,
-} from '../services/installation-billing.js';
-import { splitPdfForProject } from '../services/project-plans.js';
+import { getSetting } from '../services/settings.js';
 
 const router = Router();
 
-const pdfUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    const ok = file.mimetype === 'application/pdf' || /\.pdf$/i.test(file.originalname || '');
-    cb(ok ? null : new Error('Fichier PDF uniquement'), ok);
-  },
+router.post('/verify-admin-pin', async (req, res) => {
+  try {
+    const pin = String(req.body?.pin ?? '').trim();
+    if (!pin) return res.status(400).json({ error: 'Code requis' });
+    const stored = await getSetting('project_admin_pin');
+    const expected = String(
+      stored != null && stored !== ''
+        ? stored
+        : (process.env.PROJECT_ADMIN_PIN || '3125')
+    ).trim();
+    if (pin !== expected) {
+      return res.status(401).json({ error: 'Code incorrect' });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 router.get('/', async (req, res) => {
@@ -114,80 +117,39 @@ router.post('/from-standard/:standardId', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   try {
-    const { name, client_id, status, deadline, budget_estimated, budget_real, notes, meta } = req.body;
-    let metaClause = '';
-    const params = [name, client_id, status, deadline, budget_estimated, budget_real, notes];
-    if (meta != null && typeof meta === 'object') {
-      metaClause = `, meta = COALESCE(meta, '{}'::jsonb) || $${params.length + 1}::jsonb`;
-      params.push(JSON.stringify(meta));
+    const { name, client_id, status, deadline, budget_estimated, budget_real, notes, meta, hours_logbook } = req.body;
+    const { rows: cur } = await pool.query('SELECT * FROM projects WHERE id = $1', [req.params.id]);
+    if (!cur[0]) return res.status(404).json({ error: 'Projet introuvable' });
+
+    let nextMeta = typeof cur[0].meta === 'string' ? JSON.parse(cur[0].meta || '{}') : (cur[0].meta || {});
+    if (meta && typeof meta === 'object') nextMeta = { ...nextMeta, ...meta };
+    if (hours_logbook && typeof hours_logbook === 'object') {
+      nextMeta = {
+        ...nextMeta,
+        hours_logbook: {
+          ...(nextMeta.hours_logbook || {}),
+          ...hours_logbook,
+          updated_at: new Date().toISOString(),
+        },
+      };
     }
-    params.push(req.params.id);
+
     const { rows } = await pool.query(
       `UPDATE projects SET name=$1, client_id=$2, status=$3, deadline=$4,
-       budget_estimated=$5, budget_real=$6, notes=$7${metaClause} WHERE id=$${params.length} RETURNING *`,
-      params
+       budget_estimated=$5, budget_real=$6, notes=$7, meta=$8::jsonb WHERE id=$9 RETURNING *`,
+      [
+        name ?? cur[0].name,
+        client_id !== undefined ? client_id : cur[0].client_id,
+        status ?? cur[0].status,
+        deadline !== undefined ? deadline : cur[0].deadline,
+        budget_estimated !== undefined ? budget_estimated : cur[0].budget_estimated,
+        budget_real !== undefined ? budget_real : cur[0].budget_real,
+        notes !== undefined ? notes : cur[0].notes,
+        JSON.stringify(nextMeta),
+        req.params.id,
+      ]
     );
-    if (!rows[0]) return res.status(404).json({ error: 'Projet introuvable' });
     res.json(rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-router.get('/:id/installation-billing', async (req, res) => {
-  try {
-    res.json(await getInstallationBilling(req.params.id));
-  } catch (err) {
-    res.status(err.message === 'Projet introuvable' ? 404 : 500).json({ error: err.message });
-  }
-});
-
-router.post('/:id/installation-billing/scan', async (req, res) => {
-  try {
-    res.json(await scanProjectInstallationDates(req.params.id));
-  } catch (err) {
-    res.status(err.message === 'Projet introuvable' ? 404 : 500).json({ error: err.message });
-  }
-});
-
-router.put('/:id/installation-billing', async (req, res) => {
-  try {
-    res.json(await saveInstallationBilling(req.params.id, req.body));
-  } catch (err) {
-    res.status(err.message === 'Projet introuvable' ? 404 : 500).json({ error: err.message });
-  }
-});
-
-router.post('/:id/installation-billing/sync-invoice', async (req, res) => {
-  try {
-    res.json(await syncInstallationInvoice(req.params.id));
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-router.post('/:id/plans/import', pdfUpload.single('pdf'), async (req, res) => {
-  try {
-    if (!req.file?.buffer?.length) {
-      return res.status(400).json({ error: 'Fichier PDF requis' });
-    }
-    const projectId = Number(req.params.id);
-    const { rows: existing } = await pool.query('SELECT id, meta FROM projects WHERE id = $1', [projectId]);
-    if (!existing[0]) return res.status(404).json({ error: 'Projet introuvable' });
-
-    const sourceName = req.file.originalname || 'plan.pdf';
-    const newPlans = await splitPdfForProject(projectId, req.file.buffer, sourceName);
-    const prevMeta = typeof existing[0].meta === 'string'
-      ? JSON.parse(existing[0].meta || '{}')
-      : (existing[0].meta || {});
-    const prevPlans = Array.isArray(prevMeta.plans) ? prevMeta.plans : [];
-    const plans = [...prevPlans, ...newPlans];
-
-    const { rows } = await pool.query(
-      `UPDATE projects SET meta = COALESCE(meta, '{}'::jsonb) || $1::jsonb WHERE id = $2 RETURNING *`,
-      [JSON.stringify({ plans }), projectId]
-    );
-    res.json({ project: rows[0], plans, imported: newPlans.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

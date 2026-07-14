@@ -6,6 +6,12 @@ import { fileURLToPath } from 'url';
 import { processMessage, getSkills, createSkill, updateSkill, deleteSkill, getChatHistory } from '../services/assistant.js';
 import { saveFeedback } from '../services/assistant-memory.js';
 import { buildOperationPlan } from '../services/assistant-plan.js';
+import {
+  buildAssistantProtocol,
+  executeProtocolAction,
+  continueFromChecks,
+  runLiaActionLoop,
+} from '../services/assistant-protocol.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uploadDir = path.join(__dirname, '../../uploads/chat');
@@ -85,6 +91,103 @@ router.post('/plan', async (req, res) => {
 router.get('/history', async (req, res) => {
   try {
     res.json(await getChatHistory());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Catalogue skills + protocole + schéma de réponse (pour LLM / MCP). */
+router.get('/protocol', async (req, res) => {
+  try {
+    res.json(await buildAssistantProtocol());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Canal d’exécution d’action (même pipeline que la réponse JSON de l’IA).
+ * Body: { type, params?, message?, context?, reinterpret? }
+ * Retourne toujours un ACTION_CHECK. Si reinterpret=true, Lia enchaîne (autres actions ou finale).
+ */
+router.post('/action', async (req, res) => {
+  try {
+    const type = req.body?.type || req.body?.action?.type;
+    const params = req.body?.params || req.body?.action?.params || {};
+    const message = String(req.body?.message || '').trim();
+    const reinterpret = Boolean(req.body?.reinterpret);
+    let pageContext = req.body?.context || null;
+    if (typeof pageContext === 'string') {
+      try { pageContext = JSON.parse(pageContext); } catch { pageContext = null; }
+    }
+    if (!type) return res.status(400).json({ error: 'type (action) requis' });
+
+    if (reinterpret) {
+      const loop = await runLiaActionLoop({
+        message: message || `Exécute ${type}`,
+        history: [],
+        pageContext,
+        initialParsed: {
+          reply: req.body?.reply || `Exécution de ${type}…`,
+          action: { type, params },
+          done: false,
+        },
+      });
+      return res.json(loop || { error: 'Lia indisponible' });
+    }
+
+    const result = await executeProtocolAction({ type, params, message, pageContext });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Lia réinterprète un ACTION_CHECK puis optionnellement exécute la suite.
+ * Body: { message, checks|check, context?, auto_execute? }
+ */
+router.post('/continue', async (req, res) => {
+  try {
+    const message = String(req.body?.message || req.body?.user_message || '').trim();
+    const autoExecute = req.body?.auto_execute !== false;
+    let pageContext = req.body?.context || null;
+    if (typeof pageContext === 'string') {
+      try { pageContext = JSON.parse(pageContext); } catch { pageContext = null; }
+    }
+    const checks = Array.isArray(req.body?.checks)
+      ? req.body.checks
+      : (req.body?.check ? [req.body.check] : []);
+    if (!checks.length) return res.status(400).json({ error: 'check ou checks requis' });
+
+    const decision = await continueFromChecks({
+      userMessage: message,
+      checks,
+      history: [],
+      pageContext,
+    });
+
+    if (!autoExecute || !decision.action?.type) {
+      return res.json({
+        ...decision,
+        reply: decision.reply,
+        actions: [],
+        checks,
+        done: true,
+      });
+    }
+
+    const loop = await runLiaActionLoop({
+      message: message || 'Suite après check',
+      history: [],
+      pageContext,
+      initialParsed: {
+        reply: decision.reply,
+        action: decision.action,
+        done: false,
+      },
+    });
+    res.json(loop || decision);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

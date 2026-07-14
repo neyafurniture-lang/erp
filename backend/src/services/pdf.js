@@ -3,6 +3,7 @@ import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import { getCompanyConfig } from './company-config.js';
+import { normalizeQuoteDocument, flattenQuoteLines } from './quote-document.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -234,7 +235,10 @@ export async function generateQuotePdf(quote, res) {
   const doc = new PDFDocument({ margin: M, size: 'LETTER' });
   doc.pipe(res);
 
-  const subtotal = Number(quote.subtotal) || 0;
+  const document = normalizeQuoteDocument(quote.lines);
+  const flatLines = flattenQuoteLines(document);
+  const subtotal = flatLines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.price) || 0), 0)
+    || Number(quote.subtotal) || 0;
   const title = quote.title || quote.project_name || 'Quote';
   const validUntil = quote.valid_until || (() => {
     const d = new Date(quote.created_at || Date.now());
@@ -244,16 +248,20 @@ export async function generateQuotePdf(quote, res) {
 
   let y = brandHeader(doc);
   doc.font('Helvetica').fontSize(8).fillColor(C.muted);
-  doc.text(COMPANY.address.altLine1, M, y); y += 11;
-  doc.text(COMPANY.address.altLine2, M, y); y += 11;
+  doc.text(COMPANY.address.altLine1 || COMPANY.address.line1, M, y); y += 11;
+  doc.text(COMPANY.address.altLine2 || COMPANY.address.line2, M, y); y += 11;
   doc.text(COMPANY.email, M, y); y += 11;
-  doc.text('neyafurniture.ca', M, y);
+  doc.text(COMPANY.website?.replace(/^https?:\/\//, '') || 'neyafurniture.ca', M, y);
 
   y += 24;
   doc.fillColor(C.green).font('Helvetica-Bold').fontSize(20).text(`Quote — ${title}`, M, y);
   y += 28;
   doc.font('Helvetica').fontSize(10).fillColor(C.muted);
   doc.text(`Issued ${fmtDate(quote.created_at)} · Valid until ${fmtDate(validUntil)}`, M, y);
+  if (quote.reference) {
+    y += 14;
+    doc.text(`Reference: ${quote.reference}`, M, y);
+  }
   y += 30;
 
   if (quote.client_name) {
@@ -262,7 +270,10 @@ export async function generateQuotePdf(quote, res) {
     y += 14;
     doc.font('Helvetica').fontSize(9).fillColor(C.muted);
     if (quote.contact) { doc.text(`Attn: ${quote.contact}`, M, y); y += 12; }
+    if (quote.client_address) { doc.text(quote.client_address, M, y, { width: W }); y += 12; }
+    if (quote.client_city) { doc.text(quote.client_city, M, y); y += 12; }
     if (quote.email) { doc.text(quote.email, M, y); y += 12; }
+    if (quote.client_phone) { doc.text(quote.client_phone, M, y); y += 12; }
     y += 10;
   }
 
@@ -274,14 +285,55 @@ export async function generateQuotePdf(quote, res) {
     y += doc.heightOfString(quote.notes, { width: W }) + 20;
   }
 
-  y = linesTable(doc, quote.lines, y);
+  for (const section of document.sections) {
+    if (y > 680) { doc.addPage(); y = brandHeader(doc) + 20; }
+    if (section.title) {
+      doc.fillColor(C.green).font('Helvetica-Bold').fontSize(10).text(section.title, M, y);
+      y += 16;
+    }
+    y = linesTable(doc, section.lines, y) + 12;
+  }
+
   const { y: y2 } = totalsBlock(doc, subtotal, y, COMPANY, 'Total (before taxes)');
   y = y2 + 10;
 
   doc.font('Helvetica').fontSize(8).fillColor(C.light)
     .text('All amounts in Canadian dollars, before taxes (GST 5% + QST 9.975%).', M, y);
-  y += 24;
+  y += 20;
 
+  const addNotes = quote.additional_notes || document.additional_notes;
+  if (addNotes) {
+    if (y > 640) { doc.addPage(); y = brandHeader(doc) + 20; }
+    doc.fillColor(C.black).font('Helvetica-Bold').fontSize(10).text('Additional notes', M, y);
+    y += 14;
+    doc.font('Helvetica').fontSize(9).fillColor(C.muted);
+    doc.text(addNotes, M, y, { width: W });
+    y += doc.heightOfString(addNotes, { width: W }) + 16;
+  }
+
+  if ((document.photos || []).length) {
+    if (y > 520) { doc.addPage(); y = brandHeader(doc) + 20; }
+    doc.fillColor(C.black).font('Helvetica-Bold').fontSize(10).text('Photos', M, y);
+    y += 14;
+    for (const photo of document.photos.slice(0, 6)) {
+      const abs = path.isAbsolute(photo.url)
+        ? photo.url
+        : path.join(__dirname, '../..', String(photo.url).replace(/^\//, ''));
+      if (existsSync(abs)) {
+        if (y > 620) { doc.addPage(); y = brandHeader(doc) + 20; }
+        try {
+          doc.image(abs, M, y, { fit: [240, 160] });
+          y += 170;
+          if (photo.caption) {
+            doc.font('Helvetica').fontSize(8).fillColor(C.muted).text(photo.caption, M, y, { width: W });
+            y += 14;
+          }
+        } catch { /* skip bad image */ }
+      }
+    }
+  }
+
+  if (y > 600) { doc.addPage(); y = brandHeader(doc) + 20; }
   doc.fillColor(C.black).font('Helvetica-Bold').fontSize(11).text('Terms and conditions', M, y);
   y += 16;
   doc.font('Helvetica').fontSize(8).fillColor(C.muted);
@@ -289,21 +341,45 @@ export async function generateQuotePdf(quote, res) {
     doc.text(`• ${term}`, M, y, { width: W });
     y += doc.heightOfString(`• ${term}`, { width: W }) + 4;
   }
-  y += 16;
+  y += 12;
 
-  doc.fillColor(C.black).font('Helvetica-Bold').fontSize(10).text('To confirm the order', M, y);
-  y += 16;
-  doc.font('Helvetica').fontSize(9).fillColor(C.muted);
-  doc.text(
-    `Please return this signed quote to ${COMPANY.email}. We will follow up with a production schedule.`,
-    M, y, { width: W }
-  );
-  y += 40;
+  if (document.options?.show_payment !== false) {
+    if (y > 560) { doc.addPage(); y = brandHeader(doc) + 20; }
+    doc.fillColor(C.black).font('Helvetica-Bold').fontSize(10).text('Payment information', M, y);
+    y += 14;
+    doc.font('Helvetica').fontSize(8).fillColor(C.muted);
+    doc.text(COMPANY.payment.intro, M, y, { width: W });
+    y += doc.heightOfString(COMPANY.payment.intro, { width: W }) + 10;
+    doc.fillColor(C.green).font('Helvetica-Bold').fontSize(9).text(COMPANY.payment.interac.label, M, y);
+    y += 12;
+    doc.font('Helvetica').fontSize(8).fillColor(C.muted);
+    doc.text(`Send to: ${COMPANY.payment.interac.email}`, M, y); y += 11;
+    doc.text(COMPANY.payment.interac.note, M, y); y += 14;
+    doc.fillColor(C.green).font('Helvetica-Bold').fontSize(9).text(COMPANY.payment.bank.label, M, y);
+    y += 12;
+    doc.font('Helvetica').fontSize(8).fillColor(C.muted);
+    doc.text(`${COMPANY.payment.bank.institution} · Transit ${COMPANY.payment.bank.transit} · Inst. ${COMPANY.payment.bank.institutionNumber} · Compte ${COMPANY.payment.bank.account}`, M, y, { width: W });
+    y += 20;
+  }
 
-  doc.fillColor(C.black).font('Helvetica').fontSize(9);
-  doc.text('Client signature: ______________________________________', M, y);
-  y += 24;
-  doc.text('Date: ______________________________________', M, y);
+  if (document.options?.show_signature !== false) {
+    if (y > 620) { doc.addPage(); y = brandHeader(doc) + 20; }
+    doc.fillColor(C.black).font('Helvetica-Bold').fontSize(10).text('To confirm the order', M, y);
+    y += 16;
+    doc.font('Helvetica').fontSize(9).fillColor(C.muted);
+    doc.text(
+      `Please return this signed quote to ${COMPANY.email}. We will follow up with a production schedule.`,
+      M, y, { width: W }
+    );
+    y += 36;
+    doc.fillColor(C.black).font('Helvetica').fontSize(9);
+    doc.text('Client signature: ______________________________________', M, y);
+    y += 24;
+    const acceptLabel = quote.acceptance_date
+      ? `Acceptance date: ${fmtDate(quote.acceptance_date)}`
+      : 'Date: ______________________________________';
+    doc.text(acceptLabel, M, y);
+  }
 
   if (quote.quote_number) {
     doc.fontSize(7).fillColor(C.light)

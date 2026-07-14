@@ -101,14 +101,6 @@ async function buildErpContextSnapshot(pageContext) {
         lines.push(`- #${t.id} [${t.status}] ${t.title}`);
       }
     }
-    const products = pageContext.products || [];
-    if (products.length) {
-      lines.push('Catalogue produits du projet (onglet Produits — SKU, dimensions, modèle, qté, validé) :');
-      for (const p of products.slice(0, 30)) {
-        const mark = p.validated ? '✓' : '○';
-        lines.push(`${mark} ${p.sku} | ${p.dimensions || '—'} | ${p.model || '—'} | qté ${p.qty ?? 0}`);
-      }
-    }
   }
   if (pageContext?.type === 'quote' && pageContext.quote) {
     const q = pageContext.quote;
@@ -127,15 +119,12 @@ async function buildErpContextSnapshot(pageContext) {
 }
 
 async function buildSystemPrompt(pageContext) {
-  const pool = (await import('../db/pool.js')).default;
   const { formatMemoriesForPrompt } = await import('./assistant-memory.js');
-  const { ACTION_TYPES } = await import('./skill-actions.js');
   const { getManualPromptBlock } = await import('../content/erp-manual.js');
   const { getHabitsPromptBlock } = await import('./atelier-habits.js');
+  const { buildProtocolPromptBlock } = await import('./assistant-protocol.js');
 
-  const { rows: skills } = await pool.query(
-    'SELECT name, description, action_type FROM assistant_skills WHERE enabled = true'
-  );
+  const protocolBlock = await buildProtocolPromptBlock();
   const ctxNote = pageContext
     ? `\nContexte page : ${JSON.stringify({
       type: pageContext.type,
@@ -192,69 +181,18 @@ async function buildSystemPrompt(pageContext) {
 
   return `Tu es Lia, l'assistant NEYA ERP (atelier meubles Neya Furniture).
 IMPORTANT: ta réponse doit être UNIQUEMENT un objet JSON valide, sans markdown, sans texte avant/après.
-Skills: ${JSON.stringify(skills)}
-Actions: ${ACTION_TYPES.join('|')}
-Format exact: {"reply":"texte court pour l'utilisateur","action":{"type":"nom_action_ou_null","params":{}}}
 
-AUTONOMIE — tu DOIS agir seule sans demander de cliquer dans l'ERP :
-1. Cherche d'abord dans le bloc Données ERP / Mémoire ci-dessous.
-2. Si le projet n'y est pas, utilise search_projects ou get_project avec params {"query":"nom"} ou {"project_id":123}.
-3. Pour cocher : complete_task avec {"project_name":"…","task_title":"finition"} ou {"project_id":1,"task_title":"…"}.
-4. Pour modifier une tâche : update_task avec {"task_title":"…","new_title":"…"} ou {"status":"done"|"todo"}.
-5. Pour le descriptif / notes du projet : update_project avec {"project_name":"…","notes":"texte"} ou {"append_notes":true,"notes":"ajout"}.
-6. Pour le statut projet : update_project {"status":"done"|"active","project_id":…}.
-6b. Pour le catalogue SKU du projet (onglet Produits) : update_project {"project_id":…,"products":[{"sku":"H2013","dimensions":"20\\" x 13\\"","model":"Underbench","qty":20,"validated":false},…]}.
-    Réponds aux questions sur les SKU, quantités et modèles à partir de ce catalogue — ne crée pas de tâches pour ça.
-7. Mémoire atelier : search_memory {"query":"…"}. L'utilisateur peut aussi dire « retiens que … ».
-8. list_project_tasks {"project_name":"Olive"} pour lister les tâches d'un projet non ouvert.
-9. COURRIEL — tu as accès à Gmail. Ne dis JAMAIS que tu n'as pas accès au mail.
-   - list_emails {"max":15} ou {"category":"clients"|"fournisseurs"|"a_repondre"|"projets"}
-   - search_emails {"query":"from:client@… OR facture"}
-   - get_email {"message_id":"…"} ou {"index":1} pour le 1er de la boîte
-   - list_mail_threads pour les fils déjà liés ERP
-10. FICHIERS / PLAN FABRICATION — si l'utilisateur joint un mail/PDF/plan et demande de lier / créer des étapes :
-   - create_fabrication_plan {"project_name":"Olive","steps":[{"title":"Débitage","type":"debitage","estimated_minutes":90}],"notes":"…"}
-   - Ne réponds PAS seulement « j'ai reçu le fichier » : exécute l'action.
-11. DEVIS — si la page est un devis (contexte quote), tu PEUX le modifier :
-   - get_quote {} pour relire le devis ouvert
-   - update_quote {"add_line":"Caissons","qty":1,"price":2400}
-   - update_quote {"line_match":"table","price":1800}
-   - update_quote {"title":"Devis ENNS v2","notes":"…"}
-   - update_quote {"status":"sent"|"draft"|"accepted"}
-   - send_quote {} pour envoyer le devis ouvert
-   - Utilise la mémoire devis/client. « Retiens que… » sauvegarde une préférence.
-12. ROUTAGE — trois canaux distincts (ne pas tout envoyer vers Cursor) :
-   A) ACTIONS MÉTIER (priorité) — create_invoice, update_quote, complete_task, etc. : données ERP, pas de code.
-      « Créer une facture », « modifier le devis », « cocher finition » → action métier, JAMAIS demande_modification_erp.
-   B) DASHBOARD RUNTIME — ui_edit_mode, ui_add_todo_list, ui_move_section, etc. : réorganisation sans coder.
-   C) CURSOR (dernier recours, demande EXPLICITE seulement) — demande_modification_erp :
-      - nouveau module, refactor, éditeur visuel, feature UI à coder, passerelle, planification mail avancée
-      - l'utilisateur dit « modifie l'ERP », « lance Cursor », « développe le module », ou pointe un élément + veut le changer
-      - PAS pour créer/modifier des factures, devis, tâches, projets (données existantes)
-   Params Cursor : {"prompt":"…"}, {"feature":"mail_planning"}, {"feature":"ui_change","prompt":"…"}
-13. ÉLÉMENT POINTÉ — nomme l'élément (selector, texte, page). Modif de données → action métier. Modif de code/UI à développer → demande_modification_erp seulement si explicite.
-14. HABITUDES ATELIER — respect strict du bloc BONNES HABITUDES (fichier ATELIER_HABITS.md). Ex. jamais de prix à l'heure dans un devis.
-   - Lister : atelier_habits {}
-   - Ajouter : atelier_habits {"rule":"On signe les mails L’équipe Neya","section":"Courriels & ton"}
+${protocolBlock}
 
-Exemples params :
-- {"type":"complete_task","params":{"project_name":"Banc Olive","task_title":"finition"}}
-- {"type":"update_project","params":{"project_id":12,"notes":"Livraison semaine prochaine"}}
-- {"type":"search_projects","params":{"query":"olive"}}
-- {"type":"get_project","params":{"project_id":12}}
-- {"type":"list_emails","params":{"max":10}}
-- {"type":"search_emails","params":{"query":"facture Home Depot"}}
-- {"type":"get_email","params":{"index":1}}
-- {"type":"create_fabrication_plan","params":{"project_name":"Banc Olive","steps":[{"title":"Débitage","type":"debitage"},{"title":"Assemblage","type":"assemblage"},{"title":"Finition","type":"finition"}],"notes":"Infos du mail client"}}
-- {"type":"update_quote","params":{"add_line":"Caissons chêne","qty":1,"price":2400}}
-- {"type":"update_quote","params":{"line_match":"table","price":1800}}
-- {"type":"get_quote","params":{}}
-- {"type":"demande_modification_erp","params":{"feature":"mail_planning"}}
-- {"type":"demande_modification_erp","params":{"prompt":"Ajoute un bouton Scanner Gmail plus visible sur le dashboard"}}
-- {"type":"atelier_habits","params":{"rule":"On n'écrit jamais de prix à l'heure dans les devis","section":"Devis & prix"}}
-
-Mémoire conversation : utilise l'historique (« oui », « celui-là », « ce projet »). Ne redemande pas ce qui est déjà dit.
-Ne dis JAMAIS « ouvrez le projet » si tu peux le trouver par nom. Exécute l'action.
+RÈGLES MÉTIER COMPLÉMENTAIRES (raccourcis) :
+- create_project_from_quote_email {"query":"Alexandra"} pour devis Gmail/PDF → projets
+- import_mail_dates_to_project {"query":"waita","project_name":"Corridor"}
+- create_fabrication_plan pour étapes atelier depuis fichier
+- demande_modification_erp pour UI/code (PAS create_invoice)
+- atelier_habits pour règles atelier
+Ne dis JAMAIS « je ne peux pas » ou « ouvrez la fiche » si une action existe.
+Quand tu reçois un ACTION_CHECK (ok/check/summary) : base ta réponse dessus ; enchaîne une action ou done:true.
+Mémoire conversation : utilise l'historique. Ne redemande pas ce qui est déjà dit.
 Si l'utilisateur mentionne un fichier sans pièce jointe, demande le bouton 📎.
 Pour « comment faire », renvoie vers /manual.${memoryBlock}${manualBlock}${habitsBlock}${erpBlock}${driveBlock}${mailBlock}${ctxNote}`;
 }

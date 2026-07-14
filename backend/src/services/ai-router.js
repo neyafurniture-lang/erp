@@ -1,20 +1,7 @@
+import { isMaterialInfoMessage } from './skill-actions.js';
+
 /**
  * Routeur décisionnel Lia — ordre d'exécution des canaux IA.
- *
- * ┌─────────────────────────────────────────────────────────────────┐
- * │  PROCESSUS DÉCISIONNEL (ordre strict)                           │
- * ├─────────────────────────────────────────────────────────────────┤
- * │  0. Mémoire atelier      → regex, sans IA                       │
- * │  1. Pièce jointe manquante → UI, sans IA                        │
- * │  2. Plan fabrication + fichier → Claude vision + skill          │
- * │  3. Skill seul           → commande claire, sans LLM              │
- * │  4. Cursor               → modif code/interface ERP explicite   │
- * │  5. Claude + skill       → action métier, params à interpréter  │
- * │  6. Claude seul          → question / conversation              │
- * │  7. Fallback skill       → si Claude indisponible ou sans action │
- * └─────────────────────────────────────────────────────────────────┘
- *
- * Canaux :
  * - skill_only  : skills ERP / dashboard (ui_*) — pas d'appel API
  * - cursor      : demande_modification_erp — agent Cursor sur le VPS
  * - llm_skill   : Claude/OpenAI interprète → exécute une skill
@@ -36,6 +23,7 @@ export const SKILL_ONLY_ACTIONS = new Set([
 export const BUSINESS_ACTIONS = new Set([
   'create_task', 'complete_task', 'update_task', 'delete_task', 'schedule_task',
   'create_project', 'update_project', 'delete_project', 'search_projects', 'get_project',
+  'add_project_material',
   'create_client', 'update_client', 'delete_client',
   'create_expense', 'list_expenses', 'delete_expense',
   'create_quote', 'update_quote', 'get_quote', 'send_quote', 'convert_quote',
@@ -114,6 +102,11 @@ export function needsLlmParsing(message = '', pageContext = null) {
 export function validateLlmAction(actionType, message, pageContext = null) {
   if (!actionType || actionType === 'null' || actionType === 'none') {
     return { valid: true, actionType: null, redirected: false };
+  }
+
+  // Info matériel mal classée en tâche par le LLM
+  if ((actionType === 'create_task' || actionType === 'create_fabrication_plan') && isMaterialInfoMessage(message)) {
+    return { valid: true, actionType: 'add_project_material', redirected: true, reason: 'material_not_task' };
   }
 
   if (actionType === 'demande_modification_erp') {

@@ -1,6 +1,6 @@
 const API_URL_DEFAULT = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4001/api';
 const API_ROOT_KEY = 'neya_api_url';
-const FETCH_TIMEOUT_MS = 15000;
+const FETCH_TIMEOUT_MS = 45000;
 
 export function getApiRoot() {
   return getApiUrl().replace(/\/api\/?$/, '');
@@ -251,6 +251,23 @@ export async function downloadPdf(path, filename) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+/** Charge un PDF et renvoie une URL blob pour prévisualisation (iframe). */
+export async function fetchPdfObjectUrl(path) {
+  const token = getToken();
+  const res = await fetch(`${getApiUrl()}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Erreur PDF (${res.status})`);
+  }
+  const blob = await res.blob();
+  if (!blob.size || (blob.type && blob.type.includes('json'))) {
+    throw new Error('Le serveur n\'a pas renvoyé un PDF valide');
+  }
+  return URL.createObjectURL(blob);
 }
 
 export const UPLOADS_URL = getApiRoot();

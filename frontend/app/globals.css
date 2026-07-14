@@ -443,13 +443,6 @@ body {
   .mail-shell {
     @apply flex flex-col bg-white border border-neya-border overflow-hidden;
     min-height: min(72vh, 720px);
-    max-height: calc(100dvh - var(--mobile-nav-h) - 6rem);
-  }
-
-  @media (min-width: 1024px) {
-    .mail-shell {
-      max-height: none;
-    }
   }
 
   .mail-toolbar {
@@ -457,7 +450,7 @@ body {
   }
 
   .mail-search {
-    @apply flex items-center gap-2 flex-1 min-w-0 sm:min-w-[200px] max-w-xl bg-white border border-neya-border rounded px-3 py-1.5 focus-within:border-neya-ink/40 focus-within:ring-1 focus-within:ring-neya-ink/10;
+    @apply flex items-center gap-2 flex-1 min-w-[200px] max-w-xl bg-white border border-neya-border rounded px-3 py-1.5 focus-within:border-neya-ink/40 focus-within:ring-1 focus-within:ring-neya-ink/10;
   }
 
   .mail-search input {
@@ -509,7 +502,7 @@ body {
   }
 
   .mail-reading {
-    @apply flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden bg-white;
+    @apply flex-1 flex flex-col min-w-0 bg-white;
   }
 
   .mail-reading-header {
@@ -517,7 +510,7 @@ body {
   }
 
   .mail-body {
-    @apply flex-1 overflow-y-auto overflow-x-hidden px-4 sm:px-5 py-4 text-sm leading-relaxed text-neya-ink whitespace-pre-wrap break-words;
+    @apply flex-1 overflow-y-auto px-4 sm:px-5 py-4 text-sm leading-relaxed text-neya-ink whitespace-pre-wrap;
   }
 
   .mail-compose {
@@ -525,7 +518,7 @@ body {
   }
 
   .mail-erp-panel {
-    @apply border-t lg:border-t-0 lg:border-l border-neya-border bg-neya-surface/50 w-full lg:w-80 shrink-0 flex flex-col overflow-hidden max-h-[min(45vh,420px)] lg:max-h-none;
+    @apply border-t md:border-t-0 md:border-l border-neya-border bg-neya-surface/50 w-full md:w-72 lg:w-80 shrink-0 flex flex-col overflow-hidden;
   }
 
   .mail-icon-btn {
@@ -1022,14 +1015,6 @@ body {
   @apply leading-relaxed;
 }
 
-.doc-lines-block {
-  @apply mb-2;
-}
-
-.doc-lines-table .text-neya-orange {
-  @apply text-neya-ink;
-}
-
 .doc-lines {
   @apply w-full text-sm border-t border-neya-border;
 }
@@ -1065,3 +1050,162 @@ body {
 .doc-totals-total {
   @apply text-neya-ink font-semibold text-base pt-2 border-t border-neya-border mt-2;
 }
+
+.doc-client-grid {
+  @apply grid sm:grid-cols-2 gap-6 mb-6 pb-5 border-b border-neya-border;
+}
+
+.doc-options {
+  @apply space-y-1;
+}
+
+.doc-section {
+  @apply mb-6;
+}
+
+.doc-section-head {
+  @apply flex items-center justify-between gap-3 mb-2;
+}
+
+.doc-section-title {
+  @apply text-base font-medium text-neya-ink;
+}
+
+.doc-photos {
+  @apply mt-6 p-3 border border-transparent transition-colors;
+}
+
+.doc-photos--drag {
+  @apply border-neya-ink bg-neya-surface/60;
+}
+
+.doc-photo-grid {
+  @apply grid grid-cols-2 sm:grid-cols-3 gap-3;
+}
+
+.doc-photo {
+  @apply relative border border-neya-border bg-neya-surface overflow-hidden;
+}
+
+.doc-photo img {
+  @apply w-full h-36 object-cover;
+}
+
+.doc-photo figcaption {
+  @apply text-[11px] text-neya-muted px-2 py-1;
+}
+
+.doc-photo-remove {
+  @apply absolute top-1 right-1 w-6 h-6 bg-white/90 text-xs text-neya-ink border border-neya-border;
+}
+
+.doc-payment,
+.doc-signature {
+  @apply pt-4 border-t border-neya-border;
+}
+
+.doc-signature-line {
+  @apply text-sm text-neya-ink tracking-wide;
+}
+
+/* Triangle actions (factures / devis) */
+.doc-row-menu__tri {
+  @apply inline-flex items-center justify-center w-7 h-7 rounded border border-neya-border bg-white text-neya-muted hover:border-neya-orange hover:text-neya-orange transition-colors;
+}
+
+.doc-row-menu__tri-icon {
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid currentColor;
+  transition: transform 0.15s ease;
+}
+
+.doc-row-menu__tri.is-open .doc-row-menu__tri-icon {
+  transform: rotate(180deg);
+}
+
+
+/* Projet — panneau Notes admin (droite, orange) */
+.project-workspace {
+  @apply relative;
+}
+
+.project-workspace__main {
+  @apply min-w-0;
+}
+
+@media (min-width: 1024px) {
+  .project-workspace__main {
+    padding-right: 4.25rem;
+  }
+}
+
+.project-admin-rail {
+  position: fixed;
+  top: 5.5rem;
+  right: 0;
+  z-index: 40;
+  width: min(20rem, 92vw);
+  transform: translateX(calc(100% - 2.35rem));
+  transition: transform 0.2s ease;
+}
+
+.project-admin-rail.is-open {
+  transform: translateX(0);
+}
+
+.project-admin-rail__tab {
+  position: absolute;
+  left: 0;
+  top: 2rem;
+  transform: rotate(-90deg);
+  transform-origin: left top;
+  translate: 0 100%;
+  background: #e87722;
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.55rem 0.9rem;
+  border: none;
+  border-radius: 0.5rem 0.5rem 0 0;
+  cursor: pointer;
+  box-shadow: -2px 2px 10px rgb(0 0 0 / 12%);
+}
+
+.project-admin-rail__panel {
+  margin-left: 2.35rem;
+  background: #e87722;
+  color: #fff;
+  border-radius: 0.75rem 0 0 0.75rem;
+  padding: 1rem 1rem 1.1rem;
+  min-height: 16rem;
+  box-shadow: -6px 8px 24px rgb(0 0 0 / 14%);
+}
+
+.project-admin-fab {
+  position: fixed;
+  right: 1rem;
+  bottom: 5.5rem;
+  z-index: 40;
+  background: #e87722;
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.7rem 0.95rem;
+  border-radius: 999px;
+  border: none;
+  box-shadow: 0 6px 18px rgb(232 119 34 / 35%);
+}
+
+@media (min-width: 1024px) {
+  .project-admin-fab {
+    display: none;
+  }
+}
+

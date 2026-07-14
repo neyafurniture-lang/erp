@@ -1,7 +1,9 @@
 import pool from '../db/pool.js';
+import { flattenQuoteLines } from './quote-document.js';
 
 export function calcDocTotals(lines) {
-  const subtotal = (lines || []).reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.price) || 0), 0);
+  const flat = flattenQuoteLines(lines);
+  const subtotal = (flat || []).reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.price) || 0), 0);
   const gst = subtotal * 0.05;
   const qst = subtotal * 0.09975;
   return { subtotal, total: subtotal + gst + qst, tax_rate: 14.975 };
@@ -51,7 +53,7 @@ export async function convertQuoteToInvoice(quoteId, depositPercent = 100) {
   if (!quotes[0]) throw new Error('Devis introuvable');
   const q = quotes[0];
   const pct = Math.min(100, Math.max(1, Number(depositPercent) || 100));
-  const rawLines = typeof q.lines === 'string' ? JSON.parse(q.lines) : (q.lines || []);
+  const rawLines = flattenQuoteLines(q.lines);
   const lines = rawLines.map(l => ({
     ...l,
     price: Number(l.price) * (pct / 100),

@@ -1,12 +1,5 @@
 import pool from '../db/pool.js';
-
-function parseLines(lines) {
-  if (!lines) return [];
-  if (typeof lines === 'string') {
-    try { return JSON.parse(lines); } catch { return []; }
-  }
-  return Array.isArray(lines) ? lines : [];
-}
+import { flattenQuoteLines } from './quote-document.js';
 
 /** Trouve le devis le plus pertinent pour un projet */
 export async function findQuoteForProject(projectId) {
@@ -32,7 +25,7 @@ export async function syncMaterialsFromQuote(projectId) {
   const quote = await findQuoteForProject(projectId);
   if (!quote) return { synced: 0, updated: 0, quote: null };
 
-  const lines = parseLines(quote.lines);
+  const lines = flattenQuoteLines(quote.lines);
   let synced = 0;
   let updated = 0;
 

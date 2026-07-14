@@ -5,29 +5,12 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import AppShell from '../../../../components/AppShell';
 import AuthGuard from '../../../../components/AuthGuard';
-import EasyTable from '../../../../components/EasyTable';
+import DocumentVisualEditor, { serializeQuoteDocument } from '../../../../components/DocumentVisualEditor';
+import SendDocumentModal from '../../../../components/SendDocumentModal';
 import {
-  api, formatMoney, formatDate, QUOTE_STATUS, downloadPdf, calcTaxes, calcLineSubtotal,
+  api, formatMoney, QUOTE_STATUS, downloadPdf, getToken, getApiUrl,
 } from '../../../../lib/api';
 import { useRegisterChatContext } from '../../../../lib/chat-context';
-
-function parseLines(lines) {
-  if (!lines) return [];
-  if (typeof lines === 'string') {
-    try { return JSON.parse(lines); } catch { return []; }
-  }
-  return Array.isArray(lines) ? lines : [];
-}
-
-function normalizeLines(lines) {
-  const parsed = parseLines(lines);
-  if (!parsed.length) return [{ description: '', qty: 1, price: 0 }];
-  return parsed.map(l => ({
-    description: l.description || '',
-    qty: l.qty ?? 1,
-    price: l.price ?? 0,
-  }));
-}
 
 export default function QuoteDetailPage() {
   const { id } = useParams();
@@ -35,12 +18,10 @@ export default function QuoteDetailPage() {
   const [quote, setQuote] = useState(null);
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
-  const [sending, setSending] = useState(false);
+  const [showSend, setShowSend] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [convertForm, setConvertForm] = useState(null);
   const [converting, setConverting] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [editLines, setEditLines] = useState([]);
   const [saving, setSaving] = useState(false);
 
   function load() {
@@ -80,39 +61,58 @@ export default function QuoteDetailPage() {
     setTimeout(() => setToast(''), 4000);
   }
 
-  function startEdit() {
-    setEditLines(normalizeLines(quote.lines));
-    setEditing(true);
+  async function updateStatus(status) {
+    await api(`/invoices/quotes/${id}`, { method: 'PUT', body: JSON.stringify({ status }) });
+    load();
+    showToast('Statut mis à jour');
   }
 
-  async function saveLines() {
+  async function saveDocument(draft) {
     setSaving(true);
     try {
-      const cleaned = editLines
-        .map(l => ({
-          description: String(l.description || '').trim(),
-          qty: Number(l.qty) || 0,
-          price: Number(l.price) || 0,
-        }))
-        .filter(l => l.description || l.qty || l.price);
+      const document = serializeQuoteDocument({
+        sections: draft.sections,
+        photos: draft.photos,
+        additional_notes: draft.additional_notes,
+        options: draft.options,
+      });
       await api(`/invoices/quotes/${id}`, {
         method: 'PUT',
-        body: JSON.stringify({ lines: cleaned.length ? cleaned : [{ description: '', qty: 1, price: 0 }] }),
+        body: JSON.stringify({
+          title: draft.title,
+          reference: draft.subtitle || null,
+          notes: draft.notes,
+          valid_until: draft.valid_until || null,
+          acceptance_date: draft.acceptance_date || null,
+          additional_notes: draft.additional_notes || null,
+          document,
+        }),
       });
-      setEditing(false);
       load();
-      showToast('Tableau enregistré');
+      showToast('Devis enregistré');
     } catch (err) {
       showToast(err.message);
+      throw err;
     } finally {
       setSaving(false);
     }
   }
 
-  async function updateStatus(status) {
-    await api(`/invoices/quotes/${id}`, { method: 'PUT', body: JSON.stringify({ status }) });
-    load();
-    showToast('Statut mis à jour');
+  async function uploadPhotos(files) {
+    const uploaded = [];
+    for (const file of files) {
+      const form = new FormData();
+      form.append('photo', file);
+      const res = await fetch(`${getApiUrl()}/invoices/quotes/${id}/photos`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${getToken()}` },
+        body: form,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Erreur ${res.status}`);
+      uploaded.push({ url: data.url, caption: data.caption || '' });
+    }
+    return uploaded;
   }
 
   async function handlePdf() {
@@ -123,19 +123,6 @@ export default function QuoteDetailPage() {
       showToast(err.message);
     } finally {
       setPdfLoading(false);
-    }
-  }
-
-  async function handleSend() {
-    setSending(true);
-    try {
-      const result = await api(`/invoices/quotes/${id}/send`, { method: 'POST' });
-      showToast(result.message || 'Devis envoyé par courriel');
-      load();
-    } catch (err) {
-      showToast(err.message);
-    } finally {
-      setSending(false);
     }
   }
 
@@ -181,152 +168,82 @@ export default function QuoteDetailPage() {
     );
   }
 
-  const lines = parseLines(quote.lines);
   const st = QUOTE_STATUS[quote.status] || { label: quote.status, color: 'bg-gray-100 text-gray-700' };
-  const previewSub = editing ? calcLineSubtotal(editLines) : (Number(quote.subtotal) || 0);
-  const taxes = calcTaxes(previewSub);
 
   return (
     <AuthGuard>
-      <AppShell title={`Devis ${quote.quote_number}`}>
+      <AppShell title={`Devis ${quote.quote_number}`} wide>
         {toast && (
-          <div className="fixed top-4 right-4 z-50 bg-neya-ink text-white px-4 py-2 rounded-lg shadow-lg text-sm">
+          <div className="fixed top-4 right-4 z-50 bg-neya-ink text-white px-4 py-2 text-sm">
             {toast}
           </div>
         )}
 
-        <Link href="/invoices" className="text-sm text-neya-orange hover:underline mb-4 inline-block">
-          ← Retour à la facturation
-        </Link>
-
-        <div className="card mb-6">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="text-xs text-neya-muted uppercase tracking-wider">Devis {quote.quote_number}</p>
-              <h1 className="font-heading text-2xl text-neya-ink mt-1">{quote.title || '—'}</h1>
-              {quote.reference && <p className="text-sm text-neya-muted mt-1">{quote.reference}</p>}
-              {quote.client_id && (
-                <Link href={`/clients/${quote.client_id}`} className="text-sm text-neya-orange hover:underline mt-2 inline-block">
-                  {quote.client_name}
-                </Link>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                value={quote.status}
-                onChange={e => updateStatus(e.target.value)}
-                className={`text-xs px-3 py-1.5 rounded-full border-0 ${st.color}`}
-              >
-                <option value="draft">Brouillon</option>
-                <option value="sent">Envoyé</option>
-                <option value="accepted">Accepté</option>
-                <option value="rejected">Refusé</option>
-              </select>
-              <span className="text-xs text-neya-muted">{formatDate(quote.created_at)}</span>
-            </div>
-          </div>
-
-          {quote.notes && (
-            <p className="text-sm text-neya-muted mt-4 pt-4 border-t border-neya-border whitespace-pre-wrap">
-              {quote.notes}
-            </p>
-          )}
-        </div>
-
-        <div className="card mb-6">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-            <h2 className="font-heading text-lg">Lignes</h2>
-            {!editing ? (
-              <button type="button" onClick={startEdit} className="btn-secondary text-sm min-h-[36px]">
-                Modifier le tableau
-              </button>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+          <Link href="/invoices" className="text-sm text-neya-muted hover:text-neya-ink">
+            ← Facturation
+          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={quote.status}
+              onChange={e => updateStatus(e.target.value)}
+              className={`text-xs px-3 py-1.5 border-0 ${st.color}`}
+            >
+              <option value="draft">Brouillon</option>
+              <option value="sent">Envoyé</option>
+              <option value="accepted">Accepté</option>
+              <option value="rejected">Refusé</option>
+            </select>
+            <button type="button" onClick={handlePdf} disabled={pdfLoading} className="btn-secondary text-sm min-h-[36px]">
+              {pdfLoading ? 'PDF…' : 'Télécharger PDF'}
+            </button>
+            <button type="button" onClick={() => setShowSend(true)} className="btn-primary text-sm min-h-[36px]">
+              Envoyer par courriel
+            </button>
+            {quote.invoice_id ? (
+              <Link href={`/invoices/${quote.invoice_id}`} className="btn-secondary text-sm min-h-[36px] flex items-center">
+                → Facture #{quote.invoice_number}
+              </Link>
             ) : (
-              <div className="flex gap-2">
-                <button type="button" onClick={saveLines} disabled={saving} className="btn-primary text-sm min-h-[36px]">
-                  {saving ? 'Enregistrement…' : 'Enregistrer'}
-                </button>
-                <button type="button" onClick={() => setEditing(false)} className="btn-secondary text-sm min-h-[36px]">
-                  Annuler
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => setConvertForm({
+                  deposit_percent: 100,
+                  subtitle: '',
+                  subtotal: quote.subtotal,
+                })}
+                className="btn-secondary text-sm min-h-[36px]"
+              >
+                Convertir
+              </button>
             )}
           </div>
-
-          {editing ? (
-            <EasyTable rows={editLines} onChange={setEditLines} />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-neya-border text-left text-neya-muted">
-                    <th className="pb-3 pr-4">Description</th>
-                    <th className="pb-3 pr-4 text-right">Qté</th>
-                    <th className="pb-3 pr-4 text-right">Prix unit.</th>
-                    <th className="pb-3 text-right">Sous-total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lines.length === 0 ? (
-                    <tr><td colSpan={4} className="py-6 text-center text-neya-muted">Aucune ligne</td></tr>
-                  ) : (
-                    lines.map((line, i) => (
-                      <tr key={i} className="border-b border-neya-border">
-                        <td className="py-3 pr-4">{line.description || '—'}</td>
-                        <td className="py-3 pr-4 text-right text-neya-muted">{line.qty}</td>
-                        <td className="py-3 pr-4 text-right">{formatMoney(line.price)}</td>
-                        <td className="py-3 text-right font-medium">
-                          {formatMoney((Number(line.qty) || 0) * (Number(line.price) || 0))}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          <div className="mt-4 pt-4 border-t border-neya-border grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-            <div><span className="text-neya-muted">Sous-total</span><p className="font-medium">{formatMoney(taxes.subtotal)}</p></div>
-            <div><span className="text-neya-muted">TPS 5%</span><p className="font-medium">{formatMoney(taxes.gst)}</p></div>
-            <div><span className="text-neya-muted">TVQ 9,975%</span><p className="font-medium">{formatMoney(taxes.qst)}</p></div>
-            <div>
-              <span className="text-neya-muted">Total TTC</span>
-              <p className="font-heading text-lg text-neya-orange">
-                {formatMoney(editing ? taxes.total : quote.total)}
-              </p>
-            </div>
-          </div>
         </div>
 
-        <div className="flex flex-wrap gap-3">
-          <button type="button" onClick={handlePdf} disabled={pdfLoading} className="btn-secondary">
-            {pdfLoading ? 'Téléchargement…' : 'Télécharger PDF'}
-          </button>
-          <button type="button" onClick={handleSend} disabled={sending} className="btn-primary">
-            {sending ? 'Envoi…' : 'Envoyer par courriel'}
-          </button>
-          {quote.invoice_id ? (
-            <Link href={`/invoices/${quote.invoice_id}`} className="btn-secondary">
-              → Facture #{quote.invoice_number}
-            </Link>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setConvertForm({
-                deposit_percent: 100,
-                subtitle: '',
-                subtotal: quote.subtotal,
-              })}
-              className="btn-secondary"
-            >
-              Convertir en facture
-            </button>
-          )}
-        </div>
+        <DocumentVisualEditor
+          kind="quote"
+          numberLabel={quote.quote_number}
+          statusLabel={st.label}
+          clientName={quote.client_name}
+          clientHref={quote.client_id ? `/clients/${quote.client_id}` : null}
+          client={{
+            contact: quote.contact,
+            email: quote.email,
+            phone: quote.client_phone,
+            address: quote.client_address,
+            city: quote.client_city,
+          }}
+          companyPayment={quote.company_payment}
+          quoteTerms={quote.quote_terms}
+          value={quote}
+          onSave={saveDocument}
+          onUploadPhotos={uploadPhotos}
+          saving={saving}
+        />
 
         {convertForm && (
           <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-            <form onSubmit={confirmConvert} className="bg-white rounded-xl p-6 w-full max-w-md shadow-xl">
+            <form onSubmit={confirmConvert} className="bg-white p-6 w-full max-w-md shadow-xl border border-neya-border">
               <h3 className="font-heading text-lg mb-4">Convertir en facture</h3>
               <div className="space-y-4 mb-6">
                 <div>
@@ -343,7 +260,7 @@ export default function QuoteDetailPage() {
                           deposit_percent: opt.pct,
                           subtitle: opt.pct < 100 ? `${opt.pct}% Deposit · ${quote.title || 'Order'}` : '',
                         })}
-                        className={`flex-1 py-2 rounded-lg text-sm border ${
+                        className={`flex-1 py-2 text-sm border ${
                           convertForm.deposit_percent === opt.pct
                             ? 'bg-neya-orange text-white border-neya-orange'
                             : 'bg-white border-neya-border'
@@ -360,10 +277,10 @@ export default function QuoteDetailPage() {
                       onChange={e => setConvertForm({ ...convertForm, subtitle: e.target.value })} />
                   </div>
                 )}
-                <div className="bg-neya-cream rounded-lg p-3 text-sm">
+                <div className="bg-neya-surface p-3 text-sm">
                   <p className="text-neya-muted">Montant estimé (TTC)</p>
                   <p className="font-heading text-xl text-neya-orange">
-                    {formatMoney(calcTaxes((convertForm.subtotal || 0) * (convertForm.deposit_percent / 100)).total)}
+                    {formatMoney((Number(convertForm.subtotal) || 0) * (convertForm.deposit_percent / 100) * 1.14975)}
                   </p>
                 </div>
               </div>
@@ -375,6 +292,18 @@ export default function QuoteDetailPage() {
               </div>
             </form>
           </div>
+        )}
+
+        {showSend && (
+          <SendDocumentModal
+            type="quote"
+            docId={id}
+            onClose={() => setShowSend(false)}
+            onSent={() => {
+              showToast('Devis envoyé par courriel');
+              load();
+            }}
+          />
         )}
       </AppShell>
     </AuthGuard>

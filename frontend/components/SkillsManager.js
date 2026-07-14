@@ -13,7 +13,7 @@ export const ACTION_TYPES = [
   'update_standard', 'sync_wordpress', 'sync_web_orders', 'list_web_orders', 'sync_web_photos',
   'ui_edit_mode', 'ui_add_todo_list', 'ui_move_section', 'ui_hide_section', 'ui_show_section', 'ui_reset_layout',
   'erp_manual', 'search_projects', 'search_memory', 'get_project',
-  'list_emails', 'search_emails', 'get_email', 'list_mail_threads',
+  'list_emails', 'search_emails', 'get_email', 'list_mail_threads', 'import_mail_dates_to_project',
   'create_fabrication_plan', 'update_quote', 'get_quote',
   'demande_modification_erp', 'atelier_habits',
 ];

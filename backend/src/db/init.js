@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import pool from './pool.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -281,6 +281,11 @@ export async function initDb() {
   await pool.query(`ALTER TABLE assistant_memories ADD COLUMN IF NOT EXISTS quote_id INT REFERENCES quotes(id) ON DELETE CASCADE`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_memories_client ON assistant_memories(client_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_memories_quote ON assistant_memories(quote_id)`);
+  await pool.query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS title TEXT`);
+  await pool.query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS reference TEXT`);
+  await pool.query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS valid_until DATE`);
+  await pool.query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS additional_notes TEXT`);
+  await pool.query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS acceptance_date DATE`);
 
   await seedV2Extensions();
 

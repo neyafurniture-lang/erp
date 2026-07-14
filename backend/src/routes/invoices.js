@@ -1,14 +1,56 @@
 import { Router } from 'express';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import pool from '../db/pool.js';
 import { generateInvoicePdf, generateQuotePdf } from '../services/pdf.js';
 import { sendDocumentEmail } from '../services/document-email.js';
 import { calcDocTotals } from '../services/invoice-helpers.js';
 import { syncMaterialsFromQuote } from '../services/project-materials.js';
+import { getCompanyConfig } from '../services/company-config.js';
+import { flattenQuoteLines, serializeQuoteDocument, normalizeQuoteDocument } from '../services/quote-document.js';
 
 const router = Router();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const quoteUploadDir = path.join(__dirname, '../../uploads/quotes');
+if (!fs.existsSync(quoteUploadDir)) fs.mkdirSync(quoteUploadDir, { recursive: true });
+
+const quoteUpload = multer({
+  storage: multer.diskStorage({
+    destination: quoteUploadDir,
+    filename: (req, file, cb) => {
+      const safe = String(file.originalname || 'photo').replace(/[^a-zA-Z0-9._-]/g, '_');
+      cb(null, `${Date.now()}-${safe}`);
+    },
+  }),
+  limits: { fileSize: 12 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (/^image\//.test(file.mimetype)) cb(null, true);
+    else cb(new Error('Images uniquement'));
+  },
+});
 
 function calcTotals(lines) {
   return calcDocTotals(lines);
+}
+
+async function enrichQuoteRow(row) {
+  if (!row) return null;
+  const company = await getCompanyConfig();
+  return {
+    ...row,
+    document: normalizeQuoteDocument(row.lines),
+    company_payment: company.payment,
+    quote_terms: company.quoteTerms,
+    company: {
+      tradeName: company.tradeName,
+      legalName: company.legalName,
+      email: company.email,
+      phone: company.phone,
+      address: company.address,
+    },
+  };
 }
 
 async function nextNumber(type) {
@@ -46,7 +88,8 @@ router.get('/quotes', async (req, res) => {
 router.get('/quotes/:id', async (req, res) => {
   try {
     const { rows } = await pool.query(`
-      SELECT q.*, c.name as client_name, c.contact, c.email, c.address as client_address, c.city as client_city,
+      SELECT q.*, c.name as client_name, c.contact, c.email, c.phone as client_phone,
+             c.address as client_address, c.city as client_city,
              p.name as project_name, i.id as invoice_id, i.invoice_number
       FROM quotes q
       LEFT JOIN clients c ON c.id = q.client_id
@@ -55,7 +98,7 @@ router.get('/quotes/:id', async (req, res) => {
       WHERE q.id = $1
     `, [req.params.id]);
     if (!rows[0]) return res.status(404).json({ error: 'Devis introuvable' });
-    res.json(rows[0]);
+    res.json(await enrichQuoteRow(rows[0]));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -63,17 +106,37 @@ router.get('/quotes/:id', async (req, res) => {
 
 router.post('/quotes', async (req, res) => {
   try {
-    const { project_id, client_id, lines, notes, status, title, reference, terms, order_summary } = req.body;
+    const {
+      project_id, client_id, lines, notes, status, title, reference,
+      valid_until, additional_notes, acceptance_date, document,
+    } = req.body;
     const quote_number = await nextNumber('Q');
-    const { subtotal, total } = calcTotals(lines);
+    const docPayload = document
+      ? serializeQuoteDocument({
+        ...document,
+        additional_notes: additional_notes ?? document.additional_notes,
+      })
+      : (lines && !Array.isArray(lines) ? serializeQuoteDocument(lines) : lines);
+    const stored = docPayload && !Array.isArray(docPayload)
+      ? serializeQuoteDocument(docPayload)
+      : docPayload;
+    const { subtotal, total } = calcTotals(stored || lines || []);
     const { rows } = await pool.query(
-      `INSERT INTO quotes (project_id, client_id, quote_number, status, lines, subtotal, tax_rate, total, notes, title, reference)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
-      [project_id, client_id, quote_number, status || 'draft', JSON.stringify(lines || []), subtotal, 14.975, total, notes, title, reference]
+      `INSERT INTO quotes (
+         project_id, client_id, quote_number, status, lines, subtotal, tax_rate, total,
+         notes, title, reference, valid_until, additional_notes, acceptance_date
+       )
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+      [
+        project_id, client_id, quote_number, status || 'draft',
+        JSON.stringify(stored || lines || []),
+        subtotal, 14.975, total, notes, title, reference,
+        valid_until || null, additional_notes || null, acceptance_date || null,
+      ]
     );
     const created = rows[0];
     if (project_id) await syncMaterialsFromQuote(project_id).catch(() => {});
-    res.status(201).json(created);
+    res.status(201).json(await enrichQuoteRow(created));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -81,9 +144,27 @@ router.post('/quotes', async (req, res) => {
 
 router.put('/quotes/:id', async (req, res) => {
   try {
-    const { status, lines, notes, title, reference, project_id } = req.body;
-    let subtotal, total;
-    if (lines) ({ subtotal, total } = calcTotals(lines));
+    const {
+      status, lines, notes, title, reference, project_id,
+      valid_until, additional_notes, acceptance_date, document,
+    } = req.body;
+
+    let storedLines = null;
+    if (document) {
+      storedLines = serializeQuoteDocument({
+        ...document,
+        additional_notes: additional_notes ?? document.additional_notes,
+      });
+    } else if (lines !== undefined) {
+      storedLines = (!Array.isArray(lines) && lines?.sections)
+        ? serializeQuoteDocument(lines)
+        : lines;
+    }
+
+    let subtotal;
+    let total;
+    if (storedLines) ({ subtotal, total } = calcTotals(storedLines));
+
     const { rows } = await pool.query(
       `UPDATE quotes SET
         status = COALESCE($1, status),
@@ -93,15 +174,79 @@ router.put('/quotes/:id', async (req, res) => {
         notes = COALESCE($5, notes),
         title = COALESCE($6, title),
         reference = COALESCE($7, reference),
-        project_id = COALESCE($8, project_id)
-       WHERE id = $9 RETURNING *`,
-      [status, lines ? JSON.stringify(lines) : null, subtotal, total, notes, title, reference, project_id || null, req.params.id]
+        project_id = COALESCE($8, project_id),
+        valid_until = COALESCE($9, valid_until),
+        additional_notes = COALESCE($10, additional_notes),
+        acceptance_date = COALESCE($11, acceptance_date)
+       WHERE id = $12 RETURNING *`,
+      [
+        status,
+        storedLines ? JSON.stringify(storedLines) : null,
+        subtotal, total, notes, title, reference,
+        project_id || null,
+        valid_until === undefined ? null : valid_until,
+        additional_notes === undefined ? null : additional_notes,
+        acceptance_date === undefined ? null : acceptance_date,
+        req.params.id,
+      ]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Devis introuvable' });
     if (rows[0].project_id) await syncMaterialsFromQuote(rows[0].project_id).catch(() => {});
-    res.json(rows[0]);
+
+    const { rows: full } = await pool.query(`
+      SELECT q.*, c.name as client_name, c.contact, c.email, c.phone as client_phone,
+             c.address as client_address, c.city as client_city,
+             p.name as project_name, i.id as invoice_id, i.invoice_number
+      FROM quotes q
+      LEFT JOIN clients c ON c.id = q.client_id
+      LEFT JOIN projects p ON p.id = q.project_id
+      LEFT JOIN invoices i ON i.quote_id = q.id
+      WHERE q.id = $1
+    `, [req.params.id]);
+    res.json(await enrichQuoteRow(full[0]));
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/quotes/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { rows: linked } = await pool.query(
+      'SELECT id, invoice_number FROM invoices WHERE quote_id = $1 LIMIT 1',
+      [id]
+    );
+    if (linked[0] && req.query.force !== '1') {
+      return res.status(409).json({
+        error: `Ce devis est lié à la facture ${linked[0].invoice_number}. Supprimez la facture d'abord, ou confirmez la suppression forcée.`,
+        invoice_id: linked[0].id,
+      });
+    }
+    // Détacher les factures liées si force
+    if (linked[0]) {
+      await pool.query('UPDATE invoices SET quote_id = NULL WHERE quote_id = $1', [id]);
+    }
+    const { rows } = await pool.query('DELETE FROM quotes WHERE id = $1 RETURNING id, quote_number', [id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Devis introuvable' });
+    res.json({ ok: true, deleted: rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/quotes/:id/photos', quoteUpload.single('photo'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Photo requise' });
+    const url = `/uploads/quotes/${req.file.filename}`;
+    const caption = String(req.body?.caption || '').slice(0, 200);
+    const { rows } = await pool.query('SELECT lines FROM quotes WHERE id = $1', [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Devis introuvable' });
+    const doc = normalizeQuoteDocument(rows[0].lines);
+    doc.photos = [...(doc.photos || []), { url, caption }];
+    await pool.query('UPDATE quotes SET lines = $1 WHERE id = $2', [JSON.stringify(serializeQuoteDocument(doc)), req.params.id]);
+    res.status(201).json({ url, caption, photos: doc.photos });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -126,7 +271,22 @@ router.get('/quotes/:id/pdf', async (req, res) => {
 
 router.post('/quotes/:id/send', async (req, res) => {
   try {
-    res.json(await sendDocumentEmail('quote', req.params.id));
+    res.json(await sendDocumentEmail('quote', req.params.id, {
+      to: req.body?.to,
+      subject: req.body?.subject,
+      text: req.body?.text,
+      requireConfirm: true,
+      confirmed: req.body?.confirmed === true,
+    }));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get('/quotes/:id/send-preview', async (req, res) => {
+  try {
+    const { buildDocumentEmailDraft } = await import('../services/document-email.js');
+    res.json(await buildDocumentEmailDraft('quote', req.params.id));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -185,7 +345,7 @@ router.post('/from-quote/:quoteId', async (req, res) => {
       });
     }
 
-    const rawLines = typeof q.lines === 'string' ? JSON.parse(q.lines) : (q.lines || []);
+    const rawLines = flattenQuoteLines(q.lines);
     const factor = pct / 100;
     const lines = rawLines.map(l => ({
       ...l,
@@ -258,7 +418,22 @@ router.get('/:id', async (req, res) => {
 
 router.post('/:id/send', async (req, res) => {
   try {
-    res.json(await sendDocumentEmail('invoice', req.params.id));
+    res.json(await sendDocumentEmail('invoice', req.params.id, {
+      to: req.body?.to,
+      subject: req.body?.subject,
+      text: req.body?.text,
+      requireConfirm: true,
+      confirmed: req.body?.confirmed === true,
+    }));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get('/:id/send-preview', async (req, res) => {
+  try {
+    const { buildDocumentEmailDraft } = await import('../services/document-email.js');
+    res.json(await buildDocumentEmailDraft('invoice', req.params.id));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -287,6 +462,21 @@ router.put('/:id', async (req, res) => {
     );
     if (!rows[0]) return res.status(404).json({ error: 'Facture introuvable' });
     res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    // payments CASCADE déjà en place
+    const { rows } = await pool.query(
+      'DELETE FROM invoices WHERE id = $1 RETURNING id, invoice_number, quote_id',
+      [id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Facture introuvable' });
+    res.json({ ok: true, deleted: rows[0] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -16,4 +16,4 @@ ENV BUILT_AT=$BUILT_AT
 ENV NODE_ENV=production
 ENV CURSOR_AGENT_CWD=/workspace
 EXPOSE 4000
-CMD ["npm", "start"]
+CMD ["node", "src/index.js"]

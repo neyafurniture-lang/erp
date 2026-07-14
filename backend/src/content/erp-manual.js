@@ -36,6 +36,9 @@ export const ERP_MANUAL_SECTIONS = [
       'Parler : enregistrez → révisez le texte → « Construire le plan » → confirmez.',
       'Exemples : « Demain finition banc olive Mehdi, mail client », « Cocher débitage », « Dépense 120$ matériaux ».',
       'Joindre 📎 : photos, PDF, plans, reçus — l\'IA peut lire l\'image (scan ticket, facture).',
+      'Devis Gmail → projet : « Cherche les derniers devis d’Alexandra et crée les projets » — Lia lit les PDF et crée client + projet + tâches.',
+      'Protocole IA : skills + JSON → exécution → ACTION_CHECK (OK/FAIL) → Lia réinterprète (autre action ou réponse finale).',
+      'MCP Cursor : neya_run_action (CHECK) + neya_continue_from_check ; chat = boucle complète.',
       'Sur une fiche projet/client, l\'assistant connaît le contexte automatiquement.',
       'Dites « manuel », « aide ERP » ou « comment faire » pour ouvrir ce guide.',
       'Modifs code / interface : « ajoute la planification des départs dans la boîte mail » → Lia lance Cursor sur le VPS (backup Git auto).',
@@ -56,6 +59,7 @@ export const ERP_MANUAL_SECTIONS = [
       'Avancer une étape met à jour les tâches et le calendrier.',
       'Chaque projet peut avoir client, budget, deadline, tâches, dépenses, courriels liés.',
       'Depuis une fiche standard : « Créer projet depuis cette fiche ».',
+      'Depuis Gmail : « Analyse les devis The NNS et crée les projets » (skill create_project_from_quote_email).',
     ],
   },
   {

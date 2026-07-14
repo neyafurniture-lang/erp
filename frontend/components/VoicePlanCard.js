@@ -1,5 +1,7 @@
 'use client';
 
+import CopyTextButton from './CopyTextButton';
+
 const PHASE_LABELS = {
   recording: 'Enregistrement…',
   reviewing: 'Vérifier la transcription',
@@ -160,7 +162,14 @@ export default function VoicePlanCard({
 
         {phase === 'done' && (
           <div className="space-y-3">
-            {reply && <p className="text-sm text-neya-ink whitespace-pre-wrap">{reply}</p>}
+            {reply && (
+              <div className="relative">
+                <div className="absolute top-0 right-0">
+                  <CopyTextButton text={reply} />
+                </div>
+                <p className="text-sm text-neya-ink whitespace-pre-wrap pr-8">{reply}</p>
+              </div>
+            )}
             <button type="button" onClick={onOpenChat} className="text-xs text-neya-ink font-medium hover:underline">
               Ouvrir l&apos;historique ▴
             </button>

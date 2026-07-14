@@ -29,6 +29,7 @@ const DEFAULTS = {
   google_client_id: '',
   google_client_secret: '',
   google_redirect_uri: '',
+  project_admin_pin: '3125',
 };
 
 function maskSecret(value) {
@@ -39,7 +40,7 @@ function maskSecret(value) {
 
 const SECRET_KEYS = [
   'anthropic_api_key', 'openai_api_key', 'woocommerce_key', 'woocommerce_secret',
-  'smtp_pass', 'cursor_api_key', 'google_client_secret',
+  'smtp_pass', 'cursor_api_key', 'google_client_secret', 'project_admin_pin',
 ];
 
 export async function getSetting(key) {
@@ -104,6 +105,7 @@ export async function getPublicSettings() {
     google_client_secret_preview: (all.google_client_secret || process.env.GOOGLE_CLIENT_SECRET)
       ? maskSecret(String(all.google_client_secret || process.env.GOOGLE_CLIENT_SECRET))
       : '',
+    project_admin_pin_configured: Boolean(all.project_admin_pin || process.env.PROJECT_ADMIN_PIN || '3125'),
     google_redirect_uri: all.google_redirect_uri || process.env.GOOGLE_REDIRECT_URI || '',
     google_configured: Boolean(
       (all.google_client_id || process.env.GOOGLE_CLIENT_ID)
