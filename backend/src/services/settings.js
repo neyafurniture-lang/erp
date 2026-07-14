@@ -20,7 +20,7 @@ const DEFAULTS = {
   smtp_user: '',
   smtp_pass: '',
   smtp_from: '',
-  calendar_include_custom: false,
+  calendar_include_custom: true,
   cursor_api_key: '',
   cursor_runtime: 'local',
   cursor_repo_url: '',

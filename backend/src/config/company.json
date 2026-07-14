@@ -4,9 +4,7 @@
   "website": "https://neyafurniture.ca",
   "address": {
     "line1": "4842 Rue Fabre",
-    "line2": "Montréal QC H2J 3W2",
-    "altLine1": "2177 rue Masson, suite 404",
-    "altLine2": "Montréal QC"
+    "line2": "Montréal QC H2J 3W2"
   },
   "phone": "+1 514 910-4874",
   "email": "neyafurniture@gmail.com",
@@ -17,8 +15,8 @@
   "tax": {
     "gstRate": 0.05,
     "qstRate": 0.09975,
-    "labelGst": "GST 5%",
-    "labelQst": "QST 9.975%"
+    "labelGst": "TPS 5 %",
+    "labelQst": "TVQ 9,975 %"
   },
   "defaultTerms": "Net 30",
   "quoteValidityDays": 30,
@@ -41,11 +39,11 @@
     "referenceNote": "Please include the invoice number with your payment so we can match it to your order."
   },
   "quoteTerms": [
-    "All amounts shown are before taxes (GST 5% + QST 9.975%).",
-    "50% deposit upon order confirmation, balance due on delivery.",
-    "Accepted payment methods: bank transfer, cheque, or Interac.",
-    "Pickup at the workshop (Montreal) or delivery to be arranged.",
-    "Wood supplied by client unless otherwise specified in the quote."
+    "Les prix unitaires sont hors taxes ; le total TTC inclut TPS 5 % + TVQ 9,975 %.",
+    "Acompte de 50 % à la confirmation de commande, solde à la livraison.",
+    "Modes de paiement acceptés : virement, chèque ou Interac.",
+    "Cueillette à l’atelier (Montréal) ou livraison à convenir.",
+    "Bois fourni par le client sauf indication contraire au devis."
   ],
   "invoiceNumberStart": 1027
 }

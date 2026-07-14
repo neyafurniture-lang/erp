@@ -700,7 +700,7 @@ function isMailMetaDateContext(before = '', after = '') {
 
 function labelFromAfterColon(tail = '') {
   return String(tail)
-    .split(/(?=(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|\d{1,2}\s+(?:janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre)))/i)[0]
+    .split(/(?=(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|\d{1,2}\s+(?:janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre)(?:\s|$|\s*[:\-–])))/i)[0]
     .replace(/https?:\S+/g, '')
     .replace(/&[#\w]+;/g, ' ')
     .replace(/^[\s:–\-•>]+/, '')
@@ -778,6 +778,23 @@ export function extractEventsFromText(text = '', source = {}) {
     .sort((a, b) => a.date - b.date);
 }
 
+/** Éclater un événement en un créneau par type de travail (montage, démontage, médiation…). */
+function expandEventToSlots(ev) {
+  const slots = extractWorkSlots(ev.label);
+  if (slots.length <= 1) return [ev];
+  return slots.map(slot => {
+    const minutes = minutesBetweenTimes(slot.start, slot.end) || plannedMinutesForLabel(slot.kind);
+    return {
+      ...ev,
+      label: slot.kind,
+      start: slot.start ? formatHm(slot.start) : (ev.start || ''),
+      end: slot.end ? formatHm(slot.end) : (ev.end || ''),
+      planned_minutes: minutes,
+      planned_hours: Math.round((minutes / 60) * 4) / 4,
+    };
+  });
+}
+
 async function scheduleMailEvents(events, { query, pageContext, subjectHint, projectId: forcedProjectId = null }) {
   const actions = [];
   const created = [];
@@ -792,20 +809,23 @@ async function scheduleMailEvents(events, { query, pageContext, subjectHint, pro
     projectId = p?.id || null;
   }
 
-  for (const ev of events) {
+  for (const rawEv of events) {
+    for (const ev of expandEventToSlots(rawEv)) {
     const minutes = ev.planned_minutes || plannedMinutesForLabel(ev.label, ev.start, ev.end);
+    const kindHint = ev.label.toLowerCase().slice(0, 24);
     const { rows: existing } = await pool.query(
       `SELECT id, title FROM tasks
        WHERE status != 'done'
          AND project_id IS NOT DISTINCT FROM $4
          AND DATE(start_time) = $1::date
-         AND (LOWER(title) LIKE $2 OR LOWER(title) LIKE $3)
+         AND (LOWER(title) LIKE $2 OR LOWER(title) LIKE $3 OR LOWER(title) LIKE $5)
        LIMIT 1`,
       [
         ev.dateKey,
         `%${String(query || '').toLowerCase().slice(0, 20)}%`,
         `%${ev.label.toLowerCase().slice(0, 20)}%`,
         projectId,
+        `%${kindHint}%`,
       ]
     );
     if (existing[0]) {
@@ -830,7 +850,10 @@ async function scheduleMailEvents(events, { query, pageContext, subjectHint, pro
     const clock = parseClockToken(ev.start || '9:00') || '09:00';
     const [hh, mm] = clock.split(':').map(Number);
     start.setHours(hh, mm, 0, 0);
-    const end = new Date(start.getTime() + minutes * 60000);
+    const endMins = minutesBetweenTimes(ev.start, ev.end);
+    const end = endMins
+      ? (() => { const e = new Date(start); const [eh, em] = (parseClockToken(ev.end) || '10:00').split(':').map(Number); e.setHours(eh, em, 0, 0); return e; })()
+      : new Date(start.getTime() + minutes * 60000);
     const { rows } = await pool.query(
       'UPDATE tasks SET start_time=$1, end_time=$2 WHERE id=$3 RETURNING *',
       [start.toISOString(), end.toISOString(), task.id]
@@ -838,6 +861,7 @@ async function scheduleMailEvents(events, { query, pageContext, subjectHint, pro
     actions.push({ type: 'schedule_task', data: rows[0] });
     actions.push({ type: 'create_task', data: rows[0] });
     created.push({ ...ev, skipped: false, taskId: rows[0].id, title: rows[0].title, planned_minutes: minutes });
+    }
   }
   return { actions, created, projectId };
 }

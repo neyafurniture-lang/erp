@@ -28,19 +28,16 @@ router.get('/', async (req, res) => {
 router.get('/calendar', async (req, res) => {
   try {
     const { start, end } = req.query;
-    const { getSetting } = await import('../services/settings.js');
-    const includeCustom = (await getSetting('calendar_include_custom')) === true;
     const { rows } = await pool.query(`
       SELECT t.id, t.title, t.type, t.status, t.start_time as start, t.end_time as end,
              t.project_id, p.name as project_name, t.estimated_minutes, p.standard_id
       FROM tasks t
       LEFT JOIN projects p ON p.id = t.project_id
       WHERE t.start_time IS NOT NULL
-        AND ($3::boolean OR p.standard_id IS NOT NULL)
         AND ($1::timestamptz IS NULL OR t.start_time >= $1)
         AND ($2::timestamptz IS NULL OR t.end_time <= $2)
       ORDER BY t.start_time
-    `, [start || null, end || null, includeCustom]);
+    `, [start || null, end || null]);
 
     const events = rows.map(t => ({
       id: String(t.id),
