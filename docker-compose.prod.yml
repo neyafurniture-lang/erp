@@ -109,6 +109,13 @@ services:
 
       CURSOR_HOST_TOKEN: ${CURSOR_HOST_TOKEN:-}
 
+      # One-click deploy : SSH vers l'hôte Docker (bridge gateway)
+      NEYA_VPS_HOST: ${NEYA_VPS_HOST:-172.18.0.1}
+      NEYA_VPS_USER: ${NEYA_VPS_USER:-ubuntu}
+      NEYA_VPS_SSH_KEY: ${NEYA_VPS_SSH_KEY:-/run/neya-deploy/id_ed25519}
+      NEYA_REPO_DIR: ${NEYA_REPO_DIR:-/opt/neya-erp}
+      NEYA_DEPLOY_BRANCH: ${NEYA_DEPLOY_BRANCH:-main}
+
     depends_on:
 
       db:
@@ -122,6 +129,8 @@ services:
       - /opt/neya-erp:/workspace
       # Socket du runner Cursor sur l'hôte VPS
       - /opt/neya-erp/deploy/run:/host-run
+      # Clé SSH pour « Mettre à jour la prod » depuis l'UI
+      - /home/ubuntu/.ssh/neya_vps_deploy:/run/neya-deploy/id_ed25519:ro
 
     healthcheck:
 
