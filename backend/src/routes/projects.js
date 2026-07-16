@@ -61,7 +61,12 @@ router.post('/', async (req, res) => {
        LEFT JOIN clients c ON c.id = p.client_id WHERE p.id = $1`,
       [rows[0].id]
     );
-    res.status(201).json(full[0] || rows[0]);
+    const project = full[0] || rows[0];
+    // Dossier Drive sous NEYA ERP / Clients / {client} / {projet}
+    const { tryEnsureProjectFolder } = await import('../services/drive-folders.js');
+    const driveFolder = await tryEnsureProjectFolder(project.id);
+    if (driveFolder?.folder_id) project.drive_folder_id = driveFolder.folder_id;
+    res.status(201).json(project);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -96,6 +101,9 @@ router.post('/from-standard/:standardId', async (req, res) => {
     }
 
     await client.query('COMMIT');
+    const { tryEnsureProjectFolder } = await import('../services/drive-folders.js');
+    const driveFolder = await tryEnsureProjectFolder(project.id);
+    if (driveFolder?.folder_id) project.drive_folder_id = driveFolder.folder_id;
     res.status(201).json(project);
   } catch (err) {
     await client.query('ROLLBACK');
@@ -176,7 +184,14 @@ router.patch('/:id/client', async (req, res) => {
        WHERE p.id = $1`,
       [id]
     );
-    res.json(full[0]);
+    const project = full[0];
+    // Si pas encore de dossier Drive, le créer sous le client
+    if (project && !project.drive_folder_id) {
+      const { tryEnsureProjectFolder } = await import('../services/drive-folders.js');
+      const driveFolder = await tryEnsureProjectFolder(id);
+      if (driveFolder?.folder_id) project.drive_folder_id = driveFolder.folder_id;
+    }
+    res.json(project);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

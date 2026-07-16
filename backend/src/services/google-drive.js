@@ -82,6 +82,27 @@ export async function createFolder(name, parentId = 'root') {
   return formatFile(data);
 }
 
+/** Trouve un sous-dossier par nom exact (non corbeille). */
+export async function findChildFolderByName(parentId, name) {
+  const escaped = String(name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  const q = `'${parentId}' in parents and name='${escaped}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+  const params = new URLSearchParams({
+    q,
+    fields: 'files(id,name,mimeType,webViewLink,parents)',
+    pageSize: '5',
+  });
+  const data = await driveFetch(`/files?${params}`);
+  const hit = (data.files || [])[0];
+  return hit ? formatFile(hit) : null;
+}
+
+/** Crée le dossier s’il n’existe pas déjà sous le parent. */
+export async function getOrCreateChildFolder(parentId, name) {
+  const existing = await findChildFolderByName(parentId, name);
+  if (existing) return existing;
+  return createFolder(name, parentId);
+}
+
 export async function createGoogleDoc(name, parentId = 'root', mimeType = 'application/vnd.google-apps.document') {
   const data = await driveFetch('/files?fields=id,name,mimeType,webViewLink', {
     method: 'POST',

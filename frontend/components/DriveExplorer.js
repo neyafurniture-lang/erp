@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { api, getApiUrl, getToken } from '../lib/api';
+import { useAuth } from '../lib/auth-context';
+import { isAdmin } from '../lib/permissions';
 import { connectGoogle, getGoogleStatus } from '../lib/google';
 import DriveFilePreview, { canPreview } from './DriveFilePreview';
 
@@ -133,9 +135,17 @@ function EmptyDrive({ title, children }) {
 }
 
 export default function DriveExplorer({ projectId = null, initialFolderId = 'root' }) {
+  const { user } = useAuth();
+  const adminUser = isAdmin(user);
   const [connected, setConnected] = useState(null);
   const [driveCtx, setDriveCtx] = useState(null);
   const [rootsMode, setRootsMode] = useState(false);
+  /** 'files' = explorateur Drive | 'admin' = Clients / Projets ERP */
+  const [spaceMode, setSpaceMode] = useState('files');
+  const [adminTree, setAdminTree] = useState(null);
+  const [adminBusy, setAdminBusy] = useState(false);
+  const [expandedClientId, setExpandedClientId] = useState(null);
+  const [projectRootId, setProjectRootId] = useState(null);
   const [folderId, setFolderId] = useState(initialFolderId);
   const [breadcrumbs, setBreadcrumbs] = useState([{ id: 'root', name: 'Mon Drive' }]);
   const [files, setFiles] = useState([]);
@@ -151,6 +161,7 @@ export default function DriveExplorer({ projectId = null, initialFolderId = 'roo
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef(null);
+  const ensuredProject = useRef(false);
 
   const loadDriveAccess = async () => {
     try {
@@ -182,11 +193,25 @@ export default function DriveExplorer({ projectId = null, initialFolderId = 'roo
     setErr('');
     setSearching(!!q);
     try {
-      const data = q
-        ? await api(`/drive/search?q=${encodeURIComponent(q)}`)
-        : projectId
-          ? await api(`/drive/projects/${projectId}`)
-          : await api(`/drive/files?folderId=${fid}`);
+      let data;
+      if (q) {
+        data = await api(`/drive/search?q=${encodeURIComponent(q)}`);
+      } else if (projectId) {
+        if (projectRootId && fid && fid !== projectRootId) {
+          data = await api(`/drive/files?folderId=${encodeURIComponent(fid)}`);
+        } else {
+          data = await api(`/drive/projects/${projectId}`);
+          if (data.folder?.id) {
+            setProjectRootId(data.folder.id);
+            if (!fid || fid === 'root' || fid === projectRootId) {
+              setFolderId(data.folder.id);
+              setBreadcrumbs([{ id: data.folder.id, name: data.folder.name || 'Dossier projet' }]);
+            }
+          }
+        }
+      } else {
+        data = await api(`/drive/files?folderId=${encodeURIComponent(fid || 'root')}`);
+      }
       setFiles(data.files || []);
       setSelected(null);
       setPreviewFile(null);
@@ -198,13 +223,100 @@ export default function DriveExplorer({ projectId = null, initialFolderId = 'roo
     }
   };
 
+  async function loadAdminTree() {
+    if (!adminUser) return;
+    setAdminBusy(true);
+    setErr('');
+    try {
+      const tree = await api('/drive/admin/tree');
+      setAdminTree(tree);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setAdminBusy(false);
+    }
+  }
+
+  async function syncAdminFolders() {
+    setAdminBusy(true);
+    setErr('');
+    try {
+      const result = await api('/drive/admin/sync', { method: 'POST' });
+      await loadAdminTree();
+      setErr('');
+      alert(
+        `Structure Drive synchronisée.\n`
+        + `Clients : ${result.clients?.created || 0} créés / ${result.clients?.ok || 0}\n`
+        + `Projets : ${result.projects?.created || 0} créés / ${result.projects?.ok || 0}`
+      );
+      if (result.admin_root_folder_id) {
+        setFolderId(result.admin_root_folder_id);
+        setBreadcrumbs([
+          { id: result.admin_root_folder_id, name: 'NEYA ERP' },
+        ]);
+        setSpaceMode('files');
+        setRootsMode(false);
+        await loadFiles(result.admin_root_folder_id, '');
+      }
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setAdminBusy(false);
+    }
+  }
+
+  async function openErpFolder({ folderId: fid, label, ensurePath }) {
+    setSpaceMode('files');
+    setRootsMode(false);
+    setSearch('');
+    setSearching(false);
+    setErr('');
+    try {
+      let id = fid;
+      if (!id && ensurePath) {
+        const r = await api(ensurePath, { method: 'POST' });
+        id = r.folder_id;
+      }
+      if (!id) throw new Error('Dossier Drive introuvable — lancez « Synchroniser Clients ».');
+      setFolderId(id);
+      setBreadcrumbs([{ id, name: label || 'Dossier' }]);
+      await loadFiles(id, '');
+    } catch (e) {
+      setErr(e.message);
+    }
+  }
+
   useEffect(() => { loadStatus(); }, []);
   useEffect(() => {
     if (connected) loadDriveAccess();
   }, [connected]);
   useEffect(() => {
-    if (connected && !rootsMode && driveCtx !== null) loadFiles(folderId, search);
-  }, [connected, folderId, projectId, rootsMode, driveCtx]);
+    if (connected && adminUser && !projectId) loadAdminTree();
+  }, [connected, adminUser, projectId]);
+  useEffect(() => {
+    if (connected && !rootsMode && driveCtx !== null && spaceMode === 'files') {
+      loadFiles(folderId, search);
+    }
+  }, [connected, folderId, projectId, rootsMode, driveCtx, spaceMode]);
+
+  // Projet : créer le dossier Drive automatiquement à l’ouverture de l’onglet
+  useEffect(() => {
+    if (!connected || !projectId || ensuredProject.current) return undefined;
+    ensuredProject.current = true;
+    (async () => {
+      try {
+        const r = await api(`/integrations/projects/${projectId}/drive-folder`, { method: 'POST' });
+        if (r.folder_id) {
+          setProjectRootId(r.folder_id);
+          setFolderId(r.folder_id);
+          setBreadcrumbs([{ id: r.folder_id, name: r.name || 'Dossier projet' }]);
+        }
+      } catch (e) {
+        setErr(e.message);
+      }
+    })();
+    return undefined;
+  }, [connected, projectId]);
 
   function selectItem(f) {
     setSelected(f);
@@ -324,8 +436,9 @@ export default function DriveExplorer({ projectId = null, initialFolderId = 'roo
 
   async function ensureProjectFolder() {
     const r = await api(`/integrations/projects/${projectId}/drive-folder`, { method: 'POST' });
+    setProjectRootId(r.folder_id);
     setFolderId(r.folder_id);
-    setBreadcrumbs([{ id: r.folder_id, name: 'Dossier projet' }]);
+    setBreadcrumbs([{ id: r.folder_id, name: r.name || 'Dossier projet' }]);
     loadFiles(r.folder_id);
   }
 
@@ -386,9 +499,40 @@ export default function DriveExplorer({ projectId = null, initialFolderId = 'roo
 
   return (
     <div className="drive-shell">
+      {!projectId && adminUser && (
+        <div className="flex items-center gap-1 px-3 py-1.5 border-b border-neya-border bg-neya-surface/40">
+          <button
+            type="button"
+            onClick={() => { setSpaceMode('files'); setRootsMode(false); }}
+            className={`text-xs px-3 py-1.5 rounded-sm min-h-[32px] ${spaceMode === 'files' ? 'bg-white border border-neya-border font-semibold text-neya-ink' : 'text-neya-muted hover:text-neya-ink'}`}
+          >
+            Mon Drive
+          </button>
+          <button
+            type="button"
+            onClick={() => { setSpaceMode('admin'); loadAdminTree(); }}
+            className={`text-xs px-3 py-1.5 rounded-sm min-h-[32px] ${spaceMode === 'admin' ? 'bg-white border border-neya-border font-semibold text-neya-ink' : 'text-neya-muted hover:text-neya-ink'}`}
+          >
+            Admin — Clients
+          </button>
+          <button
+            type="button"
+            onClick={syncAdminFolders}
+            disabled={adminBusy}
+            className="ml-auto text-xs btn-secondary min-h-[32px] py-1 px-2.5"
+            title="Crée NEYA ERP / Clients / dossiers projets manquants"
+          >
+            {adminBusy ? 'Sync…' : 'Synchroniser Clients'}
+          </button>
+        </div>
+      )}
+
       <div className="drive-toolbar">
         <nav className="drive-breadcrumb" aria-label="Fil d'Ariane">
-          {!projectId && breadcrumbs.map((c, i) => (
+          {!projectId && spaceMode === 'admin' && (
+            <span className="text-sm font-medium text-neya-ink px-2">NEYA ERP · Clients</span>
+          )}
+          {!projectId && spaceMode === 'files' && breadcrumbs.map((c, i) => (
             <span key={c.id} className="flex items-center shrink-0">
               {i > 0 && <span className="text-neya-muted/50 mx-0.5">/</span>}
               <button
@@ -404,7 +548,9 @@ export default function DriveExplorer({ projectId = null, initialFolderId = 'roo
             <span className="drive-crumb drive-crumb-active">Résultats : « {search} »</span>
           )}
           {projectId && (
-            <span className="text-sm font-medium text-neya-ink px-2">Dossier projet</span>
+            <span className="text-sm font-medium text-neya-ink px-2">
+              {breadcrumbs[breadcrumbs.length - 1]?.name || 'Dossier projet'}
+            </span>
           )}
         </nav>
 
@@ -469,7 +615,90 @@ export default function DriveExplorer({ projectId = null, initialFolderId = 'roo
       )}
 
       <div className="drive-layout min-h-[480px]">
-        {driveCtx?.roots?.length > 1 && !projectId && (
+        {spaceMode === 'admin' && !projectId && adminUser && (
+          <aside className="drive-sidebar !flex w-56 lg:w-64">
+            <p className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-widest text-neya-muted">Clients ERP</p>
+            <p className="px-4 pb-2 text-[10px] text-neya-muted leading-snug">
+              Structure : NEYA ERP → Clients → Projet
+            </p>
+            <div className="overflow-y-auto flex-1 pb-3">
+              {(adminTree?.clients || []).map(client => {
+                const open = expandedClientId === client.id;
+                return (
+                  <div key={client.id} className="mb-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedClientId(open ? null : client.id)}
+                      className="drive-nav-item w-full"
+                    >
+                      <IconFolder className="w-4 h-4 shrink-0" />
+                      <span className="truncate flex-1 text-left">{client.name}</span>
+                      <span className="text-[10px] text-neya-muted">{client.projects?.length || 0}</span>
+                    </button>
+                    {open && (
+                      <div className="ml-3 border-l border-neya-border/70 pl-1">
+                        <button
+                          type="button"
+                          className="drive-nav-item text-xs"
+                          onClick={() => openErpFolder({
+                            folderId: client.drive_folder_id,
+                            label: client.name,
+                            ensurePath: `/integrations/clients/${client.id}/drive-folder`,
+                          })}
+                        >
+                          Ouvrir dossier client
+                        </button>
+                        {(client.projects || []).map(p => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            className="drive-nav-item text-xs"
+                            onClick={() => openErpFolder({
+                              folderId: p.drive_folder_id,
+                              label: p.name,
+                              ensurePath: `/integrations/projects/${p.id}/drive-folder`,
+                            })}
+                          >
+                            <span className="truncate">{p.name}</span>
+                          </button>
+                        ))}
+                        {!client.projects?.length && (
+                          <p className="px-2.5 py-1 text-[10px] text-neya-muted">Aucun projet</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {(adminTree?.orphan_projects || []).length > 0 && (
+                <div className="mt-3 pt-2 border-t border-neya-border/70">
+                  <p className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-widest text-neya-muted">Sans client</p>
+                  {adminTree.orphan_projects.map(p => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      className="drive-nav-item text-xs"
+                      onClick={() => openErpFolder({
+                        folderId: p.drive_folder_id,
+                        label: p.name,
+                        ensurePath: `/integrations/projects/${p.id}/drive-folder`,
+                      })}
+                    >
+                      <span className="truncate">{p.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {!adminTree?.clients?.length && !adminBusy && (
+                <p className="px-4 py-3 text-xs text-neya-muted">
+                  Aucun client. Créez des clients puis cliquez « Synchroniser Clients ».
+                </p>
+              )}
+            </div>
+          </aside>
+        )}
+
+        {driveCtx?.roots?.length > 1 && !projectId && spaceMode === 'files' && (
           <aside className="drive-sidebar">
             <p className="px-4 pb-2 text-[10px] font-semibold uppercase tracking-widest text-neya-muted">Accès rapide</p>
             <button
@@ -495,6 +724,38 @@ export default function DriveExplorer({ projectId = null, initialFolderId = 'roo
         )}
 
         <div className="drive-main">
+          {spaceMode === 'admin' && !projectId ? (
+            <div className="flex-1 px-5 py-8">
+              <h2 className="font-heading text-lg mb-1">Espace Admin Drive</h2>
+              <p className="text-sm text-neya-muted max-w-lg mb-4">
+                Structure automatique : <strong className="text-neya-ink font-medium">NEYA ERP → Clients → Client → Projet</strong>.
+                Choisissez un client à gauche, ou synchronisez pour créer tous les dossiers manquants.
+                Les nouveaux projets ouvrent déjà leur dossier pour les pièces jointes.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={syncAdminFolders} disabled={adminBusy} className="btn-primary text-sm min-h-[40px]">
+                  {adminBusy ? 'Synchronisation…' : 'Créer / maj tous les dossiers'}
+                </button>
+                {adminTree?.admin_root_folder_id && (
+                  <button
+                    type="button"
+                    className="btn-secondary text-sm min-h-[40px]"
+                    onClick={() => openErpFolder({
+                      folderId: adminTree.admin_root_folder_id,
+                      label: 'NEYA ERP',
+                    })}
+                  >
+                    Ouvrir NEYA ERP sur Drive
+                  </button>
+                )}
+              </div>
+              <ul className="mt-6 text-sm text-neya-muted space-y-1.5 max-w-md">
+                <li>· {adminTree?.clients?.length ?? 0} client(s) ERP</li>
+                <li>· {adminTree?.orphan_projects?.length ?? 0} projet(s) sans client</li>
+                <li>· Cliquez un projet dans la liste pour y déposer des fichiers</li>
+              </ul>
+            </div>
+          ) : (
           <div className={`flex flex-1 min-h-0 ${showPreview ? 'xl:flex-row flex-col' : ''}`}>
             <div className={`${listCompact ? 'drive-list-compact' : 'flex-1 flex flex-col min-w-0'} flex flex-col min-w-0`}>
               <div
@@ -613,6 +874,7 @@ export default function DriveExplorer({ projectId = null, initialFolderId = 'roo
               </div>
             )}
           </div>
+          )}
         </div>
 
         {showPreview && (

@@ -109,9 +109,10 @@ export const ERP_MANUAL_SECTIONS = [
       { href: '/settings?tab=users', label: 'Accès Drive par utilisateur' },
     ],
     tips: [
+      'Admin : onglet « Admin — Clients » dans /drive. Structure NEYA ERP → Clients → {client} → {projet}.',
+      'Nouveau projet → dossier Drive créé automatiquement pour y stocker plans / PJ. Bouton « Synchroniser Clients » pour rattraper l’existant.',
       'Admin : accès complet. Autres utilisateurs : dossiers limités (projet/client) dans Utilisateurs.',
       'Prévisualisation PDF, images, vidéos. Fichiers Google Docs ouverts via lien externe.',
-      'Modèles 3D : exporter SolidWorks en GLB pour aperçu navigateur.',
     ],
   },
   {

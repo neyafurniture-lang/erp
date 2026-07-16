@@ -9,6 +9,7 @@ import {
   getRequestUser,
   resolveDriveRoots,
 } from '../services/drive-access.js';
+import { isAdmin } from '../config/permissions.js';
 import { logAgentAction } from '../services/assistant-memory.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
@@ -185,6 +186,34 @@ router.get('/projects/:projectId', async (req, res) => {
     res.json({ folder: { id: rows[0].drive_folder_id, name: rows[0].name }, files: data.files });
   } catch (err) {
     accessDenied(res, err);
+  }
+});
+
+/** Arborescence Admin ERP : Clients → Projets (dossiers Drive). */
+router.get('/admin/tree', async (req, res) => {
+  try {
+    const user = await getRequestUser(req);
+    if (!isAdmin(user)) {
+      return res.status(403).json({ error: 'Réservé aux administrateurs' });
+    }
+    const { getAdminDriveTree } = await import('../services/drive-folders.js');
+    res.json(await getAdminDriveTree());
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/** Crée NEYA ERP / Clients / dossiers manquants. */
+router.post('/admin/sync', async (req, res) => {
+  try {
+    const user = await getRequestUser(req);
+    if (!isAdmin(user)) {
+      return res.status(403).json({ error: 'Réservé aux administrateurs' });
+    }
+    const { syncAllDriveFolders } = await import('../services/drive-folders.js');
+    res.json(await syncAllDriveFolders());
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 
