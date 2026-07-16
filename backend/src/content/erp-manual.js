@@ -173,12 +173,14 @@ export const ERP_MANUAL_SECTIONS = [
     icon: '⚙️',
     summary: 'Utilisateurs, déploiement, rollback.',
     links: [
+      { href: '/admin', label: 'Session admin' },
       { href: '/settings?tab=users', label: 'Utilisateurs' },
       { href: '/settings?tab=deploy', label: 'Déploiement VPS' },
       { href: '/settings?tab=integrations', label: 'Intégrations' },
       { href: '/roadmap', label: 'Roadmap' },
     ],
     tips: [
+      'Session admin (/admin) : code 31250 pour ouvrir les notes — interface compacte, pas affichée en permanence sur le dashboard. « Fermer la session » pour verrouiller.',
       'Déploiement : quand le local fonctionne → générer package ZIP + script VPS.',
       'Site planté ? SSH : back.sh (restaure backup DB + commit précédent).',
       'Clés Claude/OpenAI dans Paramètres → Assistant IA (sinon skills par mots-clés seulement).',

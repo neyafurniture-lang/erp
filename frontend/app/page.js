@@ -12,7 +12,7 @@ import EditableSection from '../components/EditableSection';
 
 const QUICK_ACTIONS = [
   { href: '/production', label: 'Production', icon: '⚒', primary: true },
-  { href: '/admin', label: 'Admin', icon: '📋' },
+  { href: '/admin', label: 'Admin', icon: '🔒' },
   { href: '/projects', label: 'Projet', icon: '▣' },
   { href: '/invoices', label: 'Devis', icon: '▤' },
   { href: '/clients', label: 'Client', icon: '◉' },
@@ -381,9 +381,7 @@ export default function DashboardPage() {
           </div>
         ));
       case 'admin_tasks':
-        return wrap(section, (
-          <AdminTasksSummary tasks={data?.adminTasks || []} openCount={s.adminTasksOpen ?? 0} onChange={load} />
-        ), 'mb-4');
+        return wrap(section, <AdminTasksSummary />, 'mb-2');
       case 'finances':
         return wrap(section, (
           <div className="card">

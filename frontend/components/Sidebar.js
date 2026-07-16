@@ -11,7 +11,7 @@ import { hasPermission } from '../lib/permissions';
 const NAV = [
   { href: '/', label: 'Dashboard', section: 'principal', permission: 'dashboard' },
   { href: '/production', label: 'Production', section: 'principal', permission: 'production' },
-  { href: '/admin', label: 'Gestion admin', section: 'principal', permission: 'admin' },
+  { href: '/admin', label: 'Session admin', section: 'principal', permission: 'admin' },
   { href: '/projects', label: 'Projets', section: 'principal', permission: 'projects' },
   { href: '/liste-courses', label: 'Liste de courses', section: 'ops', permission: 'purchases' },
   { href: '/purchases', label: 'Achats atelier', section: 'ops', permission: 'purchases' },

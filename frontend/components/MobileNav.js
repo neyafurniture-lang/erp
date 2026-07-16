@@ -17,7 +17,7 @@ const MORE_GROUPS = [
   {
     title: 'Atelier',
     items: [
-      { href: '/admin', label: 'Admin', permission: 'admin' },
+      { href: '/admin', label: 'Session admin', permission: 'admin' },
       { href: '/purchases', label: 'Achats', permission: 'purchases' },
       { href: '/inventory', label: 'Stock', permission: 'inventory' },
       { href: '/team', label: 'Équipe', permission: 'team' },

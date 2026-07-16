@@ -19,7 +19,8 @@ export function defaultDashboardLayout() {
     edit_mode: false,
     sections: DASHBOARD_SECTION_CATALOG.map((s, i) => ({
       ...s,
-      visible: true,
+      // Session admin : pas sur l’écran en permanence — lien discret si on réactive la section
+      visible: s.id !== 'admin_tasks',
       sort_order: i,
     })),
   };
@@ -39,7 +40,11 @@ export async function getDashboardLayout() {
       merged.push({ ...cat, ...existing, id: cat.id });
       byId.delete(cat.id);
     } else {
-      merged.push({ ...cat, visible: true, sort_order: merged.length });
+      merged.push({
+        ...cat,
+        visible: cat.id !== 'admin_tasks',
+        sort_order: merged.length,
+      });
     }
   }
   // Garder les todos custom ajoutées
