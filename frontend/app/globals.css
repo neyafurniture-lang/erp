@@ -454,7 +454,7 @@ body {
   }
 
   .mail-row {
-    @apply relative flex gap-3 px-3 py-2.5 cursor-pointer border-b border-neya-border hover:bg-neya-surface/80 transition-colors text-left w-full;
+    @apply relative flex gap-2.5 px-3 py-1.5 cursor-pointer border-b border-neya-border hover:bg-neya-surface/80 transition-colors text-left w-full;
   }
 
   .mail-row-active {
@@ -466,7 +466,7 @@ body {
   }
 
   .mail-avatar {
-    @apply shrink-0 w-8 h-8 rounded flex items-center justify-center text-[11px] font-medium text-white;
+    @apply shrink-0 w-7 h-7 rounded flex items-center justify-center text-[10px] font-medium text-white;
   }
 
   .mail-reading {
@@ -491,6 +491,10 @@ body {
 
   .mail-icon-btn {
     @apply inline-flex items-center justify-center w-8 h-8 rounded-sm text-neya-muted hover:text-neya-ink hover:bg-neya-surface transition-colors disabled:opacity-40;
+  }
+
+  .mail-undo-toast {
+    @apply fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-1 max-w-[min(92vw,420px)] bg-neya-ink text-white px-3 py-2.5 shadow-lg border border-neya-ink;
   }
 
   /* Explorateur Drive */

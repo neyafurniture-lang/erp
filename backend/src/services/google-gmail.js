@@ -137,8 +137,22 @@ export async function archiveMessage(messageId) {
   return { ok: true };
 }
 
+/** Remet un message archivé dans la boîte de réception (Annuler). */
+export async function unarchiveMessage(messageId) {
+  await gmailFetch(`/messages/${messageId}/modify`, {
+    method: 'POST',
+    body: JSON.stringify({ addLabelIds: ['INBOX'] }),
+  });
+  return { ok: true };
+}
+
 export async function trashMessage(messageId) {
   await gmailFetch(`/messages/${messageId}/trash`, { method: 'POST' });
+  return { ok: true };
+}
+
+export async function untrashMessage(messageId) {
+  await gmailFetch(`/messages/${messageId}/untrash`, { method: 'POST' });
   return { ok: true };
 }
 

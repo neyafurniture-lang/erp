@@ -82,12 +82,13 @@ export const ERP_MANUAL_SECTIONS = [
     ],
     tips: [
       'Première fois : Paramètres → Intégrations → Connecter Google (Gmail + Drive).',
-      'Ouvrir un message → panneau Contexte ERP : liaison auto client (email ou nom) + projet, puis synthèse IA.',
-      'Si la synthèse échoue : Paramètres → Assistant IA activé + clé Claude ou OpenAI. Bouton « Synthèse » pour relancer.',
-      'Renseigner l’email sur la fiche client améliore le lien automatique des fils.',
-      'Brouillons IA et envois devis/facture utilisent la signature Mehdi (company.json → emailSignature).',
-      '« Analyser (20) » : pré-traite les derniers fils (liaison auto + base conversation).',
-      'Scan factures fournisseurs (Home Depot, Rona…) : file en haut de la page Courriel.',
+      'Sidebar style Gmail : Boîte de réception + Envoyés, puis dossiers Tri NEYA.',
+      'Archiver ou envoyer → toast « Annuler » (~8 s) pour revenir en arrière.',
+      'Brouillon IA : « Orthographe » pour corriger, « Demander à l’IA… » pour reformuler (plus court, plus formel…).',
+      'Ouvrir un message → panneau Contexte ERP : liaison auto client + projet, puis synthèse IA.',
+      'Si la synthèse échoue : Paramètres → Assistant IA activé + clé Claude ou OpenAI.',
+      'Factures fournisseurs : bandeau compact en haut (replié) — cliquer pour classer.',
+      '« Trier la boîte » : classifie les derniers fils (labels Gmail NEYA/…).',
       'Erreur 404 ? Le backend VPS doit être à jour (Paramètres → Déploiement VPS).',
     ],
   },
@@ -189,7 +190,7 @@ export const ERP_MANUAL_SECTIONS = [
 export const ERP_MANUAL_SKILL_INSTRUCTION = `Tu es l'assistant NEYA ERP. Quand l'utilisateur demande de l'aide, le manuel, « comment faire », ou une fonctionnalité obscure :
 1. Réponds en français, court et actionnable (2-5 phrases).
 2. Indique le lien ERP pertinent (/manual, /mail, /settings?tab=integrations, etc.).
-3. Pour Courriel : rappeler connexion Google + bouton Analyser + panneau Assistant ERP.
+3. Pour Courriel : rappeler connexion Google, dossier Envoyés, toast Annuler, Orthographe / Demander à l’IA, Trier la boîte.
 4. Pour déploiement/404 : Paramètres → Déploiement VPS ou commande back.sh sur le serveur.
 5. Propose d'ouvrir le manuel complet : /manual`;
 

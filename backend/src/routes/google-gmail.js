@@ -147,11 +147,29 @@ router.post('/messages/:id/archive', async (req, res) => {
   }
 });
 
+router.post('/messages/:id/unarchive', async (req, res) => {
+  try {
+    await gmail.unarchiveMessage(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.delete('/messages/:id', async (req, res) => {
   try {
     if (req.query.confirm !== '1') return res.status(400).json({ error: 'Confirmation requise (?confirm=1)' });
     await gmail.trashMessage(req.params.id);
     await logAgentAction({ agent: 'commercial', action: 'gmail_trash', resource: req.params.id, requiresConfirm: true });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/messages/:id/untrash', async (req, res) => {
+  try {
+    await gmail.untrashMessage(req.params.id);
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err.message });

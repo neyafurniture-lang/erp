@@ -31,7 +31,7 @@ Instruction IA injectée dans chaque chat via `getManualPromptBlock()` (`ai-chat
 | Dashboard | `/` | Assistant orbe, mode édition layout |
 | Production | `/production` | Catalogue vs sur mesure |
 | Projets | `/projects` | Tâches, client, budget |
-| Courriel | `/mail` | OAuth Google, Analyser (20), scan factures |
+| Courriel | `/mail` | OAuth Google, Envoyés, Annuler, brouillon IA, Trier la boîte |
 | Drive | `/drive` | Permissions par utilisateur |
 | Dépenses | `/expenses` | Scan ticket IA |
 | Paramètres | `/settings` | IA, intégrations, deploy VPS |

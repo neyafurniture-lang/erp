@@ -6,6 +6,7 @@ import {
   listThreads,
   processGmailMessage,
   processRecentInbox,
+  reviseDraft,
   syncGmailThread,
   synthesizeThread,
 } from '../services/email-threads.js';
@@ -39,6 +40,21 @@ router.post('/process-message', async (req, res) => {
     const { message_id } = req.body;
     if (!message_id) return res.status(400).json({ error: 'message_id requis' });
     res.json(await processGmailMessage(message_id));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/** Réécriture brouillon sans id de fil (doit rester avant /:id). */
+router.post('/revise-draft', async (req, res) => {
+  try {
+    const { draft, instruction, mode, thread_id } = req.body || {};
+    res.json(await reviseDraft({
+      draft,
+      instruction,
+      mode: mode === 'spellcheck' ? 'spellcheck' : 'revise',
+      threadId: thread_id || null,
+    }));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -90,6 +106,20 @@ router.post('/:id/link', async (req, res) => {
 router.post('/:id/synthesize', async (req, res) => {
   try {
     res.json(await synthesizeThread(Number(req.params.id)));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/:id/revise-draft', async (req, res) => {
+  try {
+    const { draft, instruction, mode } = req.body || {};
+    res.json(await reviseDraft({
+      draft,
+      instruction,
+      mode: mode === 'spellcheck' ? 'spellcheck' : 'revise',
+      threadId: Number(req.params.id),
+    }));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

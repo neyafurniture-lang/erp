@@ -9,7 +9,7 @@ export default function MailPage() {
   return (
     <AuthGuard>
       <AppShell title="Courriel" wide>
-        <div className="mb-4 sm:mb-5">
+        <div className="mb-2 sm:mb-3">
           <SupplierInvoiceQueue compact />
         </div>
         <GmailInbox />
