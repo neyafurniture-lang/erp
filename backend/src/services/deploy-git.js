@@ -6,7 +6,7 @@ import { homedir } from 'os';
 import { getSetting, setSetting } from './settings.js';
 
 const backendRoot = join(dirname(fileURLToPath(import.meta.url)), '../..');
-const repoRoot = join(backendRoot, '..');
+const packagedRepoRoot = join(backendRoot, '..');
 const home = homedir();
 
 /** IP / host VPS NEYA (même défaut que les scripts deploy/*.ps1). */
@@ -22,9 +22,41 @@ function resolveVpsHost(override = null) {
   return String(raw || '').trim();
 }
 
+/**
+ * Chemin du dépôt Git utilisable :
+ * - conteneur prod : /workspace (volume /opt/neya-erp)
+ * - hôte VPS : /opt/neya-erp
+ * - dev local : racine du repo
+ */
+export function resolveGitRepoRoot() {
+  const candidates = [
+    process.env.NEYA_GIT_DIR,
+    process.env.NEYA_REPO_DIR,
+    process.env.CURSOR_AGENT_CWD,
+    '/workspace',
+    '/opt/neya-erp',
+    packagedRepoRoot,
+  ].filter(Boolean);
+
+  for (const dir of candidates) {
+    if (existsSync(join(dir, '.git'))) return dir;
+  }
+  for (const dir of candidates) {
+    if (existsSync(join(dir, 'deploy', 'deploy.sh'))) return dir;
+  }
+  return packagedRepoRoot;
+}
+
 function resolveRepoPath() {
+  // Sur l’hôte / SSH : chemin réel. Dans le conteneur, préférer le volume monté.
+  if (existsSync('/workspace/.git') || existsSync('/workspace/deploy/deploy.sh')) {
+    return process.env.NEYA_HOST_REPO_DIR || DEFAULT_REPO_PATH;
+  }
   return process.env.NEYA_REPO_DIR || process.env.DEPLOY_PATH || DEFAULT_REPO_PATH;
 }
+
+/** @deprecated use resolveGitRepoRoot — conservé pour compat */
+const repoRoot = resolveGitRepoRoot();
 
 function resolvePassword() {
   if (process.env.NEYA_VPS_PASSWORD?.trim()) return process.env.NEYA_VPS_PASSWORD.trim();
@@ -74,11 +106,19 @@ export function resolveSshKeyPath() {
 export function canDeployLocally(repoPath = resolveRepoPath()) {
   if (process.env.NEYA_DEPLOY_MODE === 'local') return true;
   if (process.env.NEYA_DEPLOY_MODE === 'ssh') return false;
-  return existsSync(join(repoPath, 'deploy', 'deploy.sh'))
-    && existsSync(join(repoPath, '.env.production'));
+  const gitRoot = resolveGitRepoRoot();
+  const envOk = existsSync(join(repoPath, '.env.production'))
+    || existsSync(join(gitRoot, '.env.production'));
+  const scriptOk = existsSync(join(repoPath, 'deploy', 'deploy.sh'))
+    || existsSync(join(gitRoot, 'deploy', 'deploy.sh'));
+  // Conteneur Docker : script visible via /workspace mais deploy.sh doit tourner sur l’hôte
+  if (existsSync('/workspace/deploy/deploy.sh') && !existsSync('/opt/neya-erp/deploy/deploy.sh')) {
+    return false;
+  }
+  return scriptOk && envOk;
 }
 
-function runGit(args, { cwd = repoRoot, timeout = 20000 } = {}) {
+function runGit(args, { cwd = resolveGitRepoRoot(), timeout = 20000 } = {}) {
   try {
     const out = execFileSync('git', args, {
       cwd,
@@ -97,49 +137,76 @@ function runGit(args, { cwd = repoRoot, timeout = 20000 } = {}) {
   }
 }
 
-export function isGitRepo(dir = repoRoot) {
+export function isGitRepo(dir = resolveGitRepoRoot()) {
   return existsSync(join(dir, '.git'));
 }
 
+function readDeployState(root) {
+  const stateFile = join(root, '.deploy-state.json');
+  if (!existsSync(stateFile)) return null;
+  try {
+    return JSON.parse(readFileSync(stateFile, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
 export function getLocalGitStatus() {
-  if (!isGitRepo()) {
+  const root = resolveGitRepoRoot();
+  if (!isGitRepo(root)) {
     return {
       isRepo: false,
-      repoRoot,
+      repoRoot: root,
       message: 'Ce dossier n’est pas encore un dépôt Git.',
     };
   }
 
-  const branch = runGit(['rev-parse', '--abbrev-ref', 'HEAD']);
-  const commit = runGit(['rev-parse', '--short', 'HEAD']);
-  const full = runGit(['rev-parse', 'HEAD']);
-  const remote = runGit(['remote', 'get-url', 'origin']);
-  const dirty = runGit(['status', '--porcelain']);
-  const versionPath = join(repoRoot, 'VERSION');
+  const branchName = process.env.NEYA_DEPLOY_BRANCH || 'main';
+  const branch = runGit(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: root });
+  const commit = runGit(['rev-parse', '--short', 'HEAD'], { cwd: root });
+  const full = runGit(['rev-parse', 'HEAD'], { cwd: root });
+  const remote = runGit(['remote', 'get-url', 'origin'], { cwd: root });
+  const dirty = runGit(['status', '--porcelain'], { cwd: root });
+  const versionPath = join(root, 'VERSION');
   const version = existsSync(versionPath) ? readFileSync(versionPath, 'utf8').trim() : null;
+  const deployState = readDeployState(root);
 
   let ahead = 0;
   let behind = 0;
   let remoteCommit = null;
-  if (remote.ok && branch.ok) {
-    runGit(['fetch', 'origin', branch.stdout, '--quiet'], { timeout: 60000 });
-    const counts = runGit(['rev-list', '--left-right', '--count', `HEAD...origin/${branch.stdout}`]);
+  let remoteFullCommit = null;
+  // Toujours comparer vs la branche de déploiement (main), pas la branche de travail locale
+  const deployBranch = branchName;
+  if (remote.ok) {
+    runGit(['fetch', 'origin', deployBranch, '--quiet'], { cwd: root, timeout: 60000 });
+    const counts = runGit(
+      ['rev-list', '--left-right', '--count', `HEAD...origin/${deployBranch}`],
+      { cwd: root }
+    );
     if (counts.ok) {
       const [a, b] = counts.stdout.split(/\s+/).map(n => Number(n) || 0);
       ahead = a;
       behind = b;
     }
-    const rc = runGit(['rev-parse', '--short', `origin/${branch.stdout}`]);
+    const rc = runGit(['rev-parse', '--short', `origin/${deployBranch}`], { cwd: root });
     if (rc.ok) remoteCommit = rc.stdout;
+    const rfc = runGit(['rev-parse', `origin/${deployBranch}`], { cwd: root });
+    if (rfc.ok) remoteFullCommit = rfc.stdout;
   }
+
+  const localFull = full.ok ? full.stdout : null;
+  const upToDateWithGithub = Boolean(
+    localFull && remoteFullCommit && localFull === remoteFullCommit && behind === 0
+  );
 
   return {
     isRepo: true,
-    repoRoot,
+    repoRoot: root,
     version,
-    branch: branch.ok ? branch.stdout : null,
+    branch: branch.ok ? branch.stdout : deployBranch,
+    deployBranch,
     commit: commit.ok ? commit.stdout : null,
-    fullCommit: full.ok ? full.stdout : null,
+    fullCommit: localFull,
     remoteUrl: remote.ok ? remote.stdout : null,
     dirty: dirty.ok ? dirty.stdout.length > 0 : false,
     dirtyFiles: dirty.ok && dirty.stdout
@@ -148,8 +215,13 @@ export function getLocalGitStatus() {
     ahead,
     behind,
     remoteCommit,
+    remoteFullCommit,
     updateAvailable: behind > 0,
     pushPending: ahead > 0,
+    upToDateWithGithub,
+    deployedCommit: deployState?.commit || null,
+    deployedAt: deployState?.deployed_at || null,
+    status: behind > 0 ? 'update_available' : (upToDateWithGithub ? 'up_to_date' : 'unknown'),
   };
 }
 
@@ -312,6 +384,51 @@ export async function triggerVpsGitDeploy({ force = false, host: hostOverride = 
         : '';
     throw new Error(`${detail}${hint}`);
   }
+}
+
+/**
+ * État sync VPS ↔ GitHub + activité ERP (pour UI et décisions auto-update).
+ */
+export async function getDeploySyncStatus() {
+  const { getErpActivityStatus, DEFAULT_IDLE_MINUTES } = await import('./erp-activity.js');
+  const git = getLocalGitStatus();
+  const idleMinutes = Number(process.env.NEYA_AUTO_UPDATE_IDLE_MINUTES || DEFAULT_IDLE_MINUTES);
+  const activity = await getErpActivityStatus({ idleMinutes });
+  const root = resolveGitRepoRoot();
+  const marker = join(root, 'deploy', '.auto-update-installed');
+  const lastLog = join(root, 'deploy', 'logs', 'auto-update-latest.log');
+  let lastAutoUpdateLog = null;
+  if (existsSync(lastLog)) {
+    try {
+      const text = readFileSync(lastLog, 'utf8').trim();
+      lastAutoUpdateLog = text.slice(-1500);
+    } catch { /* ignore */ }
+  }
+  const cronInstalled = existsSync(marker);
+  return {
+    git,
+    activity,
+    autoUpdate: {
+      schedule: '0 0 * * *',
+      scheduleLabel: 'Tous les jours à 00:00 (heure du VPS)',
+      idleMinutes,
+      enabled: cronInstalled && process.env.NEYA_AUTO_UPDATE_DISABLED !== '1',
+      cronInstalled,
+      markerFile: marker,
+      lastLogFile: lastLog,
+      lastLogTail: lastAutoUpdateLog,
+      wouldUpdateNow: Boolean(git.updateAvailable && activity.isIdle),
+      skipReasons: [
+        ...(!git.isRepo ? ['Dépôt Git introuvable sur le serveur'] : []),
+        ...(git.isRepo && !git.updateAvailable ? ['Déjà à jour avec GitHub'] : []),
+        ...(git.updateAvailable && !activity.isIdle
+          ? [`Activité récente (idle requis : ${idleMinutes} min)`]
+          : []),
+        ...(!cronInstalled ? ['Timer cron non installé — lancez deploy/install-auto-update.sh sur le VPS'] : []),
+        ...(process.env.NEYA_AUTO_UPDATE_DISABLED === '1' ? ['NEYA_AUTO_UPDATE_DISABLED=1'] : []),
+      ],
+    },
+  };
 }
 
 /** Test rapide SSH / local (echo ok). */

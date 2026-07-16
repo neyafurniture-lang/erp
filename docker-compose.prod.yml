@@ -114,7 +114,11 @@ services:
       NEYA_VPS_USER: ${NEYA_VPS_USER:-ubuntu}
       NEYA_VPS_SSH_KEY: ${NEYA_VPS_SSH_KEY:-/run/neya-deploy/id_ed25519}
       NEYA_REPO_DIR: ${NEYA_REPO_DIR:-/opt/neya-erp}
+      # Volume monté : git status + fichier activité (.last-activity)
+      NEYA_GIT_DIR: ${NEYA_GIT_DIR:-/workspace}
+      NEYA_HOST_REPO_DIR: ${NEYA_HOST_REPO_DIR:-/opt/neya-erp}
       NEYA_DEPLOY_BRANCH: ${NEYA_DEPLOY_BRANCH:-main}
+      NEYA_AUTO_UPDATE_IDLE_MINUTES: ${NEYA_AUTO_UPDATE_IDLE_MINUTES:-120}
 
     depends_on:
 

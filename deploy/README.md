@@ -71,21 +71,42 @@ Chaque `git push` sur `main` exécute `.github/workflows/deploy.yml` → SSH →
 
 ## 5. Mise à jour automatique (cron sur le VPS)
 
-Vérification toutes les heures :
+### Recommandé — tous les jours à 00:00 si idle + Git a bougé
+
+N’installe **pas** de rebuild pendant que quelqu’un travaille dans l’ERP.
 
 ```bash
-crontab -e
+cd /opt/neya-erp
+./deploy/install-auto-update.sh
 ```
 
-```
-0 * * * * cd /opt/neya-erp && ./deploy/check-update.sh >/dev/null 2>&1 && ./deploy/deploy.sh >> /opt/neya-erp/deploy/logs/cron.log 2>&1
-```
-
-Ou seulement la nuit :
+Cela ajoute :
 
 ```
-15 3 * * * cd /opt/neya-erp && ./deploy/deploy.sh >> /opt/neya-erp/deploy/logs/cron.log 2>&1
+0 0 * * * cd /opt/neya-erp && /bin/bash ./deploy/auto-update-if-idle.sh >> .../cron-auto-update.log 2>&1
 ```
+
+Logique (`auto-update-if-idle.sh`) :
+
+1. `check-update.sh` → exit **10** seulement s’il y a des commits sur `origin/main`
+2. Lit `deploy/.last-activity` (écrit par le backend à chaque usage API, throttle 60 s)
+3. Si activité &lt; **120 min** (env `NEYA_AUTO_UPDATE_IDLE_MINUTES`) → **skip** (report au lendemain)
+4. Sinon → `deploy.sh`
+
+Vérifier manuellement :
+
+```bash
+cd /opt/neya-erp
+./deploy/check-update.sh          # STATUS: up_to_date | update_available
+./deploy/check-update.sh --json
+./deploy/auto-update-if-idle.sh   # dry-run logique (déploie si conditions OK)
+```
+
+Désactiver : `NEYA_AUTO_UPDATE_DISABLED=1` dans l’environnement cron, ou retirer la ligne crontab.
+
+### Ancien exemple (attention aux codes de sortie)
+
+`check-update.sh` sort **0** si à jour et **10** si une MAJ existe. Ne pas enchaîner avec `&& deploy.sh` (ça déployait seulement quand déjà à jour).
 
 ## 6. Vérifier la version déployée
 

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import pool from '../db/pool.js';
 import { signToken, authMiddleware } from '../middleware/auth.js';
+import { touchErpActivity } from '../services/erp-activity.js';
 import { rateLimit } from '../middleware/security.js';
 import { validatePassword } from '../config.js';
 
@@ -45,6 +46,7 @@ router.post('/login', loginLimiter, async (req, res) => {
     }
 
     const token = signToken(user);
+    touchErpActivity({ userId: user.id, path: '/api/auth/login', force: true }).catch(() => {});
     res.json({ token, user: sanitizeUser(user) });
   } catch {
     res.status(500).json({ error: 'Erreur de connexion' });

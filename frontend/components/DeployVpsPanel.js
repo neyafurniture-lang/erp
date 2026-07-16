@@ -10,10 +10,21 @@ function formatBytes(n) {
   return `${(n / (1024 * 1024)).toFixed(1)} Mo`;
 }
 
+function formatActivityAge(minutes) {
+  if (minutes == null) return 'aucune activité enregistrée';
+  if (minutes < 1) return 'à l’instant';
+  if (minutes < 60) return `il y a ${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h < 48) return m ? `il y a ${h} h ${m} min` : `il y a ${h} h`;
+  return `il y a ${Math.floor(h / 24)} j`;
+}
+
 export default function DeployVpsPanel() {
   const [local, setLocal] = useState(null);
   const [git, setGit] = useState(null);
   const [gitConfig, setGitConfig] = useState(null);
+  const [sync, setSync] = useState(null);
   const [remoteUrl, setRemoteUrl] = useState('https://erp.neyafurniture.ca');
   const [remote, setRemote] = useState(null);
   const [repoUrl, setRepoUrl] = useState('');
@@ -21,6 +32,7 @@ export default function DeployVpsPanel() {
   const [deploying, setDeploying] = useState(false);
   const [savingRepo, setSavingRepo] = useState(false);
   const [probing, setProbing] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [result, setResult] = useState(null);
   const [exports, setExports] = useState([]);
   const [err, setErr] = useState('');
@@ -36,6 +48,7 @@ export default function DeployVpsPanel() {
       setLocal(data.local);
       setGit(data.git || null);
       setGitConfig(data.gitConfig || null);
+      setSync(data.sync || null);
       if (data.gitConfig?.repoUrl) setRepoUrl(data.gitConfig.repoUrl);
       if (data.gitConfig?.vpsHost) setVpsHost(data.gitConfig.vpsHost);
       else if (data.git?.remoteUrl) setRepoUrl(data.git.remoteUrl);
@@ -44,6 +57,27 @@ export default function DeployVpsPanel() {
       setExports(list);
     } catch (e) {
       setErr(e.message);
+    }
+  }
+
+  async function refreshSync() {
+    setSyncing(true);
+    setErr('');
+    try {
+      const data = await api('/deploy/sync-status');
+      setSync(data);
+      if (data.git) setGit(data.git);
+      setOkMsg(
+        data.git?.upToDateWithGithub
+          ? 'VPS à jour avec GitHub.'
+          : data.git?.updateAvailable
+            ? `Mise à jour dispo : ${data.git.behind} commit(s) en retard.`
+            : 'Statut sync lu.'
+      );
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setSyncing(false);
     }
   }
 
@@ -191,6 +225,9 @@ export default function DeployVpsPanel() {
             <button type="button" onClick={() => deployFromGit(true)} disabled={deploying} className="btn-secondary min-h-[44px]">
               Forcer rebuild
             </button>
+            <button type="button" onClick={refreshSync} disabled={syncing} className="btn-secondary min-h-[44px]">
+              {syncing ? '…' : 'Vérifier vs GitHub'}
+            </button>
             <button type="button" onClick={testSsh} disabled={probing} className="btn-ghost text-sm min-h-[44px]">
               {probing ? '…' : 'Tester connexion VPS'}
             </button>
@@ -207,6 +244,81 @@ export default function DeployVpsPanel() {
               : 'accès SSH manquant — NEYA_VPS_PASSWORD ou NEYA_VPS_SSH_PRIVATE_KEY dans backend/.env'}
           </p>
         </div>
+
+        {(sync || git) && (
+          <div className="rounded-xl border border-neya-border bg-white p-4 mb-4 space-y-3">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-neya-ink">État vs GitHub</p>
+                <p className="text-xs text-neya-muted mt-0.5">
+                  Comparaison du dépôt serveur avec <code className="text-[10px]">origin/{git?.branch || 'main'}</code>
+                </p>
+              </div>
+              <span
+                className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+                  git?.upToDateWithGithub || git?.status === 'up_to_date'
+                    ? 'bg-green-100 text-green-800'
+                    : git?.updateAvailable
+                      ? 'bg-amber-100 text-amber-900'
+                      : 'bg-neya-cream text-neya-muted'
+                }`}
+              >
+                {git?.upToDateWithGithub || git?.status === 'up_to_date'
+                  ? 'À jour'
+                  : git?.updateAvailable
+                    ? `${git.behind} commit(s) en retard`
+                    : 'Inconnu'}
+              </span>
+            </div>
+            <ul className="text-sm space-y-1">
+              <li>
+                Serveur <span className="font-mono">{git?.commit || '—'}</span>
+                {git?.remoteCommit ? (
+                  <> · GitHub <span className="font-mono">{git.remoteCommit}</span></>
+                ) : null}
+              </li>
+              {git?.deployedAt && (
+                <li className="text-xs text-neya-muted">
+                  Dernier déploiement : {new Date(git.deployedAt).toLocaleString('fr-CA')}
+                  {git.deployedCommit ? ` (${git.deployedCommit})` : ''}
+                </li>
+              )}
+              {sync?.activity && (
+                <li className="text-xs text-neya-muted">
+                  Activité ERP : {formatActivityAge(sync.activity.ageMinutes)}
+                  {sync.activity.lastActivityAt
+                    ? ` · ${new Date(sync.activity.lastActivityAt).toLocaleString('fr-CA')}`
+                    : ''}
+                  {' · '}
+                  {sync.activity.isIdle ? 'idle OK pour MAJ auto' : 'usage récent — MAJ auto reportée'}
+                </li>
+              )}
+            </ul>
+            {sync?.autoUpdate && (
+              <div className="border-t border-neya-border/70 pt-3 text-xs text-neya-muted space-y-1">
+                <p className="font-medium text-neya-ink">Mise à jour auto (minuit)</p>
+                <p>{sync.autoUpdate.scheduleLabel}</p>
+                <p>
+                  Conditions : GitHub a avancé + aucune activité depuis {sync.autoUpdate.idleMinutes} min.
+                  {' '}
+                  {sync.autoUpdate.enabled
+                    ? (sync.autoUpdate.wouldUpdateNow
+                      ? '→ une MAJ serait lancée maintenant.'
+                      : '→ en attente (pas de retard Git ou activité récente).')
+                    : '→ cron non actif sur le VPS.'}
+                </p>
+                {!sync.autoUpdate.cronInstalled && (
+                  <pre className="mt-1 font-mono text-[11px] bg-neya-surface rounded p-2 overflow-x-auto">
+{`ssh ubuntu@${vpsHost || '51.222.31.75'} 'cd /opt/neya-erp && ./deploy/install-auto-update.sh'`}
+                  </pre>
+                )}
+                {sync.autoUpdate.skipReasons?.length > 0 && sync.autoUpdate.cronInstalled && (
+                  <p>Raisons de skip actuelles : {sync.autoUpdate.skipReasons.join(' · ')}</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="grid md:grid-cols-2 gap-4 mb-4">
           <div className="border border-neya-border p-4 bg-neya-surface/40">
