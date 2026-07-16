@@ -272,12 +272,13 @@ export async function triggerVpsGitDeploy({ force = false, host: hostOverride = 
   // Lancer en arrière-plan sur l'hôte : sinon le rebuild Docker tue le backend
   // au milieu de la requête HTTP (502).
   const logFile = `${path}/deploy/logs/one-click-latest.log`;
+  // Pas de « & && » (invalide). On enchaîne avec ; après le nohup.
   const remoteCmd = [
     `mkdir -p ${path}/deploy/logs`,
-    `printf '%s\\n' "[$(date -Iseconds)] one-click démarré (force=${force ? '1' : '0'})" > ${logFile}`,
-    `nohup env FORCE=${force ? '1' : '0'} bash -lc 'cd ${path} && ./deploy/deploy.sh' >>${logFile} 2>&1 &`,
+    `echo "[one-click] start force=${force ? '1' : '0'}" > ${logFile}`,
+    `nohup env FORCE=${force ? '1' : '0'} /bin/bash ${path}/deploy/deploy.sh >>${logFile} 2>&1 </dev/null &`,
     `echo DEPLOY_STARTED pid=$! log=${logFile}`,
-  ].join(' && ');
+  ].join('; ');
 
   const args = [
     '-o', 'StrictHostKeyChecking=accept-new',
