@@ -11,7 +11,8 @@ import { hasPermission } from '../lib/permissions';
 const NAV = [
   { href: '/', label: 'Dashboard', section: 'principal', permission: 'dashboard' },
   { href: '/production', label: 'Production', section: 'principal', permission: 'production' },
-  { href: '/admin', label: 'Gestion admin', section: 'principal', permission: 'admin' },
+  { href: '/sauna-cloud', label: 'Sauna Cloud', section: 'principal', permission: 'production' },
+  { href: '/admin', label: 'Session admin', section: 'principal', permission: 'admin' },
   { href: '/projects', label: 'Projets', section: 'principal', permission: 'projects' },
   { href: '/liste-courses', label: 'Liste de courses', section: 'ops', permission: 'purchases' },
   { href: '/purchases', label: 'Achats atelier', section: 'ops', permission: 'purchases' },
@@ -20,8 +21,8 @@ const NAV = [
   { href: '/calendar', label: 'Calendrier', section: 'ops', permission: 'calendar' },
   { href: '/drive', label: 'Drive', section: 'integrations', permission: 'drive' },
   { href: '/mail', label: 'Courriel', section: 'integrations', permission: 'mail' },
-  { href: '/invoices', label: 'Factures', section: 'finance', permission: 'invoices' },
-  { href: '/expenses', label: 'Dépenses', section: 'finance', permission: 'expenses' },
+  { href: '/invoices', label: 'Devis & factures', section: 'facturation', permission: 'invoices' },
+  { href: '/expenses', label: 'Dépenses', section: 'ops', permission: 'expenses' },
   { href: '/clients', label: 'Clients', section: 'crm', permission: 'clients' },
   { href: '/standards', label: 'Standards', section: 'crm', permission: 'standards' },
   { href: '/web', label: 'Site web', section: 'crm', permission: 'web' },
@@ -31,7 +32,7 @@ const SECTIONS = [
   { id: 'principal', label: 'Atelier' },
   { id: 'ops', label: 'Opérations' },
   { id: 'integrations', label: 'Outils' },
-  { id: 'finance', label: 'Finance' },
+  { id: 'facturation', label: 'Facturation' },
   { id: 'crm', label: 'Commercial' },
 ];
 

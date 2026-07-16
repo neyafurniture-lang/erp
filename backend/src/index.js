@@ -43,6 +43,7 @@ import googleGmailRoutes from './routes/google-gmail.js';
 import emailThreadsRoutes from './routes/email-threads.js';
 import deployRoutes from './routes/deploy.js';
 import timeOffRoutes from './routes/time-off.js';
+import saunaCloudRoutes from './routes/sauna-cloud.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -131,6 +132,7 @@ protectedRouter.use('/ui', uiRoutes);
 protectedRouter.use('/cursor-agent', cursorAgentRoutes);
 protectedRouter.use('/manual', manualRoutes);
 protectedRouter.use('/habits', atelierHabitsRoutes);
+protectedRouter.use('/sauna-cloud', saunaCloudRoutes);
 
 app.use('/api', protectedRouter);
 

@@ -1,27 +1,7 @@
 import { Router } from 'express';
 import pool from '../db/pool.js';
-import { getSetting } from '../services/settings.js';
 
 const router = Router();
-
-router.post('/verify-admin-pin', async (req, res) => {
-  try {
-    const pin = String(req.body?.pin ?? '').trim();
-    if (!pin) return res.status(400).json({ error: 'Code requis' });
-    const stored = await getSetting('project_admin_pin');
-    const expected = String(
-      stored != null && stored !== ''
-        ? stored
-        : (process.env.PROJECT_ADMIN_PIN || '3125')
-    ).trim();
-    if (pin !== expected) {
-      return res.status(401).json({ error: 'Code incorrect' });
-    }
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 router.get('/', async (req, res) => {
   try {
@@ -66,12 +46,22 @@ router.get('/:id', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const { name, client_id, status, deadline, budget_estimated, notes } = req.body;
+    if (!String(name || '').trim()) return res.status(400).json({ error: 'Nom requis' });
+    const clientId = client_id === '' || client_id == null ? null : Number(client_id);
+    if (clientId != null && Number.isNaN(clientId)) {
+      return res.status(400).json({ error: 'client_id invalide' });
+    }
     const { rows } = await pool.query(
       `INSERT INTO projects (name, client_id, status, deadline, budget_estimated, notes)
        VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [name, client_id || null, status || 'active', deadline || null, budget_estimated || 0, notes]
+      [String(name).trim(), clientId, status || 'active', deadline || null, budget_estimated || 0, notes]
     );
-    res.status(201).json(rows[0]);
+    const { rows: full } = await pool.query(
+      `SELECT p.*, c.name as client_name FROM projects p
+       LEFT JOIN clients c ON c.id = p.client_id WHERE p.id = $1`,
+      [rows[0].id]
+    );
+    res.status(201).json(full[0] || rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -117,39 +107,76 @@ router.post('/from-standard/:standardId', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   try {
-    const { name, client_id, status, deadline, budget_estimated, budget_real, notes, meta, hours_logbook } = req.body;
-    const { rows: cur } = await pool.query('SELECT * FROM projects WHERE id = $1', [req.params.id]);
-    if (!cur[0]) return res.status(404).json({ error: 'Projet introuvable' });
+    const id = Number(req.params.id);
+    const { rows: existing } = await pool.query('SELECT * FROM projects WHERE id = $1', [id]);
+    if (!existing[0]) return res.status(404).json({ error: 'Projet introuvable' });
+    const cur = existing[0];
+    const b = req.body || {};
 
-    let nextMeta = typeof cur[0].meta === 'string' ? JSON.parse(cur[0].meta || '{}') : (cur[0].meta || {});
-    if (meta && typeof meta === 'object') nextMeta = { ...nextMeta, ...meta };
-    if (hours_logbook && typeof hours_logbook === 'object') {
-      nextMeta = {
-        ...nextMeta,
-        hours_logbook: {
-          ...(nextMeta.hours_logbook || {}),
-          ...hours_logbook,
-          updated_at: new Date().toISOString(),
-        },
-      };
+    const name = b.name !== undefined ? String(b.name).trim() : cur.name;
+    if (!name) return res.status(400).json({ error: 'Nom requis' });
+
+    let clientId = cur.client_id;
+    if (b.client_id !== undefined) {
+      clientId = b.client_id === '' || b.client_id === null ? null : Number(b.client_id);
+      if (clientId != null && Number.isNaN(clientId)) {
+        return res.status(400).json({ error: 'client_id invalide' });
+      }
     }
+
+    const status = b.status !== undefined ? b.status : cur.status;
+    const deadline = b.deadline !== undefined ? (b.deadline || null) : cur.deadline;
+    const budgetEstimated = b.budget_estimated !== undefined
+      ? (Number(b.budget_estimated) || 0)
+      : cur.budget_estimated;
+    const budgetReal = b.budget_real !== undefined
+      ? (Number(b.budget_real) || 0)
+      : cur.budget_real;
+    const notes = b.notes !== undefined ? b.notes : cur.notes;
 
     const { rows } = await pool.query(
       `UPDATE projects SET name=$1, client_id=$2, status=$3, deadline=$4,
-       budget_estimated=$5, budget_real=$6, notes=$7, meta=$8::jsonb WHERE id=$9 RETURNING *`,
-      [
-        name ?? cur[0].name,
-        client_id !== undefined ? client_id : cur[0].client_id,
-        status ?? cur[0].status,
-        deadline !== undefined ? deadline : cur[0].deadline,
-        budget_estimated !== undefined ? budget_estimated : cur[0].budget_estimated,
-        budget_real !== undefined ? budget_real : cur[0].budget_real,
-        notes !== undefined ? notes : cur[0].notes,
-        JSON.stringify(nextMeta),
-        req.params.id,
-      ]
+       budget_estimated=$5, budget_real=$6, notes=$7 WHERE id=$8 RETURNING *`,
+      [name, clientId, status, deadline, budgetEstimated, budgetReal, notes, id]
     );
-    res.json(rows[0]);
+
+    const { rows: full } = await pool.query(
+      `SELECT p.*, c.name as client_name
+       FROM projects p
+       LEFT JOIN clients c ON c.id = p.client_id
+       WHERE p.id = $1`,
+      [id]
+    );
+    res.json(full[0] || rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Lier / délier un client sans écraser le reste du projet */
+router.patch('/:id/client', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { rows: existing } = await pool.query('SELECT id FROM projects WHERE id = $1', [id]);
+    if (!existing[0]) return res.status(404).json({ error: 'Projet introuvable' });
+
+    let clientId = null;
+    if (req.body?.client_id !== undefined && req.body.client_id !== '' && req.body.client_id !== null) {
+      clientId = Number(req.body.client_id);
+      if (Number.isNaN(clientId)) return res.status(400).json({ error: 'client_id invalide' });
+      const { rows: clients } = await pool.query('SELECT id FROM clients WHERE id = $1', [clientId]);
+      if (!clients[0]) return res.status(400).json({ error: 'Client introuvable' });
+    }
+
+    await pool.query('UPDATE projects SET client_id = $1 WHERE id = $2', [clientId, id]);
+    const { rows: full } = await pool.query(
+      `SELECT p.*, c.name as client_name
+       FROM projects p
+       LEFT JOIN clients c ON c.id = p.client_id
+       WHERE p.id = $1`,
+      [id]
+    );
+    res.json(full[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

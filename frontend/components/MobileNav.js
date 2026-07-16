@@ -19,7 +19,8 @@ const MENU_GROUPS = [
     items: [
       { href: '/', label: 'Dashboard', permission: 'dashboard' },
       { href: '/production', label: 'Production', permission: 'production' },
-      { href: '/admin', label: 'Gestion admin', permission: 'admin' },
+      { href: '/sauna-cloud', label: 'Sauna Cloud', permission: 'production' },
+      { href: '/admin', label: 'Session admin', permission: 'admin' },
       { href: '/projects', label: 'Projets', permission: 'projects' },
     ],
   },
@@ -31,6 +32,7 @@ const MENU_GROUPS = [
       { href: '/inventory', label: 'Stock', permission: 'inventory' },
       { href: '/team', label: 'Équipe', permission: 'team' },
       { href: '/calendar', label: 'Calendrier', permission: 'calendar' },
+      { href: '/expenses', label: 'Dépenses', permission: 'expenses' },
     ],
   },
   {
@@ -41,10 +43,9 @@ const MENU_GROUPS = [
     ],
   },
   {
-    title: 'Finance',
+    title: 'Facturation',
     items: [
-      { href: '/invoices', label: 'Factures', permission: 'invoices' },
-      { href: '/expenses', label: 'Dépenses', permission: 'expenses' },
+      { href: '/invoices', label: 'Devis & factures', permission: 'invoices' },
     ],
   },
   {

@@ -1,13 +1,19 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { api } from '../lib/api';
 import { threadApi } from '../lib/mail-threads';
 import { connectGoogle, getGoogleStatus } from '../lib/google';
 
-const MAIL_SECTIONS = [
-  { id: 'inbox', label: 'Boîte de réception' },
+/** Dossiers Gmail natifs (style boîte Gmail). */
+const SYSTEM_FOLDERS = [
+  { id: 'inbox', label: 'Boîte de réception', gmailLabel: 'INBOX' },
+  { id: 'sent', label: 'Envoyés', gmailLabel: 'SENT' },
+];
+
+/** Tri ERP (labels NEYA/). */
+const ERP_FOLDERS = [
   { id: 'a_repondre', label: 'À répondre' },
   { id: 'clients', label: 'Clients' },
   { id: 'fournisseurs', label: 'Fournisseurs' },
@@ -16,7 +22,11 @@ const MAIL_SECTIONS = [
   { id: 'autres', label: 'Non classés' },
 ];
 
-const SECTION_LABELS = Object.fromEntries(MAIL_SECTIONS.map(s => [s.id, s.label]));
+const ALL_FOLDER_LABELS = {
+  inbox: 'Boîte de réception',
+  sent: 'Envoyés',
+  ...Object.fromEntries(ERP_FOLDERS.map(s => [s.id, s.label])),
+};
 
 const CATEGORY_BADGE = {
   a_repondre: { label: 'Répondre', className: 'bg-neya-surface text-neya-ink border border-neya-border' },
@@ -30,6 +40,8 @@ const CATEGORY_BADGE = {
 const AVATAR_COLORS = [
   '#525252', '#6B7280', '#64748B', '#78716C', '#71717A', '#55606A', '#5C6B73', '#4B5563',
 ];
+
+const UNDO_MS = 8000;
 
 function parseKeyPoints(raw) {
   if (!raw) return [];
@@ -124,6 +136,14 @@ function IconInbox({ className = 'w-4 h-4' }) {
   );
 }
 
+function IconSent({ className = 'w-4 h-4' }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3 21l18-9L3 3l3 9zm0 0h7" />
+    </svg>
+  );
+}
+
 function IconFolder({ className = 'w-4 h-4' }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="currentColor">
@@ -141,6 +161,23 @@ function EmptyState({ title, children }) {
   );
 }
 
+function UndoToast({ toast, onUndo, onDismiss }) {
+  if (!toast) return null;
+  return (
+    <div className="mail-undo-toast" role="status">
+      <span className="text-sm text-white flex-1">{toast.message}</span>
+      {toast.undo && (
+        <button type="button" onClick={onUndo} className="text-sm font-semibold text-amber-300 hover:text-amber-200 px-2">
+          Annuler
+        </button>
+      )}
+      <button type="button" onClick={onDismiss} className="text-white/60 hover:text-white px-1 text-lg leading-none" aria-label="Fermer">
+        ×
+      </button>
+    </div>
+  );
+}
+
 export default function GmailInbox({ projectId = null, linkProjectId = null }) {
   const [connected, setConnected] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -149,9 +186,13 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
   const [loading, setLoading] = useState(true);
   const [threadLoading, setThreadLoading] = useState(false);
   const [synthLoading, setSynthLoading] = useState(false);
+  const [draftAiLoading, setDraftAiLoading] = useState(false);
   const [inboxProcessing, setInboxProcessing] = useState(false);
   const [search, setSearch] = useState('');
   const [reply, setReply] = useState('');
+  const [prevReply, setPrevReply] = useState(null);
+  const [draftInstr, setDraftInstr] = useState('');
+  const [showDraftInstr, setShowDraftInstr] = useState(false);
   const [err, setErr] = useState('');
   const [clients, setClients] = useState([]);
   const [projects, setProjects] = useState([]);
@@ -161,42 +202,95 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
   const [erpOpen, setErpOpen] = useState(true);
   const [threadWarn, setThreadWarn] = useState('');
   const [activeFolder, setActiveFolder] = useState('inbox');
-  const [sections, setSections] = useState(MAIL_SECTIONS.map(s => ({ ...s, count: 0 })));
+  const [sections, setSections] = useState(
+    [{ id: 'inbox', count: 0 }, ...ERP_FOLDERS.map(s => ({ ...s, count: 0 }))]
+  );
+  const [undoToast, setUndoToast] = useState(null);
+  const undoTimer = useRef(null);
 
-  const load = async (q = '') => {
+  const clearUndoTimer = () => {
+    if (undoTimer.current) {
+      clearTimeout(undoTimer.current);
+      undoTimer.current = null;
+    }
+  };
+
+  const showUndo = useCallback((message, undoFn) => {
+    clearUndoTimer();
+    setUndoToast({ message, undo: undoFn || null });
+    undoTimer.current = setTimeout(() => setUndoToast(null), UNDO_MS);
+  }, []);
+
+  const dismissUndo = () => {
+    clearUndoTimer();
+    setUndoToast(null);
+  };
+
+  const runUndo = async () => {
+    const fn = undoToast?.undo;
+    dismissUndo();
+    if (!fn) return;
+    try {
+      await fn();
+    } catch (e) {
+      setErr(e.message);
+    }
+  };
+
+  useEffect(() => () => clearUndoTimer(), []);
+
+  const load = useCallback(async (q = '', folder = activeFolder) => {
     setLoading(true);
     setErr('');
     try {
       if (q) {
         const data = await api(`/gmail/search?q=${encodeURIComponent(q)}`);
         setMessages(data.messages || []);
-        setSections(MAIL_SECTIONS.map(s => ({ ...s, count: 0 })));
+        setSections([{ id: 'inbox', count: 0 }, ...ERP_FOLDERS.map(s => ({ ...s, count: 0 }))]);
       } else if (projectId) {
         const data = await api(`/integrations/projects/${projectId}/emails`);
         setMessages(data);
-        setSections(MAIL_SECTIONS.map(s => ({ ...s, count: 0 })));
+        setSections([{ id: 'inbox', count: 0 }, ...ERP_FOLDERS.map(s => ({ ...s, count: 0 }))]);
         setSelected(null);
-      } else {
-        const data = await api('/gmail/inbox-sorted?max=50');
+      } else if (folder === 'sent') {
+        const data = await api('/gmail/messages?label=SENT&max=40');
         setMessages(data.messages || []);
-        setSections(data.sections || MAIL_SECTIONS.map(s => ({ ...s, count: 0 })));
+      } else if (folder === 'inbox' || !folder) {
+        const data = await api('/gmail/inbox-sorted?max=40');
+        setMessages(data.messages || []);
+        setSections(data.sections || [{ id: 'inbox', count: 0 }, ...ERP_FOLDERS.map(s => ({ ...s, count: 0 }))]);
+      } else {
+        // Dossier ERP : inbox triée puis filtre côté client
+        const data = await api('/gmail/inbox-sorted?max=40');
+        setMessages(data.messages || []);
+        setSections(data.sections || [{ id: 'inbox', count: 0 }, ...ERP_FOLDERS.map(s => ({ ...s, count: 0 }))]);
       }
     } catch (e) {
       setErr(e.message);
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeFolder, projectId]);
 
   useEffect(() => {
     getGoogleStatus().then(s => {
       setConnected(s.google?.connected);
-      if (s.google?.connected) load();
+      if (s.google?.connected) load('', activeFolder);
       else setLoading(false);
     }).catch(() => { setConnected(false); setLoading(false); });
     api('/clients').then(setClients).catch(() => {});
     api('/projects').then(setProjects).catch(() => {});
-  }, [projectId]);
+  }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function selectFolder(id) {
+    setActiveFolder(id);
+    setMobileDetail(false);
+    setSelected(null);
+    setThread(null);
+    setReply('');
+    setPrevReply(null);
+    if (!search) load('', id);
+  }
 
   async function loadThreadContext(msg) {
     const threadId = msg.threadId;
@@ -238,6 +332,8 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
     setThreadWarn('');
     setMobileDetail(true);
     setErpOpen(true);
+    setPrevReply(null);
+    setShowDraftInstr(false);
 
     try {
       const full = m.body ? m : await api(`/gmail/messages/${id}`);
@@ -246,6 +342,16 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
       setErr(e.message);
       setSelected(null);
       setThreadLoading(false);
+      return;
+    }
+
+    // Dans Envoyés : lecture seule, pas de réponse auto
+    if (activeFolder === 'sent') {
+      setReply('');
+      setThreadLoading(false);
+      try {
+        if (m.threadId) await loadThreadContext(m);
+      } catch { /* ignore */ }
       return;
     }
 
@@ -292,7 +398,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
         const errText = result.errors?.[0]?.error || result.gmail_labels?.errors?.[0]?.error;
         setErr(`${msg} Erreur : ${errText}`);
       } else {
-        alert(msg);
+        showUndo(msg, null);
       }
     } catch (e) {
       try {
@@ -300,8 +406,8 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
           method: 'POST',
           body: JSON.stringify({ max: 20 }),
         });
-        await load(search);
-        alert(`${result.processed} conversation(s) synchronisée(s).`);
+        await load(search, activeFolder);
+        showUndo(`${result.processed} conversation(s) synchronisée(s).`, null);
       } catch (fallbackErr) {
         setErr(e.message || fallbackErr.message);
       }
@@ -321,7 +427,13 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
       setLinkClientId(result.thread?.client_id ? String(result.thread.client_id) : '');
       setLinkProjId(result.thread?.project_id ? String(result.thread.project_id) : '');
       if (result.synthesis?.suggested_reply) {
+        const snapshot = reply;
+        setPrevReply(snapshot);
         setReply(result.synthesis.suggested_reply);
+        showUndo('Nouveau brouillon suggéré', async () => {
+          setReply(snapshot);
+          setPrevReply(null);
+        });
       }
       if (result.thread?.client_name) {
         setThreadWarn('');
@@ -331,6 +443,39 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
       setThreadWarn(`Synthèse : ${e.message}`);
     } finally {
       setSynthLoading(false);
+    }
+  }
+
+  async function reviseDraftAi(mode = 'revise') {
+    if (!reply.trim()) return;
+    setDraftAiLoading(true);
+    setErr('');
+    const snapshot = reply;
+    try {
+      const path = thread?.id ? `/${thread.id}/revise-draft` : '/revise-draft';
+      const result = await threadApi(path, {
+        method: 'POST',
+        body: JSON.stringify({
+          draft: reply,
+          instruction: mode === 'spellcheck' ? '' : (draftInstr.trim() || 'Améliore le ton et la clarté'),
+          mode,
+          thread_id: thread?.id || undefined,
+        }),
+      });
+      if (result.draft) {
+        setPrevReply(snapshot);
+        setReply(result.draft);
+        setShowDraftInstr(false);
+        setDraftInstr('');
+        showUndo(mode === 'spellcheck' ? 'Orthographe corrigée' : 'Brouillon modifié', async () => {
+          setReply(snapshot);
+          setPrevReply(null);
+        });
+      }
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setDraftAiLoading(false);
     }
   }
 
@@ -345,6 +490,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
         }),
       });
       setThread(updated);
+      showUndo('Liens enregistrés', null);
     } catch (e) {
       setErr(e.message);
     }
@@ -352,25 +498,47 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
 
   async function sendReply() {
     if (!reply.trim() || !selected) return;
-    await api(`/gmail/messages/${selected.id}/reply`, {
-      method: 'POST',
-      body: JSON.stringify({ body: reply, confirm: true }),
-    });
-    setReply('');
-    load(search);
-    if (selected.threadId) {
-      const refreshed = await threadApi(`/by-gmail/${selected.threadId}`);
-      setThread(refreshed);
+    const body = reply;
+    const selectedId = selected.id;
+    try {
+      const sent = await api(`/gmail/messages/${selectedId}/reply`, {
+        method: 'POST',
+        body: JSON.stringify({ body, confirm: true }),
+      });
+      setReply('');
+      setPrevReply(null);
+      showUndo('Message envoyé', async () => {
+        if (sent?.id) {
+          await api(`/gmail/messages/${sent.id}?confirm=1`, { method: 'DELETE' });
+          setReply(body);
+          await load(search, activeFolder);
+        }
+      });
+      load(search, activeFolder);
+      if (selected.threadId) {
+        const refreshed = await threadApi(`/by-gmail/${selected.threadId}`);
+        setThread(refreshed);
+      }
+    } catch (e) {
+      setErr(e.message);
     }
   }
 
   async function archive() {
     if (!selected?.id) return;
-    await api(`/gmail/messages/${selected.id}/archive`, { method: 'POST' });
+    const msg = selected;
+    const archivedId = selected.id;
+    await api(`/gmail/messages/${archivedId}/archive`, { method: 'POST' });
     setSelected(null);
     setThread(null);
     setMobileDetail(false);
-    load(search);
+    setMessages(prev => prev.filter(m => (m.id || m.gmail_message_id) !== archivedId));
+    showUndo('Conversation archivée', async () => {
+      await api(`/gmail/messages/${archivedId}/unarchive`, { method: 'POST' });
+      await load(search, activeFolder);
+      setSelected(msg);
+      setMobileDetail(true);
+    });
   }
 
   async function linkToProject(pid) {
@@ -396,19 +564,19 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
   );
 
   const filteredMessages = useMemo(() => {
-    if (activeFolder === 'inbox' || search) return messages;
+    if (activeFolder === 'inbox' || activeFolder === 'sent' || search) return messages;
     return messages.filter(m => m.mailCategory === activeFolder);
   }, [messages, activeFolder, search]);
 
   const groupedMessages = useMemo(() => {
     if (activeFolder !== 'inbox' || search) {
-      return [{ id: activeFolder, label: SECTION_LABELS[activeFolder] || 'Messages', items: filteredMessages }];
+      return [{ id: activeFolder, label: ALL_FOLDER_LABELS[activeFolder] || 'Messages', items: filteredMessages }];
     }
-    const order = ['a_repondre', 'clients', 'fournisseurs', 'projets', 'promotions', 'autres'];
+    const order = ERP_FOLDERS.map(f => f.id);
     return order
       .map(id => ({
         id,
-        label: SECTION_LABELS[id],
+        label: ALL_FOLDER_LABELS[id],
         items: messages.filter(m => m.mailCategory === id),
       }))
       .filter(g => g.items.length > 0);
@@ -444,6 +612,8 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
     );
   }
 
+  const isSent = activeFolder === 'sent';
+
   return (
     <div className="mail-shell">
       <div className="mail-toolbar">
@@ -453,30 +623,33 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
             placeholder="Rechercher dans Gmail…"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && load(search)}
+            onKeyDown={e => e.key === 'Enter' && load(search, activeFolder)}
           />
           {search && (
-            <button type="button" className="text-xs text-neya-muted hover:text-neya-ink px-1" onClick={() => { setSearch(''); load(''); }}>
+            <button type="button" className="text-xs text-neya-muted hover:text-neya-ink px-1" onClick={() => { setSearch(''); load('', activeFolder); }}>
               Effacer
             </button>
           )}
         </div>
-        <button type="button" onClick={() => load(search)} className="mail-icon-btn" title="Actualiser">
+        <button type="button" onClick={() => load(search, activeFolder)} className="mail-icon-btn" title="Actualiser">
           <IconRefresh spin={loading} />
         </button>
-        <button
-          type="button"
-          onClick={processInbox}
-          disabled={inboxProcessing}
-          className="btn-secondary text-xs min-h-[36px] py-1.5 px-3 hidden sm:inline-flex"
-        >
-          {inboxProcessing ? 'Tri…' : 'Trier la boîte'}
-        </button>
+        {!isSent && (
+          <button
+            type="button"
+            onClick={processInbox}
+            disabled={inboxProcessing}
+            className="btn-secondary text-xs min-h-[36px] py-1.5 px-3 hidden sm:inline-flex"
+          >
+            {inboxProcessing ? 'Tri…' : 'Trier la boîte'}
+          </button>
+        )}
       </div>
 
       {err && (
-        <div className="px-4 py-2 text-sm text-red-700 bg-red-50 border-b border-red-100">
-          {err}
+        <div className="px-4 py-2 text-sm text-red-700 bg-red-50 border-b border-red-100 flex items-center justify-between gap-2">
+          <span>{err}</span>
+          <button type="button" className="text-xs font-medium underline shrink-0" onClick={() => setErr('')}>Fermer</button>
         </div>
       )}
 
@@ -487,23 +660,41 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
       )}
 
       <div className="mail-layout min-h-[480px]">
-        {/* Sidebar dossiers */}
         <aside className="mail-sidebar">
-          <p className="px-4 py-1 text-[10px] font-semibold uppercase tracking-widest text-neya-muted">Tri automatique</p>
-          <p className="px-4 pb-1 text-[10px] text-neya-muted leading-snug">Labels Gmail NEYA/… créés au tri</p>
-          {MAIL_SECTIONS.map(folder => {
+          <p className="px-4 py-1 text-[10px] font-semibold uppercase tracking-widest text-neya-muted">Gmail</p>
+          {SYSTEM_FOLDERS.map(folder => {
             const count = folder.id === 'inbox'
-              ? (sectionCounts.inbox ?? messages.length)
-              : (sectionCounts[folder.id] ?? 0);
+              ? (sectionCounts.inbox ?? (activeFolder === 'inbox' ? messages.length : null))
+              : (activeFolder === 'sent' ? messages.length : null);
             const active = activeFolder === folder.id;
             return (
               <button
                 key={folder.id}
                 type="button"
-                onClick={() => { setActiveFolder(folder.id); setMobileDetail(false); }}
+                onClick={() => selectFolder(folder.id)}
                 className={`mail-folder ${active ? 'mail-folder-active' : ''}`}
               >
-                {folder.id === 'inbox' ? <IconInbox /> : <IconFolder className="w-4 h-4 opacity-70" />}
+                {folder.id === 'sent' ? <IconSent /> : <IconInbox />}
+                <span className="flex-1 text-left truncate">{folder.label}</span>
+                {count > 0 && (
+                  <span className="text-[10px] font-medium tabular-nums text-neya-muted">{count}</span>
+                )}
+              </button>
+            );
+          })}
+
+          <p className="px-4 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-neya-muted">Tri NEYA</p>
+          {ERP_FOLDERS.map(folder => {
+            const count = sectionCounts[folder.id] ?? 0;
+            const active = activeFolder === folder.id;
+            return (
+              <button
+                key={folder.id}
+                type="button"
+                onClick={() => selectFolder(folder.id)}
+                className={`mail-folder ${active ? 'mail-folder-active' : ''}`}
+              >
+                <IconFolder className="w-4 h-4 opacity-70" />
                 <span className="flex-1 text-left truncate">{folder.label}</span>
                 {count > 0 && (
                   <span className={`text-[10px] font-medium tabular-nums ${folder.id === 'a_repondre' ? 'text-amber-700' : 'text-neya-muted'}`}>
@@ -521,43 +712,49 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
           )}
         </aside>
 
-        {/* Liste messages */}
         <div className={`mail-list ${mobileDetail ? 'hidden md:flex' : 'flex'}`}>
-          <div className="px-3 py-2 border-b border-neya-border flex items-center justify-between gap-2">
+          <div className="px-3 py-1.5 border-b border-neya-border flex items-center justify-between gap-2">
             <span className="text-xs font-medium text-neya-muted truncate">
               {loading ? 'Chargement…' : `${filteredMessages.length} message${filteredMessages.length !== 1 ? 's' : ''}`}
               {activeFolder !== 'inbox' && !search && (
-                <span className="text-neya-ink"> · {SECTION_LABELS[activeFolder]}</span>
+                <span className="text-neya-ink"> · {ALL_FOLDER_LABELS[activeFolder]}</span>
               )}
             </span>
             <div className="flex items-center gap-2 shrink-0">
               <select
                 className="md:hidden text-xs border border-neya-border rounded px-2 py-1 bg-white"
                 value={activeFolder}
-                onChange={e => setActiveFolder(e.target.value)}
+                onChange={e => selectFolder(e.target.value)}
               >
-                {MAIL_SECTIONS.map(f => (
+                {SYSTEM_FOLDERS.map(f => (
+                  <option key={f.id} value={f.id}>{f.label}</option>
+                ))}
+                {ERP_FOLDERS.map(f => (
                   <option key={f.id} value={f.id}>
                     {f.label}{sectionCounts[f.id] ? ` (${sectionCounts[f.id]})` : ''}
                   </option>
                 ))}
               </select>
-              <button
-                type="button"
-                onClick={processInbox}
-                disabled={inboxProcessing}
-                className="text-xs text-neya-muted font-medium sm:hidden"
-              >
-                {inboxProcessing ? '…' : 'Trier'}
-              </button>
+              {!isSent && (
+                <button
+                  type="button"
+                  onClick={processInbox}
+                  disabled={inboxProcessing}
+                  className="text-xs text-neya-muted font-medium sm:hidden"
+                >
+                  {inboxProcessing ? '…' : 'Trier'}
+                </button>
+              )}
             </div>
           </div>
           <div className="mail-list-scroll">
             {filteredMessages.length === 0 && !loading ? (
               <EmptyState title={activeFolder === 'inbox' ? 'Boîte vide' : 'Aucun message ici'}>
-                {activeFolder === 'inbox'
-                  ? 'Aucun message à afficher pour le moment.'
-                  : `Aucun courriel dans « ${SECTION_LABELS[activeFolder]} ». Lancez « Trier la boîte » pour classifier.`}
+                {activeFolder === 'sent'
+                  ? 'Aucun message envoyé pour le moment.'
+                  : activeFolder === 'inbox'
+                    ? 'Aucun message à afficher pour le moment.'
+                    : `Aucun courriel dans « ${ALL_FOLDER_LABELS[activeFolder]} ». Lancez « Trier la boîte » pour classifier.`}
               </EmptyState>
             ) : (
               groupedMessages.map(group => (
@@ -571,9 +768,11 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                   {group.items.map(m => {
                     const id = m.id || m.gmail_message_id;
                     const from = m.from || m.from_email || '';
-                    const { name } = parseSender(from);
+                    const to = m.to || '';
+                    const peer = isSent ? (to || from) : from;
+                    const { name } = parseSender(peer);
                     const active = (selected?.id || selected?.gmail_message_id) === id;
-                    const unread = m.isUnread || m.unread;
+                    const unread = !isSent && (m.isUnread || m.unread);
                     const badge = CATEGORY_BADGE[m.mailCategory];
                     return (
                       <button
@@ -582,34 +781,24 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                         onClick={() => openMessage(m)}
                         className={`mail-row ${active ? 'mail-row-active' : ''} ${unread && !active ? 'border-l-2 border-l-neya-ink pl-[10px]' : ''} ${unread ? 'mail-row-unread' : ''}`}
                       >
-                        <span className="mail-avatar" style={{ backgroundColor: avatarColor(from) }}>
-                          {getInitials(from)}
+                        <span className="mail-avatar" style={{ backgroundColor: avatarColor(peer) }}>
+                          {getInitials(peer)}
                         </span>
                         <span className="flex-1 min-w-0">
                           <span className="flex items-baseline justify-between gap-2">
-                            <span className={`text-sm truncate ${unread ? 'font-semibold' : 'font-medium text-neya-ink/90'}`}>
-                              {name}
+                            <span className={`text-[13px] truncate ${unread ? 'font-semibold' : 'font-medium text-neya-ink/90'}`}>
+                              {isSent ? `À : ${name}` : name}
                             </span>
-                            <span className="text-[11px] text-neya-muted shrink-0 tabular-nums">
+                            <span className="text-[10px] text-neya-muted shrink-0 tabular-nums">
                               {formatMailDate(m.date)}
                             </span>
                           </span>
-                          <span className="mail-row-subject block text-sm truncate text-neya-ink/80 mt-0.5">
+                          <span className="mail-row-subject block text-[13px] truncate text-neya-ink/80">
                             {m.subject || '(sans objet)'}
                           </span>
-                          <span className="flex items-center gap-2 mt-0.5 min-w-0">
-                            <span className="block text-xs text-neya-muted truncate flex-1">
-                              {m.snippet}
-                            </span>
-                            {badge && activeFolder === 'inbox' && (
-                              <span className={`shrink-0 text-[9px] font-semibold px-1.5 py-0.5 rounded ${badge.className}`}>
-                                {badge.label}
-                              </span>
-                            )}
-                          </span>
-                          {m.project_name && (
-                            <span className="text-[10px] text-emerald-700 truncate block mt-0.5">
-                              📁 {m.project_name}
+                          {badge && activeFolder === 'inbox' && (
+                            <span className={`inline-block mt-0.5 text-[9px] font-semibold px-1.5 py-0.5 rounded ${badge.className}`}>
+                              {badge.label}
                             </span>
                           )}
                         </span>
@@ -622,88 +811,143 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
           </div>
         </div>
 
-        {/* Lecture + panneau ERP */}
         <div className={`mail-reading ${!mobileDetail && !selected ? 'hidden md:flex' : 'flex'} ${mobileDetail ? 'flex' : ''}`}>
           {!selected ? (
             <EmptyState title="Sélectionnez un message">
-              Choisissez un courriel dans la liste pour le lire et y répondre.
+              Choisissez un courriel dans la liste pour le lire{isSent ? '.' : ' et y répondre.'}
             </EmptyState>
           ) : (
-            <>
-              <div className="flex flex-1 min-h-0">
-                <div className="flex-1 flex flex-col min-w-0">
-                  <header className="mail-reading-header">
-                    <div className="flex items-start gap-3">
-                      <button
-                        type="button"
-                        className="mail-icon-btn md:hidden -ml-1 shrink-0"
-                        onClick={() => { setMobileDetail(false); setSelected(null); }}
-                        aria-label="Retour"
-                      >
-                        <IconBack />
-                      </button>
-                      <span
-                        className="mail-avatar w-10 h-10 text-sm shrink-0 hidden sm:flex"
-                        style={{ backgroundColor: avatarColor(selected.from || selected.from_email) }}
-                      >
-                        {getInitials(selected.from || selected.from_email)}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <h2 className="text-lg font-semibold text-neya-ink leading-snug pr-2">
-                          {selected.subject}
-                        </h2>
-                        <p className="text-sm text-neya-muted mt-1">
-                          <span className="font-medium text-neya-ink">{selectedSender.name}</span>
-                          {selectedSender.email && (
-                            <span className="text-neya-muted"> &lt;{selectedSender.email}&gt;</span>
-                          )}
-                        </p>
-                        {selected.date && (
-                          <p className="text-xs text-neya-muted mt-0.5">{selected.date}</p>
+            <div className="flex flex-1 min-h-0">
+              <div className="flex-1 flex flex-col min-w-0">
+                <header className="mail-reading-header">
+                  <div className="flex items-start gap-3">
+                    <button
+                      type="button"
+                      className="mail-icon-btn md:hidden -ml-1 shrink-0"
+                      onClick={() => { setMobileDetail(false); setSelected(null); }}
+                      aria-label="Retour"
+                    >
+                      <IconBack />
+                    </button>
+                    <span
+                      className="mail-avatar w-10 h-10 text-sm shrink-0 hidden sm:flex"
+                      style={{ backgroundColor: avatarColor(selected.from || selected.from_email) }}
+                    >
+                      {getInitials(selected.from || selected.from_email)}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <h2 className="text-lg font-semibold text-neya-ink leading-snug pr-2">
+                        {selected.subject}
+                      </h2>
+                      <p className="text-sm text-neya-muted mt-1">
+                        <span className="font-medium text-neya-ink">{selectedSender.name}</span>
+                        {selectedSender.email && (
+                          <span className="text-neya-muted"> &lt;{selectedSender.email}&gt;</span>
                         )}
-                      </div>
-                      <div className="flex items-center gap-0.5 shrink-0">
+                      </p>
+                      {isSent && selected.to && (
+                        <p className="text-xs text-neya-muted mt-0.5">À : {selected.to}</p>
+                      )}
+                      {selected.date && (
+                        <p className="text-xs text-neya-muted mt-0.5">{selected.date}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-0.5 shrink-0">
+                      {!isSent && (
                         <button type="button" onClick={archive} className="mail-icon-btn" title="Archiver">
                           <IconArchive />
                         </button>
-                        {(linkProjectId || projectId) && (
+                      )}
+                      {(linkProjectId || projectId) && (
+                        <button
+                          type="button"
+                          onClick={() => linkToProject(linkProjectId || projectId)}
+                          className="btn-secondary text-xs min-h-[36px] py-1 px-2.5 hidden lg:inline-flex"
+                        >
+                          Lier projet
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setErpOpen(v => !v)}
+                        className="mail-icon-btn lg:hidden"
+                        title="Panneau ERP"
+                      >
+                        <IconSparkles />
+                      </button>
+                    </div>
+                  </div>
+                </header>
+
+                <div className="mail-body">
+                  {threadLoading && !selected.body ? (
+                    <p className="text-neya-muted text-sm">Chargement du contenu…</p>
+                  ) : (
+                    selected.body || selected.snippet
+                  )}
+                </div>
+
+                {!isSent && (
+                  <div className="mail-compose">
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <label className="text-xs font-medium text-neya-muted">Répondre</label>
+                      <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                        {prevReply != null && (
                           <button
                             type="button"
-                            onClick={() => linkToProject(linkProjectId || projectId)}
-                            className="btn-secondary text-xs min-h-[36px] py-1 px-2.5 hidden lg:inline-flex"
+                            className="text-[11px] font-medium text-neya-muted hover:text-neya-ink"
+                            onClick={() => { setReply(prevReply); setPrevReply(null); showUndo('Brouillon restauré', null); }}
                           >
-                            Lier projet
+                            Annuler la modif
                           </button>
                         )}
                         <button
                           type="button"
-                          onClick={() => setErpOpen(v => !v)}
-                          className="mail-icon-btn lg:hidden"
-                          title="Panneau ERP"
+                          disabled={!reply.trim() || draftAiLoading}
+                          onClick={() => reviseDraftAi('spellcheck')}
+                          className="text-[11px] font-medium text-neya-muted hover:text-neya-ink disabled:opacity-40"
+                          title="Corriger l’orthographe"
                         >
-                          <IconSparkles />
+                          Orthographe
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!reply.trim() || draftAiLoading}
+                          onClick={() => setShowDraftInstr(v => !v)}
+                          className="text-[11px] font-medium text-neya-ink hover:underline disabled:opacity-40"
+                        >
+                          Demander à l’IA…
                         </button>
                       </div>
                     </div>
-                  </header>
 
-                  <div className="mail-body">
-                    {threadLoading && !selected.body ? (
-                      <p className="text-neya-muted text-sm">Chargement du contenu…</p>
-                    ) : (
-                      selected.body || selected.snippet
+                    {showDraftInstr && (
+                      <div className="mb-2 flex flex-col sm:flex-row gap-2">
+                        <input
+                          className="input text-sm flex-1 min-h-[36px]"
+                          placeholder="Ex. plus court, plus formel, ajoute un délai…"
+                          value={draftInstr}
+                          onChange={e => setDraftInstr(e.target.value)}
+                          onKeyDown={e => e.key === 'Enter' && reviseDraftAi('revise')}
+                        />
+                        <button
+                          type="button"
+                          disabled={draftAiLoading}
+                          onClick={() => reviseDraftAi('revise')}
+                          className="btn-secondary text-xs min-h-[36px] shrink-0"
+                        >
+                          {draftAiLoading ? 'IA…' : 'Modifier le brouillon'}
+                        </button>
+                      </div>
                     )}
-                  </div>
 
-                  <div className="mail-compose">
-                    <label className="text-xs font-medium text-neya-muted mb-2 block">Répondre</label>
                     <textarea
                       className="input mb-3 min-h-[88px] text-sm resize-y"
                       placeholder="Rédigez votre réponse…"
                       value={reply}
-                      onChange={e => setReply(e.target.value)}
+                      onChange={e => { setReply(e.target.value); setPrevReply(null); }}
                     />
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <button
                         type="button"
                         onClick={sendReply}
@@ -712,155 +956,157 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                       >
                         Envoyer
                       </button>
-                      {synthesis?.needs_response && (
+                      {draftAiLoading && <span className="text-xs text-neya-muted">L’IA travaille…</span>}
+                      {!draftAiLoading && synthesis?.needs_response && (
                         <span className="text-xs text-neya-muted">Brouillon suggéré</span>
                       )}
                     </div>
                   </div>
+                )}
+              </div>
+
+              <aside className={`mail-erp-panel ${erpOpen ? 'flex' : 'hidden lg:flex'}`}>
+                <div className="px-4 py-3 border-b border-neya-border flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-neya-ink">Contexte ERP</p>
+                    <p className="text-[11px] text-neya-muted">Liens, synthèse et actions</p>
+                  </div>
+                  <button type="button" className="mail-icon-btn lg:hidden" onClick={() => setErpOpen(false)} aria-label="Fermer">
+                    ✕
+                  </button>
                 </div>
 
-                {/* Panneau ERP / IA */}
-                <aside className={`mail-erp-panel ${erpOpen ? 'flex' : 'hidden lg:flex'}`}>
-                  <div className="px-4 py-3 border-b border-neya-border flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-neya-ink">Contexte ERP</p>
-                      <p className="text-[11px] text-neya-muted">Liens, synthèse et actions</p>
-                    </div>
-                    <button type="button" className="mail-icon-btn lg:hidden" onClick={() => setErpOpen(false)} aria-label="Fermer">
-                      ✕
-                    </button>
-                  </div>
-
-                  <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                    {threadLoading && !thread ? (
-                      <p className="text-xs text-neya-muted">Synchronisation du fil…</p>
-                    ) : thread ? (
-                      <>
-                        <div className="space-y-2">
-                          <label className="label mb-0">Client</label>
-                          <select className="input text-sm min-h-[40px]" value={linkClientId} onChange={e => {
-                            setLinkClientId(e.target.value);
-                            if (e.target.value && linkProjId) {
-                              const stillOk = projects.some(p => String(p.id) === String(linkProjId) && (!p.client_id || String(p.client_id) === e.target.value));
-                              if (!stillOk) setLinkProjId('');
-                            }
-                          }}>
-                            <option value="">— Non lié —</option>
-                            {clients.map(c => <option key={c.id} value={c.id}>{c.name}{c.email ? ` (${c.email})` : ''}</option>)}
-                          </select>
-                          {thread.client_name && (
-                            <p className="text-[11px] text-neya-orange font-medium">Lié : {thread.client_name}</p>
-                          )}
-                          {!thread.client_id && thread.suggested_client_name && (
-                            <p className="text-[11px] text-neya-muted">
-                              Suggestion IA : {thread.suggested_client_name}
-                            </p>
-                          )}
-                        </div>
-                        <div className="space-y-2">
-                          <label className="label mb-0">Projet</label>
-                          <select className="input text-sm min-h-[40px]" value={linkProjId} onChange={e => setLinkProjId(e.target.value)}>
-                            <option value="">— Non lié —</option>
-                            {projectsForClient.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                          </select>
-                          {thread.project_name && (
-                            <p className="text-[11px] text-neya-muted">Projet : {thread.project_name}</p>
-                          )}
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          <button type="button" onClick={saveLinks} className="btn-secondary text-xs min-h-[36px] flex-1">
-                            Enregistrer
-                          </button>
-                          <button type="button" onClick={synthesize} disabled={synthLoading} className="btn-secondary text-xs min-h-[36px] flex-1">
-                            {synthLoading ? '…' : 'Synthèse'}
-                          </button>
-                        </div>
-
-                        {thread.link_source && (
-                          <p className="text-[11px] text-neya-muted bg-white border border-neya-border px-2.5 py-2">
-                            Lien auto : <span className="font-medium">{thread.link_source}</span>
-                            {thread.link_confidence ? ` (${Math.round(thread.link_confidence * 100)} %)` : ''}
+                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                  {threadLoading && !thread ? (
+                    <p className="text-xs text-neya-muted">Synchronisation du fil…</p>
+                  ) : thread ? (
+                    <>
+                      <div className="space-y-2">
+                        <label className="label mb-0">Client</label>
+                        <select className="input text-sm min-h-[40px]" value={linkClientId} onChange={e => {
+                          setLinkClientId(e.target.value);
+                          if (e.target.value && linkProjId) {
+                            const stillOk = projects.some(p => String(p.id) === String(linkProjId) && (!p.client_id || String(p.client_id) === e.target.value));
+                            if (!stillOk) setLinkProjId('');
+                          }
+                        }}>
+                          <option value="">— Non lié —</option>
+                          {clients.map(c => <option key={c.id} value={c.id}>{c.name}{c.email ? ` (${c.email})` : ''}</option>)}
+                        </select>
+                        {thread.client_name && (
+                          <p className="text-[11px] text-neya-orange font-medium">Lié : {thread.client_name}</p>
+                        )}
+                        {!thread.client_id && thread.suggested_client_name && (
+                          <p className="text-[11px] text-neya-muted">
+                            Suggestion IA : {thread.suggested_client_name}
                           </p>
-                        )}
-
-                        {synthesis ? (
-                          <div className="bg-white border border-neya-border p-3 space-y-3">
-                            <div>
-                              <p className="text-[10px] font-semibold uppercase tracking-wider text-neya-muted mb-1">Résumé</p>
-                              <p className="text-sm leading-relaxed">{synthesis.summary}</p>
-                            </div>
-                            {keyPoints.length > 0 && (
-                              <div>
-                                <p className="text-[10px] font-semibold uppercase tracking-wider text-neya-muted mb-1.5">Points clés</p>
-                                <ul className="space-y-1">
-                                  {keyPoints.map((kp, i) => (
-                                    <li key={i} className="text-xs text-neya-ink/90 flex gap-1.5">
-                                      <span className="text-neya-muted">—</span>
-                                      <span>{kp.type ? `[${kp.type}] ` : ''}{kp.text}</span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
-                            {actionItems.length > 0 && (
-                              <div>
-                                <p className="text-[10px] font-semibold uppercase tracking-wider text-neya-muted mb-1.5">À faire</p>
-                                <ul className="space-y-1">
-                                  {actionItems.map((a, i) => (
-                                    <li key={i} className="text-xs flex gap-1.5">
-                                      <span className="text-neya-muted">□</span>
-                                      <span>{a.text}{a.priority ? ` (${a.priority})` : ''}</span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <p className="text-xs text-neya-muted text-center py-4">
-                            {thread.synthesis_error
-                              ? `Synthèse échouée : ${thread.synthesis_error}`
-                              : 'Ouvrez un message pour générer la synthèse, ou cliquez Synthèse.'}
-                          </p>
-                        )}
-
-                        {thread.messages?.length > 1 && (
-                          <details className="text-xs group">
-                            <summary className="cursor-pointer text-neya-muted font-medium py-1">
-                              Fil ({thread.messages.length} messages)
-                            </summary>
-                            <ul className="mt-2 space-y-2 max-h-36 overflow-y-auto">
-                              {thread.messages.map(m => (
-                                <li key={m.id} className="p-2 rounded-lg bg-white border border-neya-border/80">
-                                  <p className="font-medium text-neya-ink truncate">{m.from_email}</p>
-                                  <p className="text-neya-muted line-clamp-2 mt-0.5">{m.snippet}</p>
-                                </li>
-                              ))}
-                            </ul>
-                          </details>
-                        )}
-                      </>
-                    ) : (
-                      <div className="text-xs text-neya-muted text-center py-4 space-y-2">
-                        <p>{threadLoading ? 'Synchronisation du fil…' : 'Fil ERP non synchronisé.'}</p>
-                        {!threadLoading && selected?.threadId && (
-                          <button
-                            type="button"
-                            onClick={() => loadThreadContext(selected)}
-                            className="btn-secondary text-xs min-h-[32px]"
-                          >
-                            Réessayer la synchronisation
-                          </button>
                         )}
                       </div>
-                    )}
-                  </div>
-                </aside>
-              </div>
-            </>
+                      <div className="space-y-2">
+                        <label className="label mb-0">Projet</label>
+                        <select className="input text-sm min-h-[40px]" value={linkProjId} onChange={e => setLinkProjId(e.target.value)}>
+                          <option value="">— Non lié —</option>
+                          {projectsForClient.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                        </select>
+                        {thread.project_name && (
+                          <p className="text-[11px] text-neya-muted">Projet : {thread.project_name}</p>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button type="button" onClick={saveLinks} className="btn-secondary text-xs min-h-[36px] flex-1">
+                          Enregistrer
+                        </button>
+                        <button type="button" onClick={synthesize} disabled={synthLoading} className="btn-secondary text-xs min-h-[36px] flex-1">
+                          {synthLoading ? '…' : 'Synthèse'}
+                        </button>
+                      </div>
+
+                      {thread.link_source && (
+                        <p className="text-[11px] text-neya-muted bg-white border border-neya-border px-2.5 py-2">
+                          Lien auto : <span className="font-medium">{thread.link_source}</span>
+                          {thread.link_confidence ? ` (${Math.round(thread.link_confidence * 100)} %)` : ''}
+                        </p>
+                      )}
+
+                      {synthesis ? (
+                        <div className="bg-white border border-neya-border p-3 space-y-3">
+                          <div>
+                            <p className="text-[10px] font-semibold uppercase tracking-wider text-neya-muted mb-1">Résumé</p>
+                            <p className="text-sm leading-relaxed">{synthesis.summary}</p>
+                          </div>
+                          {keyPoints.length > 0 && (
+                            <div>
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-neya-muted mb-1.5">Points clés</p>
+                              <ul className="space-y-1">
+                                {keyPoints.map((kp, i) => (
+                                  <li key={i} className="text-xs text-neya-ink/90 flex gap-1.5">
+                                    <span className="text-neya-muted">—</span>
+                                    <span>{kp.type ? `[${kp.type}] ` : ''}{kp.text}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {actionItems.length > 0 && (
+                            <div>
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-neya-muted mb-1.5">À faire</p>
+                              <ul className="space-y-1">
+                                {actionItems.map((a, i) => (
+                                  <li key={i} className="text-xs flex gap-1.5">
+                                    <span className="text-neya-muted">□</span>
+                                    <span>{a.text}{a.priority ? ` (${a.priority})` : ''}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-neya-muted text-center py-4">
+                          {thread.synthesis_error
+                            ? `Synthèse échouée : ${thread.synthesis_error}`
+                            : 'Ouvrez un message pour générer la synthèse, ou cliquez Synthèse.'}
+                        </p>
+                      )}
+
+                      {thread.messages?.length > 1 && (
+                        <details className="text-xs group">
+                          <summary className="cursor-pointer text-neya-muted font-medium py-1">
+                            Fil ({thread.messages.length} messages)
+                          </summary>
+                          <ul className="mt-2 space-y-2 max-h-36 overflow-y-auto">
+                            {thread.messages.map(m => (
+                              <li key={m.id} className="p-2 rounded-lg bg-white border border-neya-border/80">
+                                <p className="font-medium text-neya-ink truncate">{m.from_email}</p>
+                                <p className="text-neya-muted line-clamp-2 mt-0.5">{m.snippet}</p>
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      )}
+                    </>
+                  ) : (
+                    <div className="text-xs text-neya-muted text-center py-4 space-y-2">
+                      <p>{threadLoading ? 'Synchronisation du fil…' : 'Fil ERP non synchronisé.'}</p>
+                      {!threadLoading && selected?.threadId && (
+                        <button
+                          type="button"
+                          onClick={() => loadThreadContext(selected)}
+                          className="btn-secondary text-xs min-h-[32px]"
+                        >
+                          Réessayer la synchronisation
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </aside>
+            </div>
           )}
         </div>
       </div>
+
+      <UndoToast toast={undoToast} onUndo={runUndo} onDismiss={dismissUndo} />
     </div>
   );
 }

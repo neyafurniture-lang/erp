@@ -8,9 +8,6 @@ import {
   createProjectFromStandard,
   isDayPlanMessage,
   runSkillAction,
-  detectMailIntent,
-  detectImportMailDatesIntent,
-  detectCreateProjectFromQuoteEmailIntent,
 } from './skill-actions.js';
 
 export { ACTION_TYPES };
@@ -34,19 +31,6 @@ async function matchSkill(message) {
 }
 
 async function enrichPageContext(ctx) {
-  if (!ctx) return null;
-
-  // Élément UI pointé (avec ou sans entité page)
-  const pointed = ctx.meta?.element || ctx.element || null;
-  if ((!ctx.type || !ctx.id) && pointed) {
-    return {
-      type: 'ui',
-      label: pointed.label || pointed.text?.slice(0, 40) || 'Élément UI',
-      pathname: ctx.pathname || pointed.pathname || '',
-      meta: { ...(ctx.meta || {}), element: pointed },
-    };
-  }
-
   if (!ctx?.type || !ctx?.id) return null;
 
   if (ctx.type === 'project') {
@@ -56,7 +40,7 @@ async function enrichPageContext(ctx) {
       LEFT JOIN clients c ON c.id = p.client_id
       WHERE p.id = $1
     `, [ctx.id]);
-    if (!rows[0]) return pointed ? { type: 'ui', label: pointed.label, meta: { element: pointed }, pathname: ctx.pathname } : null;
+    if (!rows[0]) return null;
     const { rows: tasks } = await pool.query(
       'SELECT id, title, status, sort_order, type FROM tasks WHERE project_id = $1 ORDER BY sort_order, id',
       [ctx.id]
@@ -67,7 +51,6 @@ async function enrichPageContext(ctx) {
       project: rows[0],
       tasks,
       isCustom: !rows[0].standard_id,
-      meta: { ...(ctx.meta || {}), ...(pointed ? { element: pointed } : {}) },
     };
   }
 
@@ -129,29 +112,22 @@ async function enrichPageContext(ctx) {
 
 function contextPrefix(ctx) {
   if (!ctx) return '';
-  const el = ctx.meta?.element;
-  const elNote = el
-    ? ` [élément pointé: ${el.selector || el.tag} « ${(el.text || el.label || '').slice(0, 60)} » @ ${el.pathname || ctx.pathname || '?'}]`
-    : '';
-  if (ctx.type === 'ui') {
-    return `[Contexte page : élément UI pointé${elNote}]\n`;
-  }
   if (ctx.type === 'project') {
     const custom = ctx.isCustom ? ' (checklist atelier)' : ' (fiche catalogue)';
     const pending = ctx.tasks?.filter(t => t.status !== 'done').length ?? 0;
-    return `[Contexte page : projet « ${ctx.label} »${custom}${pending ? ` — ${pending} tâche(s) en cours` : ''}${elNote}]\n`;
+    return `[Contexte page : projet « ${ctx.label} »${custom}${pending ? ` — ${pending} tâche(s) en cours` : ''}]\n`;
   }
-  if (ctx.type === 'client') return `[Contexte page : client « ${ctx.label} »${elNote}]\n`;
-  if (ctx.type === 'standard') return `[Contexte page : fiche « ${ctx.label} »${ctx.sku ? ` (${ctx.sku})` : ''}${elNote}]\n`;
+  if (ctx.type === 'client') return `[Contexte page : client « ${ctx.label} »]\n`;
+  if (ctx.type === 'standard') return `[Contexte page : fiche « ${ctx.label} »${ctx.sku ? ` (${ctx.sku})` : ''}]\n`;
   if (ctx.type === 'quote') {
     const q = ctx.quote;
     const n = Array.isArray(q?.lines) ? q.lines.length : 0;
-    return `[Contexte page : devis « ${ctx.label} » (${q?.quote_number || '#' + ctx.id}) — ${q?.status || '?'} — ${n} ligne(s) — ${q?.client_name || 'sans client'}${elNote}]\n`;
+    return `[Contexte page : devis « ${ctx.label} » (${q?.quote_number || '#' + ctx.id}) — ${q?.status || '?'} — ${n} ligne(s) — ${q?.client_name || 'sans client'}]\n`;
   }
   if (ctx.type === 'invoice') {
-    return `[Contexte page : facture « ${ctx.label} » (${ctx.invoice?.invoice_number || '#' + ctx.id})${elNote}]\n`;
+    return `[Contexte page : facture « ${ctx.label} » (${ctx.invoice?.invoice_number || '#' + ctx.id})]\n`;
   }
-  return elNote ? `[Contexte${elNote}]\n` : '';
+  return '';
 }
 
 async function executeSkill(skill, message, pageContext = null, actionParams = null) {
@@ -268,19 +244,27 @@ async function handleUpdateSkillFromChat(message) {
 }
 
 async function tryOpenAI(message, history, pageContext = null) {
-  const { runLiaActionLoop } = await import('./assistant-protocol.js');
+  const { callAssistantLLM } = await import('./ai-chat.js');
+  const { ACTION_TYPES } = await import('./skill-actions.js');
 
-  // Boucle : décision IA → exécution skill → ACTION_CHECK → réinterprétation → suite ou finale
-  const result = await runLiaActionLoop({ message, history, pageContext });
-  if (!result) return null;
+  const parsed = await callAssistantLLM(message, history, pageContext);
+  if (!parsed) return null;
 
-  return {
-    reply: result.reply || 'OK',
-    actions: result.actions || [],
-    checks: result.checks || [],
-    done: result.done !== false,
-    steps: result.steps,
-  };
+  let actionType = parsed.action?.type || parsed.action_type || null;
+  let actionParams = parsed.action?.params || parsed.params || {};
+  // Compat si le modèle renvoie "actions": [{ type }]
+  if (!actionType && Array.isArray(parsed.actions) && parsed.actions[0]) {
+    actionType = parsed.actions[0].type || parsed.actions[0].action_type;
+    actionParams = parsed.actions[0].params || {};
+  }
+  if (actionType === 'null' || actionType === 'none') actionType = null;
+
+  if (actionType && ACTION_TYPES.includes(actionType)) {
+    const fakeSkill = { action_type: actionType, name: actionType };
+    const result = await executeSkill(fakeSkill, message, pageContext, actionParams || {});
+    return { reply: parsed.reply || result.reply, actions: result.actions };
+  }
+  return { reply: parsed.reply || 'OK', actions: [] };
 }
 
 function contextExamples(ctx) {
@@ -318,30 +302,6 @@ function needsHistoryContext(message) {
     return true;
   }
   return /^(crée|creer|ajoute|cocher|modifier|supprime|envoie|planifie)\b/i.test(m) && m.length < 60;
-}
-
-/** Demande de feature / UI / code → Cursor VPS, pas une skill métier (ex. create_invoice). */
-export function isErpCodeChangeRequest(message = '') {
-  const m = String(message);
-  if (
-    /demande\s*(à\s*)?cursor|lance\s*cursor|modifie\s*(l['']?)?(erp|interface|code)|change\s*(l['']?)?(interface|code)|améliore\s*(l['']?)?(erp|interface)|planification\s*des\s*d[eé]parts|pr[eé]-?r[eé]ponses?|crée\s*une\s*passerelle|fais\s*[eé]voluer|développe\s*(le\s*)?(module|feature|écran)/i.test(m)
-  ) {
-    return true;
-  }
-  // UX produit : éditeur, clic pour voir/modifier, visualisation document
-  if (
-    /[eé]diteur\s*visuel|[eé]dition\s*visuelle|visualiser\s*(les\s*)?(facture|devis)|en\s*cliquant|cliquer\s*(dessus|pour)|modifier\s*directement|depuis\s*l['']?[eé]diteur|preview\s*(facture|devis)|aper[cç]u\s*(facture|devis)|wysiwyg|document\s*[eé]ditable/i.test(m)
-  ) {
-    return true;
-  }
-  // « j’aimerais qu’on puisse … » / « il faudrait pouvoir … » = feature, pas création métier
-  if (
-    /(j['’]aimerais|on\s+pourrait|il\s+faudrait|fais\s+en\s+sorte|ajoute\s+(la\s+)?possibilit|rends?\s+(possible|cliquable)|pouvoir\s+(visualiser|modifier|cliquer))/i.test(m)
-    && /(interface|page|écran|écran|bouton|facture|devis|dashboard|mail|module|ui)/i.test(m)
-  ) {
-    return true;
-  }
-  return false;
 }
 
 function enrichMessageWithHistory(message, history) {
@@ -480,61 +440,22 @@ export async function processMessage(message, attachments = [], rawContext = nul
     return fab;
   }
 
+  // Toute pièce jointe → lire / classer / ranger (pas seulement « reçu »)
+  if (attachments.length) {
+    const studied = await handleAttachments(message, attachments, pageContext, extracts);
+    await pool.query(
+      'INSERT INTO assistant_messages (role, content, actions_taken, attachments) VALUES ($1,$2,$3,$4)',
+      ['assistant', studied.reply, JSON.stringify(studied.actions || []), JSON.stringify(studied.attachments || [])]
+    );
+    return studied;
+  }
+
   async function runKeywordActions(msg = message) {
     if (isDayPlanMessage(msg)) {
       return runSkillAction('plan_day', msg, pageContext);
     }
-    // Feature / UI / éditeur → Cursor VPS (AVANT matchSkill)
-    if (isErpCodeChangeRequest(msg)) {
-      return runSkillAction('demande_modification_erp', msg, pageContext);
-    }
-
-    // Courriel : regex avant matchSkill (sinon « mes mails » bat une vraie recherche)
-    // Devis Gmail/PDF → créer projets (AVANT search_emails générique)
-    const quoteImport = detectCreateProjectFromQuoteEmailIntent(msg);
-    if (quoteImport) {
-      return runSkillAction(quoteImport, msg, pageContext);
-    }
-
-    const mailIntent = detectMailIntent(msg);
-    if (mailIntent) {
-      return runSkillAction(mailIntent, msg, pageContext);
-    }
-
-    // Dates mails → projet (+ carnet d'heures) même sans le mot « mail »
-    const importDates = detectImportMailDatesIntent(msg);
-    if (importDates) {
-      return runSkillAction(importDates, msg, pageContext);
-    }
-
-    // Client : créer / maj contacts depuis le langage naturel
-    if (/(nouveau|ajouter|ajoute|crée|creer|créer)\s+(un\s+|le\s+)?(client|contact)/i.test(msg)) {
-      return runSkillAction('create_client', msg, pageContext);
-    }
-    if (
-      (/(email|courriel|téléphone|telephone|tel|phone|adresse|coordonn)/i.test(msg)
-        && /(client|contact|de\s+[A-ZÀ-Ÿa-zà-ÿ])/i.test(msg))
-      || (/(mets?|ajoute|change|modifie|renseigne|enregistre).{0,30}(email|courriel|téléphone|telephone|adresse)/i.test(msg))
-    ) {
-      return runSkillAction('update_client', msg, pageContext);
-    }
-
     const skill = await matchSkill(msg);
-    if (skill?.action_type === 'demande_modification_erp') {
-      return executeSkill(skill, msg, pageContext);
-    }
-    if (skill?.action_type === 'create_invoice' && isErpCodeChangeRequest(msg)) {
-      return runSkillAction('demande_modification_erp', msg, pageContext);
-    }
-    // Empêcher complete_task / schedule_task de voler sur des mots trop courts hors contexte
-    if (skill?.action_type === 'complete_task' && !/(tâche|tache|étape|etape|finition|débitage|assemblage|cocher|projet|sur )/i.test(msg)) {
-      /* ignore match trop vague */
-    } else if (skill?.action_type === 'schedule_task' && /^(demain|lundi|mardi|mercredi|jeudi|vendredi)\s*$/i.test(msg.trim())) {
-      return runSkillAction('list_tomorrow', msg, pageContext);
-    } else if (skill) {
-      return executeSkill(skill, msg, pageContext);
-    }
-
+    if (skill) return executeSkill(skill, msg, pageContext);
     if (/cocher|marquer|termin|fait|complét/i.test(msg) && /tâche|étape|finition|débitage|assemblage|projet|sur /i.test(msg)) {
       return runSkillAction('complete_task', msg, pageContext);
     }
@@ -557,7 +478,7 @@ export async function processMessage(message, attachments = [], rawContext = nul
     if (pageContext?.type === 'client' && /projet|nouveau/i.test(msg)) {
       return runSkillAction('create_project', msg, pageContext);
     }
-    if (pageContext?.type === 'client' && /email|téléphone|telephone|renommer|modifier|adresse|coordonn/i.test(msg)) {
+    if (pageContext?.type === 'client' && /email|téléphone|telephone|renommer|modifier/i.test(msg)) {
       return runSkillAction('update_client', msg, pageContext);
     }
     if (pageContext?.type === 'standard' && /projet|créer|depuis/i.test(msg)) {
@@ -573,33 +494,18 @@ export async function processMessage(message, attachments = [], rawContext = nul
         return runSkillAction('update_quote', msg, pageContext);
       }
     }
-    if (attachments.length > 0) {
-      return handleAttachments(msg, attachments, pageContext);
-    }
     return null;
   }
 
   let result = await tryOpenAI(contextualMessage, chronHistory, pageContext);
 
-  // Si le LLM bavarde sans action, forcer le chemin opérationnel (mail / client / planning…)
+  // Si Claude répond sans action ERP, tenter les skills (liste projets, cocher, etc.)
   if (result && (!result.actions || result.actions.length === 0)) {
     const skillResult = await runKeywordActions(contextualMessage);
     if (skillResult?.actions?.length) {
       result = {
         reply: skillResult.reply || result.reply,
         actions: skillResult.actions,
-        attachments: skillResult.attachments,
-      };
-    } else if (
-      skillResult?.reply
-      && (detectMailIntent(contextualMessage) || detectImportMailDatesIntent(contextualMessage)
-        || isDayPlanMessage(contextualMessage)
-        || /(nouveau|ajouter|crée|creer).{0,20}client|email|téléphone|telephone|adresse|coordonn/i.test(contextualMessage))
-    ) {
-      // Intent clair même sans rows (ex. Gmail erreur) : ne pas garder la prose inventée
-      result = {
-        reply: skillResult.reply,
-        actions: skillResult.actions || [],
         attachments: skillResult.attachments,
       };
     }
@@ -615,17 +521,11 @@ export async function processMessage(message, attachments = [], rawContext = nul
         };
       } else {
         result = {
-          reply: `Commandes ERP :\n• Planifier : « Demain finition banc olive, mail The NNS »\n• Créer : tâche, projet, client, dépense\n• Modifier : cocher tâche, deadline, budget, email client\n• Lister : tâches du jour, demain, projets, clients, dépenses, skills\n• Gérer skills : « liste skills », « activer skill X »\n\nJoignez photos, PDF ou reçus.`,
+          reply: `Commandes ERP :\n• Planifier : « Demain finition banc olive, mail The NNS »\n• Créer : tâche, projet, client, dépense\n• Modifier : cocher tâche, deadline, budget, email client\n• Lister : tâches du jour, demain, projets, clients, dépenses, skills\n• Gérer skills : « liste skills », « activer skill X »\n\nJoignez photos, PDF ou reçus — je les lis, classe et range.`,
           actions: [],
         };
       }
     }
-  }
-
-  if (attachments.length > 0 && !result.actions?.some(a => a.type === 'store_attachments')) {
-    const expenseAction = await maybeCreateExpenseFromAttachments(message, attachments, pageContext);
-    if (expenseAction) result.actions = [...(result.actions || []), expenseAction];
-    result.attachments = attachments;
   }
 
   await pool.query(
@@ -636,59 +536,117 @@ export async function processMessage(message, attachments = [], rawContext = nul
   return result;
 }
 
-async function handleAttachments(message, attachments, pageContext = null) {
-  if (wantsFabricationPlan(message)) {
+async function handleAttachments(message, attachments, pageContext = null, preExtracts = null) {
+  const {
+    extractAllAttachments,
+    classifyAndStudyAttachments,
+    formatStudyReply,
+  } = await import('./attachment-extract.js');
+
+  const extracts = preExtracts?.length ? preExtracts : await extractAllAttachments(attachments);
+  const names = attachments.map(a => a.name).filter(Boolean);
+  const projectHint = pageContext?.type === 'project' ? pageContext.label : null;
+  const projectId = pageContext?.type === 'project' ? pageContext.id : null;
+
+  const study = await classifyAndStudyAttachments({ message, extracts, projectHint });
+  const actions = [{ type: 'document_classified', data: { ...study, files: names } }];
+  const extras = [];
+
+  // Demande explicite de plan → pipeline fabrication
+  if (wantsFabricationPlan(message) || (study.suggested_actions || []).includes('fabrication_plan') && /plan|étape|fabrication|checklist/i.test(message)) {
     return buildFabricationFromAttachments(message, attachments, pageContext);
   }
 
-  const names = attachments.map(a => a.name).join(', ');
-  const hasReceipt = attachments.some(a => /image|pdf/i.test(a.type || ''));
-  const projectId = pageContext?.type === 'project' ? pageContext.id : null;
+  // Ticket / facture → dépense si montant ou intention claire
+  const wantsExpense = (study.suggested_actions || []).includes('expense')
+    || /dépense|facture|reçu|acheté|ticket/i.test(message)
+    || study.doc_type === 'receipt'
+    || study.doc_type === 'supplier_invoice';
 
-  if (/dépense|facture|reçu|acheté/i.test(message)) {
-    const expenseAction = await maybeCreateExpenseFromAttachments(message, attachments, pageContext);
+  if (wantsExpense) {
+    const expenseAction = await maybeCreateExpenseFromAttachments(
+      message,
+      attachments,
+      pageContext,
+      study
+    );
     if (expenseAction) {
-      const linked = projectId ? ` Liée au projet « ${pageContext.label} ».` : '';
-      return {
-        reply: `Fichiers reçus (${names}). Dépense enregistrée avec reçu joint.${linked}`,
-        actions: [expenseAction, { type: 'store_attachments', data: attachments }],
-        attachments,
-      };
+      actions.push(expenseAction);
+      extras.push(`Dépense enregistrée${study.amount ? ` (${study.amount} $)` : ''}${projectId ? ` sur « ${pageContext.label} »` : ''}.`);
+    } else if (study.doc_type === 'receipt' || study.doc_type === 'supplier_invoice') {
+      extras.push('Pour créer la dépense : indiquez le montant (ex. « Dépense 85$ matériaux ») ou scannez via Dépenses → Scanner ticket.');
     }
   }
 
-  // Si le fichier contient assez de texte et un projet est ouvert → proposer / créer un plan
-  if (projectId || /projet|plan|étape|fabrication/i.test(message)) {
-    return buildFabricationFromAttachments(message, attachments, pageContext);
+  // Ranger dans les notes du projet ouvert (ou projet suggéré)
+  const wantsNotes = (study.suggested_actions || []).includes('project_notes')
+    || Boolean(projectId)
+    || /note|range|classer|ajoute|projet/i.test(message);
+
+  if (wantsNotes && study.summary) {
+    const noteBlock = [
+      `[PJ ${new Date().toISOString().slice(0, 10)}] ${study.label_fr}`,
+      study.summary,
+      ...(study.key_facts || []).map(f => `- ${f}`),
+      names.length ? `Fichiers : ${names.join(', ')}` : '',
+    ].filter(Boolean).join('\n');
+
+    if (projectId) {
+      try {
+        const result = await runSkillAction('update_project', message, pageContext, {}, {
+          project_id: projectId,
+          append_notes: true,
+          notes: noteBlock,
+        });
+        if (result?.actions?.length) {
+          actions.push(...result.actions);
+          extras.push(`Notes ajoutées au projet « ${pageContext.label} ».`);
+        }
+      } catch { /* ignore */ }
+    } else if (study.suggested_project_query) {
+      extras.push(`Projet suggéré : « ${study.suggested_project_query} » — ouvrez-le ou dites « ajoute aux notes du projet ${study.suggested_project_query} ».`);
+    }
   }
 
-  const ctxHint = projectId
-    ? `\n\nContexte : projet « ${pageContext.label} » — dites « crée un plan de fabrication » pour générer les étapes.`
-    : '\n\nDites par ex. « Crée un plan de fabrication sur le projet Olive à partir de ce fichier ».';
+  // Plan client clair sans projet → proposer fabrication
+  if (study.doc_type === 'client_plan' && !extras.some(e => /plan de fabrication|Notes ajoutées/i.test(e))) {
+    extras.push('Dites « crée un plan de fabrication » (avec le nom du projet) pour générer les étapes atelier.');
+  }
+
+  actions.push({ type: 'store_attachments', data: attachments });
 
   return {
-    reply: `J'ai bien reçu ${attachments.length} fichier(s) : ${names}.${
-      hasReceipt ? '\nPour lier à une dépense, écrivez par ex. « Dépense 85$ matériaux » avec le reçu.' : ''
-    }${ctxHint}`,
-    actions: [{ type: 'store_attachments', data: attachments }],
+    reply: formatStudyReply(study, { fileNames: names, extras: extras.join('\n') }),
+    actions,
     attachments,
+    study,
   };
 }
 
-async function maybeCreateExpenseFromAttachments(message, attachments, pageContext = null) {
-  const amount = extractAmount(message);
-  if (!amount && !/dépense|reçu|facture/i.test(message)) return null;
+async function maybeCreateExpenseFromAttachments(message, attachments, pageContext = null, study = null) {
+  const amount = extractAmount(message) || study?.amount || null;
+  if (!amount && !/dépense|reçu|facture/i.test(message) && study?.doc_type !== 'receipt') {
+    // facture fournisseur sans montant : ne pas créer 0$
+    if (study?.doc_type === 'supplier_invoice') return null;
+    if (!study?.amount) return null;
+  }
+  if (!amount) return null;
 
   const receipt = attachments.find(a => /image|pdf/i.test(a.type || ''));
   let category = 'materiaux';
   if (/outil/i.test(message)) category = 'outils';
   else if (/transport/i.test(message)) category = 'transport';
+  else if (study?.vendor && /home\s*depot|rona|canac/i.test(study.vendor)) category = 'materiaux';
 
   const projectId = pageContext?.type === 'project' ? pageContext.id : null;
+  const description = [
+    study?.label_fr || message.slice(0, 120) || 'Via assistant',
+    study?.vendor ? `(${study.vendor})` : '',
+  ].filter(Boolean).join(' ').slice(0, 300);
 
   const { rows } = await pool.query(
     `INSERT INTO expenses (amount, category, description, receipt_url, project_id) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-    [amount || 0, category, message.slice(0, 300) || 'Via assistant', receipt?.url || attachments[0]?.url, projectId]
+    [amount, category, description, receipt?.url || attachments[0]?.url, projectId]
   );
   return { type: 'create_expense', data: rows[0] };
 }
@@ -763,28 +721,28 @@ export async function getChatHistory() {
 
 export async function seedDefaultSkills() {
   const defaults = [
-    { name: 'create_task', description: 'Créer une tâche', trigger_patterns: ['créer tâche', 'ajouter tâche', 'nouvelle tâche', 'ajouter étape'], action_type: 'create_task' },
-    { name: 'create_project', description: 'Créer un projet', trigger_patterns: ['créer projet', 'nouveau projet'], action_type: 'create_project' },
-    { name: 'plan_day', description: 'Planifier plusieurs étapes', trigger_patterns: ['planifier demain', 'journée de demain', 'étapes demain', 'pour demain', 'planning demain', 'organise demain'], action_type: 'plan_day' },
-    { name: 'schedule_task', description: 'Planifier au calendrier', trigger_patterns: ['planifier tâche', 'programmer tâche', 'mettre au calendrier'], action_type: 'schedule_task' },
+    { name: 'create_task', description: 'Créer une tâche', trigger_patterns: ['créer tâche', 'ajouter tâche', 'nouvelle tâche', 'task', 'ajouter étape'], action_type: 'create_task' },
+    { name: 'create_project', description: 'Créer un projet', trigger_patterns: ['créer projet', 'nouveau projet', 'project'], action_type: 'create_project' },
+    { name: 'plan_day', description: 'Planifier plusieurs étapes', trigger_patterns: ['planifier demain', 'journée de demain', 'étapes demain', 'pour demain', 'planning demain'], action_type: 'plan_day' },
+    { name: 'schedule_task', description: 'Planifier au calendrier', trigger_patterns: ['planifier', 'programmer', 'calendrier', 'demain', 'lundi'], action_type: 'schedule_task' },
     { name: 'create_expense', description: 'Enregistrer une dépense', trigger_patterns: ['dépense', 'acheté', 'payé pour'], action_type: 'create_expense' },
-    { name: 'list_today', description: 'Tâches du jour', trigger_patterns: ["tâches d'aujourd'hui", 'tâches du jour', 'planning du jour'], action_type: 'list_today' },
-    { name: 'list_tomorrow', description: 'Tâches de demain', trigger_patterns: ['tâches demain', 'planning demain', 'voir demain', 'demain matin'], action_type: 'list_tomorrow' },
-    { name: 'create_client', description: 'Ajouter un client', trigger_patterns: ['nouveau client', 'ajouter client', 'crée un client', 'creer un client', 'ajouter un contact'], action_type: 'create_client' },
-    { name: 'complete_task', description: 'Marquer tâche terminée', trigger_patterns: ['cocher', 'marquer fait', 'tâche terminée', 'tache terminee', 'compléter tâche'], action_type: 'complete_task' },
+    { name: 'list_today', description: 'Tâches du jour', trigger_patterns: ["aujourd'hui", 'tâches du jour', 'planning jour'], action_type: 'list_today' },
+    { name: 'list_tomorrow', description: 'Tâches de demain', trigger_patterns: ['demain matin', 'tâches demain', 'planning demain', 'voir demain'], action_type: 'list_tomorrow' },
+    { name: 'create_client', description: 'Ajouter un client', trigger_patterns: ['nouveau client', 'ajouter client'], action_type: 'create_client' },
+    { name: 'complete_task', description: 'Marquer tâche terminée', trigger_patterns: ['cocher', 'marquer fait', 'terminé', 'complété', 'fait'], action_type: 'complete_task' },
     { name: 'update_task', description: 'Modifier une tâche', trigger_patterns: ['modifier tâche', 'renommer tâche', 'mettre à jour tâche'], action_type: 'update_task' },
     { name: 'delete_task', description: 'Supprimer une tâche', trigger_patterns: ['supprimer tâche', 'retirer tâche', 'effacer tâche'], action_type: 'delete_task' },
     { name: 'list_project_tasks', description: 'Lister tâches du projet', trigger_patterns: ['liste tâches', 'tâches du projet', 'voir tâches'], action_type: 'list_project_tasks' },
     { name: 'update_project', description: 'Modifier le projet', trigger_patterns: ['modifier projet', 'deadline', 'budget projet', 'statut projet'], action_type: 'update_project' },
-    { name: 'update_client', description: 'Modifier le client', trigger_patterns: ['modifier client', 'email client', 'téléphone client', 'adresse client', 'coordonnées client'], action_type: 'update_client' },
+    { name: 'update_client', description: 'Modifier le client', trigger_patterns: ['modifier client', 'email client', 'téléphone client'], action_type: 'update_client' },
     { name: 'list_projects', description: 'Lister les projets', trigger_patterns: ['liste projets', 'mes projets', 'voir projets'], action_type: 'list_projects' },
     { name: 'list_clients', description: 'Lister les clients', trigger_patterns: ['liste clients', 'voir clients'], action_type: 'list_clients' },
     { name: 'list_expenses', description: 'Lister les dépenses', trigger_patterns: ['liste dépenses', 'dépenses du projet', 'voir dépenses'], action_type: 'list_expenses' },
-    { name: 'list_skills', description: 'Lister les skills', trigger_patterns: ['liste skills', 'capacités', 'commandes disponibles'], action_type: 'list_skills' },
+    { name: 'list_skills', description: 'Lister les skills', trigger_patterns: ['liste skills', 'capacités', 'commandes disponibles', 'skills'], action_type: 'list_skills' },
     { name: 'create_skill', description: 'Créer une skill', trigger_patterns: ['ajouter skill', 'nouvelle skill', 'nouvelle capacité'], action_type: 'create_skill' },
     { name: 'update_skill', description: 'Modifier une skill', trigger_patterns: ['activer skill', 'désactiver skill', 'modifier skill'], action_type: 'update_skill' },
-    { name: 'create_quote', description: 'Créer un devis', trigger_patterns: ['créer devis', 'nouveau devis', 'crée un devis'], action_type: 'create_quote' },
-    { name: 'create_invoice', description: 'Créer une facture', trigger_patterns: ['créer facture', 'creer facture', 'nouvelle facture', 'crée une facture', 'cree une facture'], action_type: 'create_invoice' },
+    { name: 'create_quote', description: 'Créer un devis', trigger_patterns: ['créer devis', 'nouveau devis', 'devis'], action_type: 'create_quote' },
+    { name: 'create_invoice', description: 'Créer une facture', trigger_patterns: ['créer facture', 'nouvelle facture', 'facture'], action_type: 'create_invoice' },
     { name: 'convert_quote', description: 'Convertir devis en facture', trigger_patterns: ['convertir devis', 'facturer devis', 'acompte'], action_type: 'convert_quote' },
     { name: 'send_quote', description: 'Envoyer devis par courriel', trigger_patterns: ['envoyer devis', 'mail devis'], action_type: 'send_quote' },
     { name: 'send_invoice', description: 'Envoyer facture par courriel', trigger_patterns: ['envoyer facture', 'mail facture'], action_type: 'send_invoice' },
@@ -808,13 +766,8 @@ export async function seedDefaultSkills() {
 
   for (const s of defaults) {
     await pool.query(
-      `INSERT INTO assistant_skills (name, description, trigger_patterns, action_type, enabled)
-       VALUES ($1,$2,$3,$4,true)
-       ON CONFLICT (name) DO UPDATE SET
-         description = EXCLUDED.description,
-         trigger_patterns = EXCLUDED.trigger_patterns,
-         action_type = EXCLUDED.action_type,
-         enabled = true`,
+      `INSERT INTO assistant_skills (name, description, trigger_patterns, action_type)
+       VALUES ($1,$2,$3,$4) ON CONFLICT (name) DO NOTHING`,
       [s.name, s.description, JSON.stringify(s.trigger_patterns), s.action_type]
     );
   }
@@ -865,7 +818,7 @@ export async function seedDefaultSkills() {
       name: 'list_emails',
       description: 'Lister les courriels Gmail (boîte / sections)',
       triggers: [
-        'liste mails', 'liste courriels', 'voir mes mails', 'boîte mail', 'boite mail',
+        'liste mails', 'liste courriels', 'mes mails', 'boîte mail', 'boite mail',
         'voir mails', 'mails non lus', 'courriels clients', 'mails fournisseurs',
       ],
       action: 'list_emails',
@@ -876,8 +829,6 @@ export async function seedDefaultSkills() {
       triggers: [
         'cherche mail', 'chercher mail', 'cherche courriel', 'rechercher mail',
         'mails de', 'courriels de', 'trouve le mail', 'cherche dans gmail',
-        'cherche dans mes mails', 'cherche dans mes courriels', 'regarde le mail de',
-        'mail de', 'courriel de',
       ],
       action: 'search_emails',
     },
@@ -886,7 +837,7 @@ export async function seedDefaultSkills() {
       description: 'Lire le contenu d\'un courriel',
       triggers: [
         'ouvre le mail', 'ouvrir mail', 'lis le mail', 'lire mail', 'contenu du mail',
-        'montre le mail', 'détail mail', 'ouvre le courriel', 'regarde le mail',
+        'montre le mail', 'détail mail', 'ouvre le courriel',
       ],
       action: 'get_email',
     },
@@ -906,18 +857,6 @@ export async function seedDefaultSkills() {
       action: 'create_fabrication_plan',
     },
     {
-      name: 'create_project_from_quote_email',
-      description: 'Chercher les devis Gmail/PDF d’un client et créer projets + devis + tâches',
-      triggers: [
-        'projet depuis devis', 'créer projet depuis devis', 'cree projet depuis devis',
-        'page projet grâce au pdf', 'page projet grace au pdf', 'projet à partir du devis',
-        'analyse le devis et crée', 'analyse les devis', 'devis envoyer', 'devis envoyés',
-        'créer projet depuis mail', 'importe devis', 'importer devis', 'projet from devis',
-        'cherche les devis', 'derniers devis',
-      ],
-      action: 'create_project_from_quote_email',
-    },
-    {
       name: 'update_quote',
       description: 'Modifier un devis (lignes, prix, titre, notes, statut)',
       triggers: [
@@ -931,37 +870,6 @@ export async function seedDefaultSkills() {
       description: 'Lire le devis ouvert / détail devis',
       triggers: ['voir devis', 'détail devis', 'lignes du devis', 'montre le devis', 'lis le devis'],
       action: 'get_quote',
-    },
-    {
-      name: 'demande_modification_erp',
-      description: 'Lancer Cursor sur le VPS pour modifier le code ERP (UI, mail, modules)',
-      triggers: [
-        'modifie l\'erp', 'modifier l\'erp', 'modification erp', 'change le code',
-        'demande modification', 'améliore l\'erp', 'fais évoluer l\'erp',
-        'modifie l\'interface', 'change l\'interface', 'améliore l\'interface',
-        'modifie la boîte mail', 'modifie la boite mail', 'planification des départs',
-        'pré-réponse', 'préréponse', 'préreponse', 'demande à cursor', 'lance cursor',
-        'crée une passerelle', 'ajoute dans le mail', 'développe le module',
-        'éditeur visuel', 'edition visuelle', 'visualiser les factures', 'en cliquant',
-        'modifier directement', 'aperçu facture', 'preview facture',
-      ],
-      action: 'demande_modification_erp',
-    },
-    {
-      name: 'create_invoice',
-      description: 'Créer une facture (données ERP — pas une modif de code)',
-      triggers: ['créer facture', 'creer facture', 'nouvelle facture', 'crée une facture', 'cree une facture'],
-      action: 'create_invoice',
-    },
-    {
-      name: 'atelier_habits',
-      description: 'Lire ou ajouter une bonne habitude atelier (ATELIER_HABITS.md)',
-      triggers: [
-        'habitudes atelier', 'bonne habitude', 'ajoute une habitude', 'ajouter une habitude',
-        'liste habitudes', 'voir habitudes', 'règles atelier', 'regles atelier',
-        'habitude devis', 'jamais de prix à l\'heure',
-      ],
-      action: 'atelier_habits',
     },
   ];
   for (const s of extraSkills) {

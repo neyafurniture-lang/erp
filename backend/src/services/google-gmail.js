@@ -86,72 +86,6 @@ export async function getMessage(messageId) {
   return formatMessage(msg);
 }
 
-function walkAttachmentParts(part, acc = []) {
-  if (!part) return acc;
-  if (part.filename && part.body?.attachmentId) {
-    acc.push({
-      filename: part.filename,
-      mimeType: part.mimeType || 'application/octet-stream',
-      attachmentId: part.body.attachmentId,
-      size: part.body.size || 0,
-    });
-  }
-  for (const p of part.parts || []) walkAttachmentParts(p, acc);
-  return acc;
-}
-
-/** Liste les pièces jointes d'un message (métadonnées). */
-export async function listMessageAttachments(messageId) {
-  const msg = await gmailFetch(`/messages/${messageId}?format=full`);
-  return walkAttachmentParts(msg.payload);
-}
-
-/** Télécharge une pièce jointe (Buffer). */
-export async function downloadAttachment(messageId, attachmentId) {
-  const data = await gmailFetch(`/messages/${messageId}/attachments/${attachmentId}`);
-  if (!data?.data) throw new Error('Pièce jointe vide');
-  const b64 = String(data.data).replace(/-/g, '+').replace(/_/g, '/');
-  return Buffer.from(b64, 'base64');
-}
-
-/**
- * Enregistre les PJ (pdf/docx prioritaires) dans uploads/assistant pour extraction.
- * Retourne des objets compatibles attachment-extract.
- */
-export async function saveMessageAttachments(messageId, { max = 6, preferDocs = true } = {}) {
-  const fs = await import('fs');
-  const path = await import('path');
-  const { fileURLToPath } = await import('url');
-  const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  const dir = path.join(__dirname, '../../uploads/assistant');
-  fs.mkdirSync(dir, { recursive: true });
-
-  let atts = await listMessageAttachments(messageId);
-  if (preferDocs) {
-    const docs = atts.filter(a => /\.(pdf|docx?)$/i.test(a.filename || ''));
-    if (docs.length) atts = docs;
-  }
-  atts = atts.slice(0, max);
-
-  const saved = [];
-  for (const a of atts) {
-    const buf = await downloadAttachment(messageId, a.attachmentId);
-    const safe = String(a.filename || 'fichier.bin').replace(/[^\w.\-]+/g, '_').slice(0, 120);
-    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const filename = `${stamp}_${safe}`;
-    const full = path.join(dir, filename);
-    fs.writeFileSync(full, buf);
-    saved.push({
-      name: a.filename || safe,
-      type: a.mimeType,
-      size: buf.length,
-      url: `/uploads/assistant/${filename}`,
-      gmail_message_id: messageId,
-    });
-  }
-  return saved;
-}
-
 export async function getThread(threadId) {
   const data = await gmailFetch(`/threads/${threadId}?format=full`);
   const messages = (data.messages || []).map(formatMessage);
@@ -203,8 +137,22 @@ export async function archiveMessage(messageId) {
   return { ok: true };
 }
 
+/** Remet un message archivé dans la boîte de réception (Annuler). */
+export async function unarchiveMessage(messageId) {
+  await gmailFetch(`/messages/${messageId}/modify`, {
+    method: 'POST',
+    body: JSON.stringify({ addLabelIds: ['INBOX'] }),
+  });
+  return { ok: true };
+}
+
 export async function trashMessage(messageId) {
   await gmailFetch(`/messages/${messageId}/trash`, { method: 'POST' });
+  return { ok: true };
+}
+
+export async function untrashMessage(messageId) {
+  await gmailFetch(`/messages/${messageId}/untrash`, { method: 'POST' });
   return { ok: true };
 }
 

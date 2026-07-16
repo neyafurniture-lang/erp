@@ -480,6 +480,66 @@ async function callSynthesisLLM(prompt) {
   throw new Error(`Synthèse IA impossible — ${errors.join(' | ')}`);
 }
 
+/**
+ * Reformule ou corrige un brouillon de réponse (instruction libre ou orthographe).
+ * mode: 'revise' | 'spellcheck'
+ */
+export async function reviseDraft({ draft, instruction = '', mode = 'revise', threadId = null } = {}) {
+  const text = String(draft || '').trim();
+  if (!text) throw new Error('Brouillon vide');
+
+  let contextBlock = '';
+  if (threadId) {
+    try {
+      const detail = await getThreadDetail(Number(threadId));
+      if (detail) {
+        const last = (detail.messages || []).slice(-3).map(m =>
+          `${m.is_outbound ? 'NEYA' : (m.from_email || 'Client')}: ${(m.body_text || m.snippet || '').slice(0, 400)}`
+        ).join('\n---\n');
+        contextBlock = `\nContexte fil (sujet: ${detail.subject || '—'}):\n${last}\n`;
+      }
+    } catch { /* optionnel */ }
+  }
+
+  let signature = '';
+  try {
+    const { getCompanyConfig, getEmailSignatureText } = await import('./company-config.js');
+    signature = getEmailSignatureText(await getCompanyConfig());
+  } catch { /* optional */ }
+
+  const isSpell = mode === 'spellcheck';
+  const userInstr = String(instruction || '').trim();
+  const prompt = isSpell
+    ? `Corrige uniquement l'orthographe, la grammaire et la ponctuation de ce brouillon de courriel en français.
+Ne change pas le sens, le ton ni la structure. Conserve la signature telle quelle.
+${contextBlock}
+Brouillon:
+"""
+${text}
+"""
+
+JSON attendu: { "draft": "texte corrigé complet" }`
+    : `Tu es l'assistant rédaction NEYA Furniture. Reformule ce brouillon de réponse courriel selon la demande.
+Garde un ton professionnel, clair, en français. Termine par la signature si elle était présente, sinon ajoute :
+---
+${signature || 'Mehdi\nDesigner / Producteur\nNeya Furniture'}
+---
+${contextBlock}
+Demande utilisateur: ${userInstr || 'Améliore le ton et la clarté sans allonger inutilement.'}
+
+Brouillon actuel:
+"""
+${text}
+"""
+
+JSON attendu: { "draft": "nouveau brouillon complet prêt à envoyer" }`;
+
+  const parsed = await callSynthesisLLM(prompt);
+  const next = String(parsed?.draft || parsed?.suggested_reply || '').trim();
+  if (!next) throw new Error('L\'IA n\'a pas renvoyé de brouillon');
+  return { draft: next, mode: isSpell ? 'spellcheck' : 'revise' };
+}
+
 export async function synthesizeThread(threadId) {
   const detail = await getThreadDetail(threadId);
   if (!detail) throw new Error('Fil introuvable');
