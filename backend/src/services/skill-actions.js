@@ -808,19 +808,32 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
       if (notes != null && params.append_notes && p.notes) {
         notes = `${p.notes}\n${notes}`;
       }
+      let clientId = p.client_id;
+      if (params.client_id !== undefined) {
+        clientId = params.client_id === '' || params.client_id == null ? null : Number(params.client_id);
+      } else if (pageContext?.type === 'client' && /lier|associer|assigner.*(client|ce client)/i.test(msg)) {
+        clientId = pageContext.id;
+      }
       const { rows } = await pool.query(
-        `UPDATE projects SET name=$1, status=$2, deadline=$3, budget_estimated=$4, notes=$5 WHERE id=$6 RETURNING *`,
+        `UPDATE projects SET name=$1, status=$2, deadline=$3, budget_estimated=$4, notes=$5, client_id=$6 WHERE id=$7 RETURNING *`,
         [
           name || p.name,
           status || p.status,
           deadline ? (deadline instanceof Date ? deadline.toISOString().slice(0, 10) : String(deadline).slice(0, 10)) : p.deadline,
           budget != null && (params.budget_estimated != null || /budget/i.test(msg)) ? budget : p.budget_estimated,
           notes != null ? notes : p.notes,
+          clientId,
           id,
         ]
       );
-      actions.push({ type: 'update_project', data: rows[0] });
-      return { reply: `Projet « ${rows[0].name} » mis à jour${notes != null ? ' (notes/descriptif)' : ''}.`, actions };
+      const { rows: full } = await pool.query(
+        `SELECT p.*, c.name AS client_name FROM projects p
+         LEFT JOIN clients c ON c.id = p.client_id WHERE p.id = $1`,
+        [id]
+      );
+      actions.push({ type: 'update_project', data: full[0] || rows[0] });
+      const linked = full[0]?.client_name ? ` — client : ${full[0].client_name}` : (clientId == null && p.client_id ? ' — client retiré' : '');
+      return { reply: `Projet « ${rows[0].name} » mis à jour${linked}${notes != null ? ' (notes/descriptif)' : ''}.`, actions };
     }
 
     case 'update_client': {

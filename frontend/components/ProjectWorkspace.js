@@ -36,6 +36,10 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
   const [taskForm, setTaskForm] = useState({ title: '', type: 'assemblage', estimated_minutes: 60 });
   const [taskBusy, setTaskBusy] = useState(false);
   const [statusBusy, setStatusBusy] = useState(false);
+  const [clients, setClients] = useState([]);
+  const [clientId, setClientId] = useState(project.client_id ? String(project.client_id) : '');
+  const [clientBusy, setClientBusy] = useState(false);
+  const [clientMsg, setClientMsg] = useState('');
   const custom = isCustomProject(project);
   const meta = typeof project.meta === 'string' ? JSON.parse(project.meta || '{}') : (project.meta || {});
   const standardMeta = project.standard_meta || null;
@@ -46,6 +50,14 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
   const stageInfo = PRODUCTION_STAGES[stage] || PRODUCTION_STAGES.queued;
   const nextTasks = project.tasks?.filter(t => t.status !== 'done').slice(0, 4) || [];
   const { done, total, pct } = checklistProgress(project.tasks);
+
+  useEffect(() => {
+    api('/clients').then(setClients).catch(() => setClients([]));
+  }, []);
+
+  useEffect(() => {
+    setClientId(project.client_id ? String(project.client_id) : '');
+  }, [project.id, project.client_id]);
 
   useEffect(() => {
     const t = searchParams.get('tab');
@@ -61,6 +73,25 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
     else params.set('tab', id);
     const qs = params.toString();
     router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }
+
+  async function saveClientLink(nextId) {
+    setClientBusy(true);
+    setClientMsg('');
+    try {
+      await api(`/projects/${project.id}/client`, {
+        method: 'PATCH',
+        body: JSON.stringify({ client_id: nextId === '' ? null : Number(nextId) }),
+      });
+      setClientMsg(nextId ? 'Client lié' : 'Client retiré');
+      setTimeout(() => setClientMsg(''), 1500);
+      onReload();
+    } catch (err) {
+      setClientMsg(err.message || 'Erreur liaison client');
+      setClientId(project.client_id ? String(project.client_id) : '');
+    } finally {
+      setClientBusy(false);
+    }
   }
 
   async function addMaterial(e) {
@@ -137,8 +168,38 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
 
       <header className="mb-8 border-b border-neya-border pb-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="section-title mb-1">{project.client_name || 'Sans client'}</p>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2 mb-2 max-w-xl">
+              <label className="text-[10px] font-semibold uppercase tracking-wider text-neya-muted shrink-0">
+                Client
+              </label>
+              <select
+                className="input text-sm min-h-[36px] py-1.5 flex-1 min-w-[180px]"
+                value={clientId}
+                disabled={clientBusy}
+                onChange={e => {
+                  const v = e.target.value;
+                  setClientId(v);
+                  saveClientLink(v);
+                }}
+                aria-label="Lier un client au projet"
+              >
+                <option value="">— Sans client —</option>
+                {clients.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}{c.email ? ` (${c.email})` : ''}</option>
+                ))}
+              </select>
+              {clients.length === 0 && (
+                <Link href="/clients" className="text-xs text-neya-orange hover:underline shrink-0">
+                  Créer un client →
+                </Link>
+              )}
+              {clientMsg && (
+                <span className={`text-xs ${/Erreur|invalide|introuvable/i.test(clientMsg) ? 'text-red-700' : 'text-green-700'}`}>
+                  {clientBusy ? '…' : clientMsg}
+                </span>
+              )}
+            </div>
             <h1 className={`text-2xl sm:text-3xl font-medium tracking-tight ${project.status === 'done' ? 'text-neya-muted line-through' : 'text-neya-ink'}`}>
               {project.name}
             </h1>

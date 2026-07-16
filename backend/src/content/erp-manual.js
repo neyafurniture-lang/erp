@@ -52,7 +52,7 @@ export const ERP_MANUAL_SECTIONS = [
     tips: [
       'Production : bancs catalogue (fiche standard) vs sur mesure (checklist libre).',
       'Avancer une étape met à jour les tâches et le calendrier.',
-      'Chaque projet peut avoir client, budget, deadline, tâches, dépenses, courriels liés.',
+      'Chaque projet peut avoir un client lié (modifiable sur la fiche projet : menu déroulant Client).',
       'Depuis une fiche standard : « Créer projet depuis cette fiche ».',
     ],
   },

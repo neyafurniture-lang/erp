@@ -31,8 +31,9 @@ export default function ProjectsPage() {
     await api('/projects', {
       method: 'POST',
       body: JSON.stringify({
-        ...form,
-        client_id: form.client_id || null,
+        name: form.name.trim(),
+        client_id: form.client_id ? Number(form.client_id) : null,
+        deadline: form.deadline || null,
         budget_estimated: Number(form.budget_estimated) || 0,
       }),
     });
