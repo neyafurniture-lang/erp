@@ -71,7 +71,10 @@ router.post('/git/config', async (req, res) => {
 router.post('/git/deploy', async (req, res) => {
   try {
     if (!(await requireAdmin(req, res))) return;
-    const result = await triggerVpsGitDeploy({ force: Boolean(req.body?.force) });
+    const result = await triggerVpsGitDeploy({
+      force: Boolean(req.body?.force),
+      host: req.body?.vpsHost || req.body?.host || null,
+    });
     res.json({
       ok: true,
       message: 'Déploiement Git lancé sur le VPS (pull + build Docker).',

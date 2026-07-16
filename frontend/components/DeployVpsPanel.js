@@ -37,6 +37,7 @@ export default function DeployVpsPanel() {
       setGit(data.git || null);
       setGitConfig(data.gitConfig || null);
       if (data.gitConfig?.repoUrl) setRepoUrl(data.gitConfig.repoUrl);
+      if (data.gitConfig?.vpsHost) setVpsHost(data.gitConfig.vpsHost);
       else if (data.git?.remoteUrl) setRepoUrl(data.git.remoteUrl);
       if (data.remote) setRemote(data.remote);
       const list = await api('/deploy/exports');
@@ -88,7 +89,7 @@ export default function DeployVpsPanel() {
     try {
       const data = await api('/deploy/git/deploy', {
         method: 'POST',
-        body: JSON.stringify({ force }),
+        body: JSON.stringify({ force, vpsHost }),
       });
       setOkMsg(data.message || 'Déploiement lancé.');
       await probeVps();
@@ -232,6 +233,12 @@ export default function DeployVpsPanel() {
               </button>
             </div>
           </label>
+          <p className="text-xs text-neya-muted">
+            VPS : <span className="font-mono text-neya-ink">{vpsHost || gitConfig?.vpsHost || '51.222.31.75'}</span>
+            {gitConfig?.sshKeyConfigured
+              ? ' · clé SSH OK'
+              : ' · clé SSH manquante — ajoutez NEYA_VPS_SSH_KEY dans backend/.env (sinon Permission denied)'}
+          </p>
         </div>
 
         <div className="flex flex-wrap gap-2 mb-4">
