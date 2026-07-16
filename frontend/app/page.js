@@ -387,7 +387,7 @@ export default function DashboardPage() {
       case 'finances':
         return wrap(section, (
           <div className="card">
-            <h2 className="font-heading text-base mb-3">Finances</h2>
+            <h2 className="font-heading text-base mb-3">Facturation</h2>
             <div className="space-y-3">
               <div className="flex justify-between text-sm">
                 <span className="text-neya-muted">Factures en attente</span>
@@ -397,16 +397,12 @@ export default function DashboardPage() {
                 <span className="text-neya-muted">Devis en cours</span>
                 <span className="font-semibold">{data?.pendingQuotes?.length ?? 0}</span>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-neya-muted">Dépenses (mois)</span>
-                <span className="font-semibold">{formatMoney(s.expensesMonth)}</span>
-              </div>
               <div className="flex justify-between text-sm border-t border-neya-border pt-3">
                 <span className="text-neya-muted">Budget projets actifs</span>
                 <span className="font-semibold">{formatMoney(s.budgetActive)}</span>
               </div>
             </div>
-            <Link href="/invoices" className="btn-secondary text-xs w-full mt-4 text-center">Voir factures & devis</Link>
+            <Link href="/invoices" className="btn-secondary text-xs w-full mt-4 text-center">Voir devis & factures</Link>
           </div>
         ), 'mb-4');
       case 'projects_deadlines':

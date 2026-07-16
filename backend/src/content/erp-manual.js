@@ -116,20 +116,22 @@ export const ERP_MANUAL_SECTIONS = [
     ],
     tips: [
       'Scanner un ticket → IA extrait montant, taxes, fournisseur → confirmer → dépense + option Drive.',
+      'Dépenses atelier ≠ devis/factures clients (module Facturation séparé).',
       'Catégories : matériaux, outils, transport, atelier, admin.',
       'Lier au projet lors de la confirmation pour le suivi marge.',
     ],
   },
   {
-    id: 'finance',
-    title: 'Factures & devis',
-    icon: '💰',
-    summary: 'Devis, factures, envoi courriel client.',
+    id: 'facturation',
+    title: 'Devis & factures',
+    icon: '📄',
+    summary: 'Devis, factures clients, envoi courriel — distinct des dépenses atelier.',
     links: [
-      { href: '/invoices', label: 'Factures & devis' },
+      { href: '/invoices', label: 'Devis & factures' },
       { href: '/clients', label: 'Clients' },
     ],
     tips: [
+      'Devis / factures clients ≠ dépenses atelier (tickets, fournisseurs) — modules séparés.',
       'Client doit avoir un courriel pour l’envoi PDF.',
       'Assistant : « Créer devis », « Envoyer facture », « Convertir devis ».',
       'Lignes devis/facture : tableau éditable (Entrée = nouvelle ligne, coller depuis Excel/Sheets).',
@@ -219,14 +221,16 @@ export function findManualTopic(message) {
     production: ['production', 'projet', 'tâche', 'tache', 'banc', 'finition', 'standard'],
     calendrier: ['calendrier', 'congé', 'conge', 'planning', 'planifier'],
     admin: ['deploy', 'déploiement', 'deploiement', 'vps', '404', 'planté', 'plante', 'backup', 'rollback', 'back.sh'],
-    finance: ['devis', 'facture client', 'invoice', 'paiement'],
+    finance: ['devis', 'facture client', 'invoice', 'paiement', 'facturation'],
+    facturation: ['devis', 'facture client', 'invoice', 'paiement', 'facturation'],
     demarrage: ['connexion', 'login', 'mot de passe', 'permission'],
     achats: ['liste de courses', 'achat atelier', 'stock', 'inventaire'],
     commercial: ['woocommerce', 'site web', 'commande web', 'client'],
   };
   for (const [sectionId, words] of Object.entries(keywords)) {
     if (words.some(w => lower.includes(w))) {
-      return ERP_MANUAL_SECTIONS.find(s => s.id === sectionId) || null;
+      const id = sectionId === 'finance' ? 'facturation' : sectionId;
+      return ERP_MANUAL_SECTIONS.find(s => s.id === id) || null;
     }
   }
   return null;
@@ -236,7 +240,7 @@ export function buildManualReply(message) {
   const lower = String(message || '').toLowerCase();
   if (/manuel|aide erp|guide|tuto|comment (faire|utiliser)|help/i.test(lower)) {
     return {
-      reply: `Le manuel complet est sur /manual — ${ERP_MANUAL_SECTIONS.length} sections : démarrage, assistant, production, courriel, Drive, dépenses, finance, admin…\n\nPosez une question précise (ex. « comment connecter Gmail ») ou ouvrez le manuel.`,
+      reply: `Le manuel complet est sur /manual — ${ERP_MANUAL_SECTIONS.length} sections : démarrage, assistant, production, courriel, Drive, dépenses, facturation (devis/factures), admin…\n\nPosez une question précise (ex. « comment connecter Gmail ») ou ouvrez le manuel.`,
       href: '/manual',
       section: null,
     };

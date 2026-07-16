@@ -33,7 +33,8 @@ Instruction IA injectée dans chaque chat via `getManualPromptBlock()` (`ai-chat
 | Projets | `/projects` | Tâches, client, budget |
 | Courriel | `/mail` | OAuth Google, Analyser (20), scan factures |
 | Drive | `/drive` | Permissions par utilisateur |
-| Dépenses | `/expenses` | Scan ticket IA |
+| Dépenses | `/expenses` | Scan ticket IA — ≠ devis/factures |
+| Devis & factures | `/invoices` | Facturation clients (séparé des dépenses) |
 | Paramètres | `/settings` | IA, intégrations, deploy VPS |
 | Manuel | `/manual` | Ce guide utilisateur |
 

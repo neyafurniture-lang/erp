@@ -20,6 +20,7 @@ const MORE_GROUPS = [
       { href: '/admin', label: 'Admin', permission: 'admin' },
       { href: '/purchases', label: 'Achats', permission: 'purchases' },
       { href: '/inventory', label: 'Stock', permission: 'inventory' },
+      { href: '/expenses', label: 'Dépenses', permission: 'expenses' },
       { href: '/team', label: 'Équipe', permission: 'team' },
     ],
   },
@@ -32,10 +33,15 @@ const MORE_GROUPS = [
     ],
   },
   {
-    title: 'Business',
+    title: 'Facturation',
     items: [
-      { href: '/invoices', label: 'Factures', permission: 'invoices' },
+      { href: '/invoices', label: 'Devis & factures', permission: 'invoices' },
       { href: '/clients', label: 'Clients', permission: 'clients' },
+    ],
+  },
+  {
+    title: 'Commercial',
+    items: [
       { href: '/manual', label: 'Manuel', permission: 'dashboard' },
       { href: '/settings', label: 'Paramètres', permission: 'settings' },
       { href: '/roadmap', label: 'Roadmap', permission: 'settings' },

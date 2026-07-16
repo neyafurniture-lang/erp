@@ -140,7 +140,7 @@ export const PRIORITY_TASKS = [
   { source_key: 'prio_p1_internet_new', title: 'Trouver et souscrire un nouvel abonnement Internet', category: 'gestion', priority_tier: 'p1', sort_order: 2 },
   { source_key: 'prio_p1_etel', title: 'Refaire la facture pour Etel', category: 'facturation', priority_tier: 'p1', sort_order: 3, link_href: '/invoices' },
   { source_key: 'prio_p1_aem', title: "Envoyer la facture pour l'AEM", category: 'facturation', priority_tier: 'p1', sort_order: 4, link_href: '/invoices' },
-  { source_key: 'prio_p1_olive', title: "Payer la facture d'Olive", category: 'facturation', priority_tier: 'p1', sort_order: 5, link_href: '/expenses' },
+  { source_key: 'prio_p1_olive', title: "Payer la facture d'Olive", category: 'gestion', priority_tier: 'p1', sort_order: 5, link_href: '/expenses' },
   { source_key: 'prio_p2_anne', title: 'Faire la facture Anne', category: 'facturation', priority_tier: 'p2', sort_order: 6, link_href: '/invoices' },
   { source_key: 'prio_p2_son', title: 'Faire la facture Son', category: 'facturation', priority_tier: 'p2', sort_order: 7, link_href: '/invoices' },
   { source_key: 'prio_p2_enns_relance', title: 'Relancer ENNS pour le paiement', category: 'facturation', priority_tier: 'p2', sort_order: 8, link_href: '/invoices' },
