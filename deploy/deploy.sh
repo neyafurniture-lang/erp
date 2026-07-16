@@ -52,7 +52,9 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
 
   if [[ "$LOCAL_BEFORE" != "$REMOTE" ]]; then
     log "Mise à jour Git: $LOCAL_BEFORE → $REMOTE"
-    git pull origin "$BRANCH"
+    # reset --hard = déploiement fiable (1 clic). .env.production n'est pas versionné.
+    git checkout "$BRANCH" 2>/dev/null || git checkout -B "$BRANCH" "origin/$BRANCH"
+    git reset --hard "origin/$BRANCH"
   else
     log "Rebuild forcé (même commit)"
   fi

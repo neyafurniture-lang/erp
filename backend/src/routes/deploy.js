@@ -16,6 +16,7 @@ import {
   getLocalGitStatus,
   saveGitDeployConfig,
   triggerVpsGitDeploy,
+  testVpsConnection,
 } from '../services/deploy-git.js';
 
 const router = Router();
@@ -71,12 +72,29 @@ router.post('/git/config', async (req, res) => {
 router.post('/git/deploy', async (req, res) => {
   try {
     if (!(await requireAdmin(req, res))) return;
-    const result = await triggerVpsGitDeploy({ force: Boolean(req.body?.force) });
+    const result = await triggerVpsGitDeploy({
+      force: Boolean(req.body?.force),
+      host: req.body?.vpsHost || req.body?.host || null,
+    });
     res.json({
       ok: true,
-      message: 'Déploiement Git lancé sur le VPS (pull + build Docker).',
+      message: result.mode === 'local'
+        ? 'Mise à jour lancée en local sur le serveur.'
+        : 'Déploiement Git lancé sur le VPS (pull + build Docker).',
       ...result,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/git/test-ssh', async (req, res) => {
+  try {
+    if (!(await requireAdmin(req, res))) return;
+    const result = await testVpsConnection({
+      host: req.body?.vpsHost || req.body?.host || null,
+    });
+    res.status(result.ok ? 200 : 400).json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
