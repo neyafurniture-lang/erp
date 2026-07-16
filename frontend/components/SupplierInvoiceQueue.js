@@ -161,7 +161,7 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
     }
   }
 
-  if (!pending.length && compact && !scanErr) return null;
+  if (!pending.length && compact) return null;
 
   if (compact) {
     return (
