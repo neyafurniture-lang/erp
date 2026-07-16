@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { validateSecurityConfig } from './config.js';
 import { authMiddleware } from './middleware/auth.js';
+import { erpActivityMiddleware } from './middleware/erp-activity.js';
 import { securityHeaders, uploadAuth, rateLimit } from './middleware/security.js';
 import { initDb } from './db/init.js';
 import { getVersionInfo } from './version.js';
@@ -99,6 +100,7 @@ app.get('/api/integrations/google/callback', handleGoogleCallback);
 
 const protectedRouter = express.Router();
 protectedRouter.use(authMiddleware);
+protectedRouter.use(erpActivityMiddleware);
 protectedRouter.use('/clients', clientsRoutes);
 protectedRouter.use('/projects', projectsRoutes);
 protectedRouter.use('/tasks', tasksRoutes);

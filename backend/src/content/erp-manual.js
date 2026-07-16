@@ -190,6 +190,8 @@ export const ERP_MANUAL_SECTIONS = [
     tips: [
       'Session admin (/admin) : code 31250 pour ouvrir les notes — interface compacte, pas affichée en permanence sur le dashboard. « Fermer la session » pour verrouiller.',
       'Déploiement 1 clic : Paramètres → Déploiement → « Mettre à jour la prod ». Host 51.222.31.75. Accès : NEYA_VPS_PASSWORD ou clé SSH dans backend/.env.',
+      'Vérifier si le VPS est à jour vs GitHub : Paramètres → Déploiement → « Vérifier vs GitHub », ou sur le VPS : cd /opt/neya-erp && ./deploy/check-update.sh',
+      'MAJ auto à minuit : install-auto-update.sh sur le VPS — déploie seulement si GitHub a avancé ET aucune activité ERP depuis ~2 h.',
       'Site planté ? SSH : back.sh (restaure backup DB + commit précédent).',
       'Clés Claude/OpenAI dans Paramètres → Assistant IA (sinon skills par mots-clés seulement).',
     ],

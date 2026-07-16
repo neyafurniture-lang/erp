@@ -12,6 +12,7 @@ import {
   resolveExportFile,
 } from '../services/deploy-pack.js';
 import {
+  getDeploySyncStatus,
   getGitDeployConfig,
   getLocalGitStatus,
   saveGitDeployConfig,
@@ -33,16 +34,17 @@ async function requireAdmin(req, res) {
 router.get('/diagnostics', async (req, res) => {
   try {
     if (!(await requireAdmin(req, res))) return;
-    const [local, git, gitConfig] = await Promise.all([
+    const [local, git, gitConfig, sync] = await Promise.all([
       getLocalDiagnostics(),
       Promise.resolve(getLocalGitStatus()),
       getGitDeployConfig(),
+      getDeploySyncStatus().catch(() => null),
     ]);
     let remote = null;
     if (req.query.remote) {
       remote = await probeRemoteHealth(req.query.remote);
     }
-    res.json({ local, remote, git, gitConfig });
+    res.json({ local, remote, git, gitConfig, sync });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -54,6 +56,17 @@ router.get('/git', async (req, res) => {
     const git = getLocalGitStatus();
     const gitConfig = await getGitDeployConfig();
     res.json({ git, gitConfig });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Vérifie si le dépôt serveur est à jour vs GitHub + état auto-update / idle. */
+router.get('/sync-status', async (req, res) => {
+  try {
+    if (!(await requireAdmin(req, res))) return;
+    const status = await getDeploySyncStatus();
+    res.json(status);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
