@@ -1,8 +1,20 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { api } from '../lib/api';
+
+function groupPendingBySupplier(items = []) {
+  const map = new Map();
+  for (const item of items) {
+    const key = item.supplier_label || 'Fournisseur';
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(item);
+  }
+  return [...map.entries()]
+    .sort(([a], [b]) => a.localeCompare(b, 'fr'))
+    .map(([label, list]) => ({ label, items: list }));
+}
 
 function AssignModal({ item, projects, onClose, onDone }) {
   const [projectId, setProjectId] = useState(item.suggested_project_id || '');
@@ -112,6 +124,7 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
   const [scanErr, setScanErr] = useState('');
   // Compact : replié par défaut pour ne pas monopoliser l'écran Courriel
   const [expanded, setExpanded] = useState(!compact);
+  const grouped = useMemo(() => groupPendingBySupplier(pending), [pending]);
 
   async function load() {
     try {
@@ -129,6 +142,8 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
 
   useEffect(() => {
     load();
+    // Scan auto hors compact seulement (évite de ralentir /mail à chaque visite)
+    if (compact) return undefined;
     api('/supplier-invoices/scan', { method: 'POST' })
       .then((result) => {
         if (result.scanned != null) {
@@ -140,7 +155,8 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
         return load();
       })
       .catch((e) => setScanErr(e.message));
-  }, []);
+    return undefined;
+  }, [compact]);
 
   async function scan() {
     setScanning(true);
@@ -200,22 +216,25 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
               {pending.length === 0 ? (
                 <p className="text-xs text-neya-muted py-2">Aucune facture en attente</p>
               ) : (
-                <ul className="space-y-1.5 mt-2">
-                  {pending.map(item => (
-                    <li key={item.id} className="flex items-center justify-between gap-2 px-2 py-1.5 border border-neya-border bg-white">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-medium truncate">
-                          <span className="text-neya-ink">{item.supplier_label}</span>
-                          <span className="text-neya-muted mx-1">·</span>
-                          {item.subject}
-                        </p>
-                      </div>
-                      <button type="button" onClick={() => setActive(item)} className="btn-primary text-[11px] shrink-0 min-h-[28px] py-0.5 px-2">
-                        Classer
-                      </button>
-                    </li>
+                <div className="space-y-2 mt-2">
+                  {grouped.map(group => (
+                    <div key={group.label}>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-neya-muted px-1 mb-1">
+                        {group.label} · {group.items.length}
+                      </p>
+                      <ul className="space-y-1">
+                        {group.items.map(item => (
+                          <li key={item.id} className="flex items-center justify-between gap-2 px-2 py-1.5 border border-neya-border bg-white">
+                            <p className="text-xs font-medium truncate min-w-0 flex-1">{item.subject}</p>
+                            <button type="button" onClick={() => setActive(item)} className="btn-primary text-[11px] shrink-0 min-h-[28px] py-0.5 px-2">
+                              Classer
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   ))}
-                </ul>
+                </div>
               )}
             </div>
           )}
@@ -264,23 +283,28 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
         )}
 
         {pending.length > 0 && (
-          <ul className="space-y-2 mt-4">
-            {pending.map(item => (
-              <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 p-2.5 sm:p-3 border border-neya-border bg-white">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium truncate">
-                    <span className="text-neya-ink">{item.supplier_label}</span>
-                    <span className="text-neya-muted mx-1">·</span>
-                    {item.subject}
-                  </p>
-                  <p className="text-xs text-neya-muted truncate">{item.from_email}</p>
-                </div>
-                <button type="button" onClick={() => setActive(item)} className="btn-primary text-xs shrink-0 min-h-[36px]">
-                  Classer
-                </button>
-              </li>
+          <div className="space-y-3 mt-4">
+            {grouped.map(group => (
+              <div key={group.label}>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-neya-muted mb-1.5">
+                  {group.label} · {group.items.length}
+                </p>
+                <ul className="space-y-2">
+                  {group.items.map(item => (
+                    <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 p-2.5 sm:p-3 border border-neya-border bg-white">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">{item.subject}</p>
+                        <p className="text-xs text-neya-muted truncate">{item.from_email}</p>
+                      </div>
+                      <button type="button" onClick={() => setActive(item)} className="btn-primary text-xs shrink-0 min-h-[36px]">
+                        Classer
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ))}
-          </ul>
+          </div>
         )}
       </div>
 

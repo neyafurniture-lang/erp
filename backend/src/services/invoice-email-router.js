@@ -35,11 +35,19 @@ export function detectSupplier(from, subject, snippet) {
   return null;
 }
 
+/**
+ * Vrai facture/commande fournisseur — pas juste un mail marketing Amazon/Rona.
+ * Exige un indice facture/commande dans sujet/extrait (+ fournisseur connu si possible).
+ */
 export function looksLikeSupplierInvoice(from, subject, snippet) {
-  const hay = norm(`${subject} ${snippet} ${from}`);
+  const hay = norm(`${subject} ${snippet}`);
+  const hasHint = INVOICE_HINTS.some(h => hay.includes(norm(h)));
+  if (!hasHint) return false;
   const supplier = detectSupplier(from, subject, snippet);
+  // Fournisseur connu + indice facture, ou langage facture très explicite
   if (supplier) return true;
-  return INVOICE_HINTS.some(h => hay.includes(h));
+  return /\b(facture|invoice|receipt|recu|reçu|order confirmation|confirmation de commande|votre commande|your order)\b/i
+    .test(`${subject} ${snippet}`);
 }
 
 export function extractKeywords(subject, snippet, body = '') {

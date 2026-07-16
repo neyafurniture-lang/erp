@@ -88,6 +88,51 @@ function formatMailDate(dateStr) {
   });
 }
 
+/** Affiche un corps mail lisible même si Gmail renvoie du HTML brut. */
+function readableMailBody(raw) {
+  const text = String(raw || '');
+  if (!text) return '';
+  if (!/<\/?[a-z][\s\S]*>/i.test(text)) return text;
+  return text
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|tr|li|h[1-6])>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
+function sortMailItems(items = []) {
+  return [...items].sort((a, b) => {
+    const ur = Number(Boolean(b.isUnread || b.unread)) - Number(Boolean(a.isUnread || a.unread));
+    if (ur) return ur;
+    return new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
+  });
+}
+
+/** Sous-groupes fournisseurs (Home Depot, Rona…) puis messages triés. */
+function groupBySupplier(items = []) {
+  const sorted = sortMailItems(items);
+  const map = new Map();
+  for (const m of sorted) {
+    const key = m.supplierLabel || 'Autre fournisseur';
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(m);
+  }
+  return [...map.entries()]
+    .sort(([a], [b]) => a.localeCompare(b, 'fr'))
+    .map(([label, groupItems]) => ({ label, items: groupItems }));
+}
+
 function IconSearch() {
   return (
     <svg className="w-4 h-4 text-neya-muted shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -345,16 +390,18 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
       return;
     }
 
-    // Dans Envoyés : lecture seule, pas de réponse auto
+    // Lecture d'abord (sync rapide) — l'IA ne doit pas bloquer l'ouverture
+    try {
+      if (m.threadId) await loadThreadContext(m);
+    } catch { /* ignore */ }
+
     if (activeFolder === 'sent') {
       setReply('');
       setThreadLoading(false);
-      try {
-        if (m.threadId) await loadThreadContext(m);
-      } catch { /* ignore */ }
       return;
     }
 
+    setThreadLoading(false);
     try {
       const processed = await threadApi('/process-message', {
         method: 'POST',
@@ -370,15 +417,11 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
         setThreadWarn(`Synthèse : ${processed.synthesis_error}`);
       }
     } catch (e) {
-      setThread(null);
       if (isNotFoundError(e)) {
-        setThreadWarn('Lecture OK — analyse ERP indisponible (backend à redéployer).');
+        setThreadWarn('Lecture OK — analyse ERP indisponible pour ce message.');
       } else {
         setThreadWarn(e.message);
       }
-      await loadThreadContext(m);
-    } finally {
-      setThreadLoading(false);
     }
   }
 
@@ -564,20 +607,34 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
   );
 
   const filteredMessages = useMemo(() => {
-    if (activeFolder === 'inbox' || activeFolder === 'sent' || search) return messages;
-    return messages.filter(m => m.mailCategory === activeFolder);
+    let list;
+    if (activeFolder === 'inbox' || activeFolder === 'sent' || search) list = messages;
+    else list = messages.filter(m => (m.mailCategory || 'autres') === activeFolder);
+    return sortMailItems(list);
   }, [messages, activeFolder, search]);
 
   const groupedMessages = useMemo(() => {
+    if (activeFolder === 'fournisseurs' && !search) {
+      return groupBySupplier(filteredMessages).map(g => ({
+        id: `fournisseur:${g.label}`,
+        label: g.label,
+        items: g.items,
+        supplierGroup: true,
+      }));
+    }
     if (activeFolder !== 'inbox' || search) {
-      return [{ id: activeFolder, label: ALL_FOLDER_LABELS[activeFolder] || 'Messages', items: filteredMessages }];
+      return [{
+        id: activeFolder,
+        label: ALL_FOLDER_LABELS[activeFolder] || 'Messages',
+        items: filteredMessages,
+      }];
     }
     const order = ERP_FOLDERS.map(f => f.id);
     return order
       .map(id => ({
         id,
         label: ALL_FOLDER_LABELS[id],
-        items: messages.filter(m => m.mailCategory === id),
+        items: sortMailItems(messages.filter(m => (m.mailCategory || 'autres') === id)),
       }))
       .filter(g => g.items.length > 0);
   }, [messages, filteredMessages, activeFolder, search]);
@@ -705,10 +762,10 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
             );
           })}
           {projectId && (
-            <button type="button" className="mail-folder">
+            <Link href={`/projects/${projectId}`} className="mail-folder">
               <IconFolder className="w-4 h-4" />
               <span>Projet lié</span>
-            </button>
+            </Link>
           )}
         </aside>
 
@@ -759,8 +816,8 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
             ) : (
               groupedMessages.map(group => (
                 <div key={group.id}>
-                  {activeFolder === 'inbox' && !search && group.items.length > 0 && (
-                    <div className="mail-section-header">
+                  {((activeFolder === 'inbox' && !search) || group.supplierGroup) && group.items.length > 0 && (
+                    <div className={group.supplierGroup ? 'mail-supplier-subheader' : 'mail-section-header'}>
                       <span>{group.label}</span>
                       <span className="text-neya-muted font-normal">{group.items.length}</span>
                     </div>
@@ -883,7 +940,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                   {threadLoading && !selected.body ? (
                     <p className="text-neya-muted text-sm">Chargement du contenu…</p>
                   ) : (
-                    selected.body || selected.snippet
+                    readableMailBody(selected.body || selected.snippet)
                   )}
                 </div>
 
