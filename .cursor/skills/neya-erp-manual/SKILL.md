@@ -30,6 +30,7 @@ Instruction IA injectée dans chaque chat via `getManualPromptBlock()` (`ai-chat
 |--------|-------|------------|
 | Dashboard | `/` | Assistant orbe, mode édition layout |
 | Production | `/production` | Catalogue vs sur mesure |
+| Sauna Cloud | `/sauna-cloud` | Frames à cocher, notes, avancement % |
 | Projets | `/projects` | Tâches, client, budget |
 | Courriel | `/mail` | OAuth Google, Analyser (20), scan factures |
 | Drive | `/drive` | Permissions par utilisateur |

@@ -37,6 +37,7 @@ export function hasPermission(user, key) {
 
 const PATH_MAP = [
   ['/production', 'production'],
+  ['/sauna-cloud', 'production'],
   ['/admin', 'admin'],
   ['/projects', 'projects'],
   ['/purchases', 'purchases'],

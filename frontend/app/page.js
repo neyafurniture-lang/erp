@@ -12,6 +12,7 @@ import EditableSection from '../components/EditableSection';
 
 const QUICK_ACTIONS = [
   { href: '/production', label: 'Production', icon: '⚒', primary: true },
+  { href: '/sauna-cloud', label: 'Sauna Cloud', icon: '▣', primary: true },
   { href: '/admin', label: 'Admin', icon: '📋' },
   { href: '/projects', label: 'Projet', icon: '▣' },
   { href: '/invoices', label: 'Devis', icon: '▤' },
@@ -167,14 +168,17 @@ function TaskRow({ task, onToggle }) {
 export default function DashboardPage() {
   const [data, setData] = useState(null);
   const [layout, setLayout] = useState(null);
+  const [sauna, setSauna] = useState(null);
   const [error, setError] = useState('');
 
   const load = () => Promise.all([
     api('/dashboard'),
     api('/ui/dashboard-layout'),
-  ]).then(([d, ui]) => {
+    api('/sauna-cloud').catch(() => null),
+  ]).then(([d, ui, sc]) => {
     setData(d);
     setLayout(ui.layout);
+    setSauna(sc);
     setError('');
   }).catch(e => setError(e.message));
 
@@ -384,6 +388,40 @@ export default function DashboardPage() {
         return wrap(section, (
           <AdminTasksSummary tasks={data?.adminTasks || []} openCount={s.adminTasksOpen ?? 0} onChange={load} />
         ), 'mb-4');
+      case 'sauna_cloud': {
+        const prog = sauna?.progress || { done: 0, total: 0, pct: 0 };
+        const nextFrames = (sauna?.frames || []).filter(f => f.status !== 'done').slice(0, 4);
+        return wrap(section, (
+          <div className="card">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <h2 className="font-heading text-base sm:text-lg">Sauna Cloud — frames</h2>
+              <Link href="/sauna-cloud" className="text-xs text-neya-orange hover:underline shrink-0">Ouvrir →</Link>
+            </div>
+            <div className="flex justify-between text-xs text-neya-muted mb-1">
+              <span>Avancement</span>
+              <span className="font-semibold text-neya-ink">{prog.done}/{prog.total} · {prog.pct}%</span>
+            </div>
+            <div className="h-2 bg-neya-cream rounded-full overflow-hidden mb-4">
+              <div className="h-full bg-neya-orange transition-all" style={{ width: `${prog.pct}%` }} />
+            </div>
+            {nextFrames.length === 0 ? (
+              <p className="text-sm text-neya-muted">Toutes les frames sont complétées.</p>
+            ) : (
+              <ul className="space-y-1.5 mb-3">
+                {nextFrames.map(f => (
+                  <li key={f.id} className="text-sm flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-neya-border shrink-0" />
+                    <span className="truncate">{f.title}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <Link href="/sauna-cloud" className="btn-secondary text-xs w-full text-center">
+              Compléter les frames
+            </Link>
+          </div>
+        ), 'mb-4');
+      }
       case 'finances':
         return wrap(section, (
           <div className="card">

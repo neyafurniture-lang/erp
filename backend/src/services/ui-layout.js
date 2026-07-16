@@ -9,6 +9,7 @@ export const DASHBOARD_SECTION_CATALOG = [
   { id: 'today_week', label: 'Aujourd\'hui & semaine', type: 'builtin' },
   { id: 'admin_tasks', label: 'Tâches admin', type: 'builtin' },
   { id: 'todo:main', label: 'Ma todo', type: 'todo', list_key: 'main', title: 'Ma todo' },
+  { id: 'sauna_cloud', label: 'Sauna Cloud — frames', type: 'builtin' },
   { id: 'finances', label: 'Finances', type: 'builtin' },
   { id: 'projects_deadlines', label: 'Projets & deadlines', type: 'builtin' },
   { id: 'invoices_web', label: 'Factures & site web', type: 'builtin' },

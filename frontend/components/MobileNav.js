@@ -9,14 +9,15 @@ import { hasPermission } from '../lib/permissions';
 const MAIN = [
   { href: '/', label: 'Accueil', permission: 'dashboard' },
   { href: '/production', label: 'Prod.', permission: 'production' },
+  { href: '/sauna-cloud', label: 'Sauna', permission: 'production' },
   { href: '/liste-courses', label: 'Courses', permission: 'purchases' },
-  { href: '/projects', label: 'Projets', permission: 'projects' },
 ];
 
 const MORE_GROUPS = [
   {
     title: 'Atelier',
     items: [
+      { href: '/projects', label: 'Projets', permission: 'projects' },
       { href: '/admin', label: 'Admin', permission: 'admin' },
       { href: '/purchases', label: 'Achats', permission: 'purchases' },
       { href: '/inventory', label: 'Stock', permission: 'inventory' },

@@ -47,6 +47,7 @@ export const ERP_MANUAL_SECTIONS = [
     links: [
       { href: '/production', label: 'Production' },
       { href: '/projects', label: 'Projets' },
+      { href: '/sauna-cloud', label: 'Sauna Cloud' },
       { href: '/standards', label: 'Fiches standards' },
     ],
     tips: [
@@ -54,6 +55,7 @@ export const ERP_MANUAL_SECTIONS = [
       'Avancer une étape met à jour les tâches et le calendrier.',
       'Chaque projet peut avoir client, budget, deadline, tâches, dépenses, courriels liés.',
       'Depuis une fiche standard : « Créer projet depuis cette fiche ».',
+      'Sauna Cloud (/sauna-cloud) : liste des frames à fabriquer, cocher pour l’avancement %, notes par frame et notes projet. Permission Production.',
     ],
   },
   {

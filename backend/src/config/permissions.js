@@ -24,6 +24,7 @@ export const ALL_PERMISSION_KEYS = Object.keys(PERMISSION_AREAS);
 /** Correspondance chemin frontend → permission */
 export const PATH_PERMISSION = [
   { prefix: '/production', permission: 'production' },
+  { prefix: '/sauna-cloud', permission: 'production' },
   { prefix: '/admin', permission: 'admin' },
   { prefix: '/projects', permission: 'projects' },
   { prefix: '/purchases', permission: 'purchases' },
