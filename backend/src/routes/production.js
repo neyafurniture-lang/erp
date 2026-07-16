@@ -133,6 +133,9 @@ router.post('/', async (req, res) => {
       }
 
       await client.query('COMMIT');
+      const { tryEnsureProjectFolder } = await import('../services/drive-folders.js');
+      const driveFolder = await tryEnsureProjectFolder(project.id);
+      if (driveFolder?.folder_id) project.drive_folder_id = driveFolder.folder_id;
       return res.status(201).json(project);
     }
 
@@ -144,7 +147,11 @@ router.post('/', async (req, res) => {
         [name.trim(), client_id || null, deadline || null, Math.max(1, Number(quantity) || 1), priority, notes || null]
       );
       await client.query('COMMIT');
-      return res.status(201).json(rows[0]);
+      const project = rows[0];
+      const { tryEnsureProjectFolder } = await import('../services/drive-folders.js');
+      const driveFolder = await tryEnsureProjectFolder(project.id);
+      if (driveFolder?.folder_id) project.drive_folder_id = driveFolder.folder_id;
+      return res.status(201).json(project);
     }
 
     return res.status(400).json({ error: 'Type invalide — catalogue ou sur mesure' });

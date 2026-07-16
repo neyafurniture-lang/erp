@@ -61,7 +61,11 @@ router.post('/', async (req, res) => {
       'INSERT INTO clients (name, contact, email, phone, address, city, notes) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
       [name, contact, email, phone, address, city, notes]
     );
-    res.status(201).json(rows[0]);
+    const client = rows[0];
+    const { tryEnsureClientFolder } = await import('../services/drive-folders.js');
+    const driveFolder = await tryEnsureClientFolder(client.id);
+    if (driveFolder?.folder_id) client.drive_folder_id = driveFolder.folder_id;
+    res.status(201).json(client);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

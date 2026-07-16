@@ -74,21 +74,23 @@ router.post('/google/disconnect', async (req, res) => {
   }
 });
 
-/** Lier dossier Drive à un projet */
+/** Créer / récupérer le dossier Drive d’un projet (sous Client dans NEYA ERP). */
 router.post('/projects/:projectId/drive-folder', async (req, res) => {
   try {
-    const { createFolder } = await import('../services/google-drive.js');
-    const projectId = Number(req.params.projectId);
-    const { rows } = await pool.query('SELECT * FROM projects WHERE id = $1', [projectId]);
-    if (!rows[0]) return res.status(404).json({ error: 'Projet introuvable' });
+    const { ensureProjectFolder } = await import('../services/drive-folders.js');
+    const result = await ensureProjectFolder(Number(req.params.projectId));
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
 
-    let folderId = rows[0].drive_folder_id;
-    if (!folderId) {
-      const folder = await createFolder(`NEYA — ${rows[0].name}`, 'root');
-      folderId = folder.id;
-      await pool.query('UPDATE projects SET drive_folder_id = $1 WHERE id = $2', [folderId, projectId]);
-    }
-    res.json({ folder_id: folderId, webViewLink: `https://drive.google.com/drive/folders/${folderId}` });
+/** Créer / récupérer le dossier Drive d’un client (NEYA ERP / Clients / …). */
+router.post('/clients/:clientId/drive-folder', async (req, res) => {
+  try {
+    const { ensureClientFolder } = await import('../services/drive-folders.js');
+    const result = await ensureClientFolder(Number(req.params.clientId));
+    res.json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
