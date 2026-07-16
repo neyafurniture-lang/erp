@@ -82,7 +82,9 @@ export async function applyGmailLabelsForMessages(messages = []) {
   return { applied, errors };
 }
 
-const PROMO_RE = /unsubscribe|newsletter|promotion|no-?reply|marketing|mailchimp|notification@|info@shop|deals@|offres@/i;
+// Éviter no-reply / notification@ (trop large → GitHub, banques, etc. en « Promotions »)
+const PROMO_RE = /unsubscribe|newsletter|promotions?\b|marketing|mailchimp|info@shop|deals@|offres@|soldes?@/i;
+const NOT_PROMO_FROM_RE = /github\.com|gitlab\.com|bitbucket\.org|cursor\.com|google\.com|accounts\.google/i;
 const CLIENT_INTENTS = new Set(['devis', 'suivi', 'plainte', 'confirmation']);
 
 let clientEmailCache = null;
