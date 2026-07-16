@@ -108,8 +108,8 @@ router.patch('/needs/:id', async (req, res) => {
     const { rows } = await pool.query(
       `UPDATE purchase_needs SET
         title = $1, category = $2, quantity = $3, unit = $4, priority = $5, status = $6,
-        supplier_id = $7, notes = $8, ordered_at = $9, received_at = $10
-       WHERE id = $11 RETURNING *`,
+        supplier_id = $7, project_id = $8, notes = $9, ordered_at = $10, received_at = $11
+       WHERE id = $12 RETURNING *`,
       [
         req.body.title !== undefined ? String(req.body.title).trim() : n.title,
         NEED_CATEGORIES.includes(req.body.category) ? req.body.category : n.category,
@@ -117,8 +117,13 @@ router.patch('/needs/:id', async (req, res) => {
         req.body.unit ?? n.unit,
         req.body.priority === 'urgent' ? 'urgent' : req.body.priority === 'normal' ? 'normal' : n.priority,
         ['needed', 'ordered', 'received'].includes(status) ? status : n.status,
-        req.body.supplier_id !== undefined ? req.body.supplier_id : n.supplier_id,
-        req.body.notes !== undefined ? req.body.notes : n.notes,
+        req.body.supplier_id !== undefined
+          ? (req.body.supplier_id === '' || req.body.supplier_id === null ? null : Number(req.body.supplier_id))
+          : n.supplier_id,
+        req.body.project_id !== undefined
+          ? (req.body.project_id === '' || req.body.project_id === null ? null : Number(req.body.project_id))
+          : n.project_id,
+        req.body.notes !== undefined ? (req.body.notes === null ? null : String(req.body.notes)) : n.notes,
         orderedAt,
         receivedAt,
         req.params.id,

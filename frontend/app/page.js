@@ -11,13 +11,15 @@ import EditableSection from '../components/EditableSection';
 
 const QUICK_ACTIONS = [
   { href: '/production', label: 'Production' },
+  { href: '/sauna-cloud', label: 'Sauna Cloud' },
   { href: '/projects', label: 'Projets' },
   { href: '/invoices', label: 'Devis / factures' },
   { href: '/mail', label: 'Courriel' },
+  { href: '/liste-courses', label: 'Liste de courses' },
   { href: '/clients', label: 'Clients' },
   { href: '/calendar', label: 'Calendrier' },
   { href: '/expenses', label: 'Dépenses' },
-  { href: '/admin', label: 'Admin' },
+  { href: '/admin', label: 'Session admin' },
 ];
 
 function Metric({ label, value, hint, href, tone }) {
@@ -200,14 +202,17 @@ function ProjectRow({ project }) {
 export default function DashboardPage() {
   const [data, setData] = useState(null);
   const [layout, setLayout] = useState(null);
+  const [sauna, setSauna] = useState(null);
   const [error, setError] = useState('');
 
   const load = () => Promise.all([
     api('/dashboard'),
     api('/ui/dashboard-layout'),
-  ]).then(([d, ui]) => {
+    api('/sauna-cloud').catch(() => null),
+  ]).then(([d, ui, sc]) => {
     setData(d);
     setLayout(ui.layout);
+    setSauna(sc);
     setError('');
   }).catch(e => setError(e.message));
 
@@ -331,10 +336,41 @@ export default function DashboardPage() {
       case 'admin_tasks':
         return wrap(section, (
           <div className="dash-block">
-            <SectionHead title="Tâches admin" href="/admin" />
-            <AdminTasksSummary tasks={data?.adminTasks || []} openCount={s.adminTasksOpen ?? 0} onChange={load} />
+            <AdminTasksSummary />
           </div>
         ));
+
+      case 'sauna_cloud': {
+        const prog = sauna?.progress || { done: 0, total: 0, pct: 0 };
+        const nextFrames = (sauna?.frames || []).filter(f => f.status !== 'done').slice(0, 4);
+        return wrap(section, (
+          <div className="dash-block">
+            <SectionHead title="Sauna Cloud — frames" href="/sauna-cloud" hrefLabel="Ouvrir →" />
+            <div className="flex justify-between text-xs text-neya-muted mb-1">
+              <span>Avancement</span>
+              <span className="font-semibold text-neya-ink">{prog.done}/{prog.total} · {prog.pct}%</span>
+            </div>
+            <div className="h-2 bg-neya-cream rounded-full overflow-hidden mb-3">
+              <div className="h-full bg-neya-orange transition-all" style={{ width: `${prog.pct}%` }} />
+            </div>
+            {nextFrames.length === 0 ? (
+              <p className="text-sm text-neya-muted">Toutes les frames sont complétées.</p>
+            ) : (
+              <ul className="space-y-1.5 mb-3">
+                {nextFrames.map(f => (
+                  <li key={f.id} className="text-sm flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-neya-border shrink-0" />
+                    <span className="truncate">{f.title}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <Link href="/sauna-cloud" className="btn-secondary text-xs w-full text-center">
+              Compléter les frames
+            </Link>
+          </div>
+        ));
+      }
 
       case 'projects_cards':
         return wrap(section, (

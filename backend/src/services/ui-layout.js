@@ -7,7 +7,8 @@ export const DASHBOARD_SECTION_CATALOG = [
   { id: 'stats', label: 'Vue d\'ensemble', type: 'builtin' },
   { id: 'projects_cards', label: 'Projets en cours', type: 'builtin' },
   { id: 'finances', label: 'Finances', type: 'builtin' },
-  { id: 'admin_tasks', label: 'Tâches admin', type: 'builtin' },
+  { id: 'admin_tasks', label: 'Session admin', type: 'builtin' },
+  { id: 'sauna_cloud', label: 'Sauna Cloud — frames', type: 'builtin' },
   { id: 'supplier_invoices', label: 'Factures fournisseurs', type: 'builtin' },
   { id: 'todo:main', label: 'Ma todo', type: 'todo', list_key: 'main', title: 'Ma todo' },
   { id: 'quick_actions', label: 'Raccourcis', type: 'builtin' },
@@ -15,7 +16,7 @@ export const DASHBOARD_SECTION_CATALOG = [
   { id: 'invoices_web', label: 'Factures & site web', type: 'builtin' },
 ];
 
-export const DASHBOARD_LAYOUT_VERSION = 2;
+export const DASHBOARD_LAYOUT_VERSION = 3;
 
 export function defaultDashboardLayout() {
   return {

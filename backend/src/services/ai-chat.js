@@ -119,21 +119,16 @@ async function buildErpContextSnapshot(pageContext) {
 }
 
 async function buildSystemPrompt(pageContext) {
+  const pool = (await import('../db/pool.js')).default;
   const { formatMemoriesForPrompt } = await import('./assistant-memory.js');
+  const { ACTION_TYPES } = await import('./skill-actions.js');
   const { getManualPromptBlock } = await import('../content/erp-manual.js');
-  const { getHabitsPromptBlock } = await import('./atelier-habits.js');
-  const { buildProtocolPromptBlock } = await import('./assistant-protocol.js');
 
-  const protocolBlock = await buildProtocolPromptBlock();
+  const { rows: skills } = await pool.query(
+    'SELECT name, description, action_type FROM assistant_skills WHERE enabled = true'
+  );
   const ctxNote = pageContext
-    ? `\nContexte page : ${JSON.stringify({
-      type: pageContext.type,
-      id: pageContext.id,
-      label: pageContext.label,
-      isCustom: pageContext.isCustom,
-      pathname: pageContext.pathname || pageContext.meta?.element?.pathname || null,
-      element: pageContext.meta?.element || null,
-    })}.`
+    ? `\nContexte page : ${JSON.stringify({ type: pageContext.type, id: pageContext.id, label: pageContext.label, isCustom: pageContext.isCustom })}.`
     : '';
   const memoryBlock = await formatMemoriesForPrompt({
     projectId: pageContext?.type === 'project' ? pageContext.id : pageContext?.project_id || null,
@@ -141,7 +136,6 @@ async function buildSystemPrompt(pageContext) {
     quoteId: pageContext?.type === 'quote' ? pageContext.id : null,
   });
   const manualBlock = `\n${getManualPromptBlock()}`;
-  const habitsBlock = `\n${getHabitsPromptBlock()}`;
   const erpBlock = await buildErpContextSnapshot(pageContext);
   let driveBlock = '';
   try {
@@ -181,20 +175,56 @@ async function buildSystemPrompt(pageContext) {
 
   return `Tu es Lia, l'assistant NEYA ERP (atelier meubles Neya Furniture).
 IMPORTANT: ta réponse doit être UNIQUEMENT un objet JSON valide, sans markdown, sans texte avant/après.
+Skills: ${JSON.stringify(skills)}
+Actions: ${ACTION_TYPES.join('|')}
+Format exact: {"reply":"texte court pour l'utilisateur","action":{"type":"nom_action_ou_null","params":{}}}
 
-${protocolBlock}
+AUTONOMIE — tu DOIS agir seule sans demander de cliquer dans l'ERP :
+1. Cherche d'abord dans le bloc Données ERP / Mémoire ci-dessous.
+2. Si le projet n'y est pas, utilise search_projects ou get_project avec params {"query":"nom"} ou {"project_id":123}.
+3. Pour cocher : complete_task avec {"project_name":"…","task_title":"finition"} ou {"project_id":1,"task_title":"…"}.
+4. Pour modifier une tâche : update_task avec {"task_title":"…","new_title":"…"} ou {"status":"done"|"todo"}.
+5. Pour le descriptif / notes du projet : update_project avec {"project_name":"…","notes":"texte"} ou {"append_notes":true,"notes":"ajout"}.
+6. Pour le statut projet : update_project {"status":"done"|"active","project_id":…}.
+7. Mémoire atelier : search_memory {"query":"…"}. L'utilisateur peut aussi dire « retiens que … ».
+8. list_project_tasks {"project_name":"Olive"} pour lister les tâches d'un projet non ouvert.
+9. COURRIEL — tu as accès à Gmail. Ne dis JAMAIS que tu n'as pas accès au mail.
+   - list_emails {"max":15} ou {"category":"clients"|"fournisseurs"|"a_repondre"|"projets"}
+   - search_emails {"query":"from:client@… OR facture"}
+   - get_email {"message_id":"…"} ou {"index":1} pour le 1er de la boîte
+   - list_mail_threads pour les fils déjà liés ERP
+10. FICHIERS / PIÈCES JOINTES — dès qu'un fichier est joint, le système le LIT, CLASSE et RANGE (facture, reçu, plan, devis…).
+   - Ne réponds PAS seulement « j'ai reçu le fichier ».
+   - create_fabrication_plan pour un plan / brief client → étapes atelier
+   - create_expense pour un reçu/facture avec montant
+   - update_project {"append_notes":true,"notes":"…"} pour ranger le résumé dans le projet
+   - Si l'utilisateur dit « classer / ranger / étudie / lis ce fichier », priorise ces actions.
+11. DEVIS — si la page est un devis (contexte quote), tu PEUX le modifier :
+   - get_quote {} pour relire le devis ouvert
+   - update_quote {"add_line":"Caissons","qty":1,"price":2400}
+   - update_quote {"line_match":"table","price":1800}
+   - update_quote {"title":"Devis ENNS v2","notes":"…"}
+   - update_quote {"status":"sent"|"draft"|"accepted"}
+   - send_quote {} pour envoyer le devis ouvert
+   - Utilise la mémoire devis/client. « Retiens que… » sauvegarde une préférence.
 
-RÈGLES MÉTIER COMPLÉMENTAIRES (raccourcis) :
-- create_project_from_quote_email {"query":"Alexandra"} pour devis Gmail/PDF → projets
-- import_mail_dates_to_project {"query":"waita","project_name":"Corridor"}
-- create_fabrication_plan pour étapes atelier depuis fichier
-- demande_modification_erp pour UI/code (PAS create_invoice)
-- atelier_habits pour règles atelier
-Ne dis JAMAIS « je ne peux pas » ou « ouvrez la fiche » si une action existe.
-Quand tu reçois un ACTION_CHECK (ok/check/summary) : base ta réponse dessus ; enchaîne une action ou done:true.
-Mémoire conversation : utilise l'historique. Ne redemande pas ce qui est déjà dit.
+Exemples params :
+- {"type":"complete_task","params":{"project_name":"Banc Olive","task_title":"finition"}}
+- {"type":"update_project","params":{"project_id":12,"notes":"Livraison semaine prochaine"}}
+- {"type":"search_projects","params":{"query":"olive"}}
+- {"type":"get_project","params":{"project_id":12}}
+- {"type":"list_emails","params":{"max":10}}
+- {"type":"search_emails","params":{"query":"facture Home Depot"}}
+- {"type":"get_email","params":{"index":1}}
+- {"type":"create_fabrication_plan","params":{"project_name":"Banc Olive","steps":[{"title":"Débitage","type":"debitage"},{"title":"Assemblage","type":"assemblage"},{"title":"Finition","type":"finition"}],"notes":"Infos du mail client"}}
+- {"type":"update_quote","params":{"add_line":"Caissons chêne","qty":1,"price":2400}}
+- {"type":"update_quote","params":{"line_match":"table","price":1800}}
+- {"type":"get_quote","params":{}}
+
+Mémoire conversation : utilise l'historique (« oui », « celui-là », « ce projet »). Ne redemande pas ce qui est déjà dit.
+Ne dis JAMAIS « ouvrez le projet » si tu peux le trouver par nom. Exécute l'action.
 Si l'utilisateur mentionne un fichier sans pièce jointe, demande le bouton 📎.
-Pour « comment faire », renvoie vers /manual.${memoryBlock}${manualBlock}${habitsBlock}${erpBlock}${driveBlock}${mailBlock}${ctxNote}`;
+Pour « comment faire », renvoie vers /manual.${memoryBlock}${manualBlock}${erpBlock}${driveBlock}${mailBlock}${ctxNote}`;
 }
 
 async function callOpenAI({ systemPrompt, history, message }) {

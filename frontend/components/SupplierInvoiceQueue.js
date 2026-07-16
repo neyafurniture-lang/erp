@@ -110,6 +110,8 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
   const [scanning, setScanning] = useState(false);
   const [scanInfo, setScanInfo] = useState('');
   const [scanErr, setScanErr] = useState('');
+  // Compact : replié par défaut pour ne pas monopoliser l'écran Courriel
+  const [expanded, setExpanded] = useState(!compact);
 
   async function load() {
     try {
@@ -151,6 +153,7 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
         setScanErr(`${result.errors.length} message(s) en erreur — ${result.errors[0].error}`);
       }
       await load();
+      if (compact && (result.ingested || 0) > 0) setExpanded(true);
     } catch (e) {
       setScanErr(e.message);
     } finally {
@@ -160,21 +163,89 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
 
   if (!pending.length && compact) return null;
 
+  if (compact) {
+    return (
+      <>
+        <div className="border border-neya-border bg-neya-surface/40 mb-3">
+          <div className="flex items-center gap-2 px-3 py-1.5">
+            <button
+              type="button"
+              onClick={() => setExpanded(v => !v)}
+              className="flex-1 min-w-0 flex items-center gap-2 text-left"
+              aria-expanded={expanded}
+            >
+              <span className="text-neya-muted text-xs tabular-nums w-3">{expanded ? '▾' : '▸'}</span>
+              <span className="text-xs font-medium text-neya-ink truncate">
+                {pending.length > 0
+                  ? `${pending.length} facture${pending.length !== 1 ? 's' : ''} à classer`
+                  : 'Factures fournisseurs'}
+              </span>
+              {pending.length > 0 && !expanded && (
+                <span className="text-[10px] text-neya-muted shrink-0">Cliquer pour ouvrir</span>
+              )}
+            </button>
+            <button type="button" onClick={scan} disabled={scanning} className="text-[11px] text-neya-muted hover:text-neya-ink shrink-0 px-1">
+              {scanning ? '…' : 'Scanner'}
+            </button>
+          </div>
+
+          {expanded && (
+            <div className="px-3 pb-2.5 border-t border-neya-border/70">
+              {scanErr && (
+                <p className="text-xs text-red-700 bg-red-50 px-2 py-1.5 rounded mt-2">{scanErr}</p>
+              )}
+              {scanInfo && !scanErr && (
+                <p className="text-[11px] text-neya-muted mt-2">{scanInfo}</p>
+              )}
+              {pending.length === 0 ? (
+                <p className="text-xs text-neya-muted py-2">Aucune facture en attente</p>
+              ) : (
+                <ul className="space-y-1.5 mt-2">
+                  {pending.map(item => (
+                    <li key={item.id} className="flex items-center justify-between gap-2 px-2 py-1.5 border border-neya-border bg-white">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-medium truncate">
+                          <span className="text-neya-ink">{item.supplier_label}</span>
+                          <span className="text-neya-muted mx-1">·</span>
+                          {item.subject}
+                        </p>
+                      </div>
+                      <button type="button" onClick={() => setActive(item)} className="btn-primary text-[11px] shrink-0 min-h-[28px] py-0.5 px-2">
+                        Classer
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+
+        {active && (
+          <AssignModal
+            item={active}
+            projects={projects}
+            onClose={() => setActive(null)}
+            onDone={load}
+          />
+        )}
+      </>
+    );
+  }
+
   return (
     <>
-      <div className={compact ? 'border border-neya-border bg-neya-surface/40 px-3.5 py-3' : 'card mb-6'}>
+      <div className="card mb-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <h2 className={`font-medium tracking-tight ${compact ? 'text-sm' : 'text-lg'}`}>
+            <h2 className="font-heading text-lg">
               {pending.length > 0
                 ? `${pending.length} facture${pending.length !== 1 ? 's' : ''} à classer`
                 : 'Factures fournisseurs'}
             </h2>
-            {!compact && (
-              <p className="text-xs text-neya-muted mt-0.5">
-                Home Depot, Rona, etc.
-              </p>
-            )}
+            <p className="text-xs text-neya-muted mt-0.5">
+              Home Depot, Rona, etc.
+            </p>
           </div>
           <button type="button" onClick={scan} disabled={scanning} className="btn-secondary text-xs shrink-0 min-h-[36px]">
             {scanning ? 'Scan…' : 'Scanner Gmail'}
@@ -188,12 +259,12 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
           <p className="text-xs text-neya-muted mt-3">{scanInfo}</p>
         )}
 
-        {!compact && pending.length === 0 && (
+        {pending.length === 0 && (
           <p className="text-sm text-neya-muted py-2 mt-2">Aucune facture en attente de classement</p>
         )}
 
         {pending.length > 0 && (
-          <ul className={`space-y-2 ${compact ? 'mt-3' : 'mt-4'}`}>
+          <ul className="space-y-2 mt-4">
             {pending.map(item => (
               <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 p-2.5 sm:p-3 border border-neya-border bg-white">
                 <div className="min-w-0 flex-1">

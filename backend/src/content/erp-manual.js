@@ -35,7 +35,7 @@ export const ERP_MANUAL_SECTIONS = [
     tips: [
       'Parler : enregistrez → révisez le texte → « Construire le plan » → confirmez.',
       'Exemples : « Demain finition banc olive Mehdi, mail client », « Cocher débitage », « Dépense 120$ matériaux ».',
-      'Joindre 📎 : photos, PDF, plans, reçus — l\'IA peut lire l\'image (scan ticket, facture).',
+      'Joindre 📎 : photos, PDF, plans, reçus — l\'IA lit le fichier, le classe (facture, plan, reçu…) et propose de le ranger (notes projet, dépense, plan de fabrication).',
       'Devis Gmail → projet : « Cherche les derniers devis d’Alexandra et crée les projets » — Lia lit les PDF et crée client + projet + tâches.',
       'Protocole IA : skills + JSON → exécution → ACTION_CHECK (OK/FAIL) → Lia réinterprète (autre action ou réponse finale).',
       'MCP Cursor : neya_run_action (CHECK) + neya_continue_from_check ; chat = boucle complète.',
@@ -52,6 +52,7 @@ export const ERP_MANUAL_SECTIONS = [
     links: [
       { href: '/production', label: 'Production' },
       { href: '/projects', label: 'Projets' },
+      { href: '/sauna-cloud', label: 'Sauna Cloud' },
       { href: '/standards', label: 'Fiches standards' },
     ],
     tips: [
@@ -60,6 +61,7 @@ export const ERP_MANUAL_SECTIONS = [
       'Chaque projet peut avoir client, budget, deadline, tâches, dépenses, courriels liés.',
       'Depuis une fiche standard : « Créer projet depuis cette fiche ».',
       'Depuis Gmail : « Analyse les devis The NNS et crée les projets » (skill create_project_from_quote_email).',
+      'Sauna Cloud (/sauna-cloud) : liste des frames à fabriquer, cocher pour l’avancement %, notes par frame et notes projet. Permission Production.',
     ],
   },
   {
@@ -154,7 +156,7 @@ export const ERP_MANUAL_SECTIONS = [
       { href: '/inventory', label: 'Stock' },
     ],
     tips: [
-      'Liste de courses : besoins consommables à commander.',
+      'Liste de courses : besoins consommables à commander, liens de comparaison de prix, édition des articles.',
       'Achats atelier : bons de commande fournisseurs.',
     ],
   },
@@ -179,12 +181,14 @@ export const ERP_MANUAL_SECTIONS = [
     icon: '⚙️',
     summary: 'Utilisateurs, déploiement, rollback.',
     links: [
+      { href: '/admin', label: 'Session admin' },
       { href: '/settings?tab=users', label: 'Utilisateurs' },
       { href: '/settings?tab=deploy', label: 'Déploiement VPS' },
       { href: '/settings?tab=integrations', label: 'Intégrations' },
       { href: '/roadmap', label: 'Roadmap' },
     ],
     tips: [
+      'Session admin (/admin) : code 31250 pour ouvrir les notes — interface compacte, pas affichée en permanence sur le dashboard. « Fermer la session » pour verrouiller.',
       'Déploiement 1 clic : Paramètres → Déploiement → « Mettre à jour la prod ». Host 51.222.31.75. Accès : NEYA_VPS_PASSWORD ou clé SSH dans backend/.env.',
       'Site planté ? SSH : back.sh (restaure backup DB + commit précédent).',
       'Clés Claude/OpenAI dans Paramètres → Assistant IA (sinon skills par mots-clés seulement).',

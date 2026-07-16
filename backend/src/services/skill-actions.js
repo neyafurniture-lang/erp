@@ -1,13 +1,6 @@
 import pool from '../db/pool.js';
 import { createQuoteRecord, createInvoiceRecord, convertQuoteToInvoice } from './invoice-helpers.js';
 import { sendDocumentEmail } from './document-email.js';
-import {
-  createProjectsFromQuoteEmails,
-  detectCreateProjectFromQuoteEmailIntent,
-  extractQuoteImportQuery,
-} from './project-from-quote-email.js';
-
-export { detectCreateProjectFromQuoteEmailIntent };
 
 const DAY_MAP = {
   lundi: 1, mardi: 2, mercredi: 3, jeudi: 4, vendredi: 5, samedi: 6, dimanche: 0,
@@ -19,8 +12,6 @@ export const ACTION_TYPES = [
   'update_project', 'update_client', 'list_projects', 'list_clients', 'list_expenses',
   'search_projects', 'search_memory', 'get_project',
   'list_emails', 'search_emails', 'get_email', 'list_mail_threads',
-  'import_mail_dates_to_project',
-  'create_project_from_quote_email',
   'create_fabrication_plan',
   'list_skills', 'create_skill', 'update_skill',
   'create_quote', 'create_invoice', 'convert_quote', 'send_quote', 'send_invoice',
@@ -29,8 +20,6 @@ export const ACTION_TYPES = [
   'update_standard', 'sync_wordpress', 'sync_web_orders', 'list_web_orders', 'sync_web_photos',
   'ui_edit_mode', 'ui_add_todo_list', 'ui_move_section', 'ui_hide_section', 'ui_show_section', 'ui_reset_layout',
   'erp_manual',
-  'demande_modification_erp',
-  'atelier_habits',
 ];
 
 /** Extrait un éventuel objet params JSON préfixé au message (mode LLM). */
@@ -227,858 +216,13 @@ function parseRename(message) {
 }
 
 function parseEmail(message) {
-  const m = String(message || '').match(/[\w.+-]+@[\w.-]+\.\w+/);
+  const m = message.match(/[\w.+-]+@[\w.-]+\.\w+/);
   return m ? m[0] : null;
 }
 
 function parsePhone(message) {
-  const m = String(message || '').match(/(\+?1?\s?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/);
-  return m ? m[0].replace(/\s+/g, ' ').trim() : null;
-}
-
-function parseAddress(message) {
-  const m = String(message || '').match(
-    /(?:adresse|addr|habites?|situé[e]?)\s*(?:[:\-]|est|=)?\s*([^,;.\n]{6,120})/i
-  );
-  if (m) return m[1].trim();
-  const civic = String(message || '').match(/\b(\d{1,5}\s+[A-Za-zÀ-ÿ0-9 .'\-]{3,60}(?:rue|avenue|av\.|blvd|boulevard|chemin|ch\.|route|rang)[^,;.\n]*)/i);
-  return civic ? civic[1].trim() : null;
-}
-
-function parseCity(message) {
-  const m = String(message || '').match(/(?:ville|à)\s*(?:[:\-])?\s*([A-Za-zÀ-ÿ\-\s']{2,40})/i);
-  return m ? m[1].trim().replace(/\s+(email|tél|tel|phone|adresse).*$/i, '') : null;
-}
-
-/** Extraire nom + contacts depuis une phrase naturelle. */
-export function parseClientContact(message, params = {}) {
-  const email = params.email || parseEmail(message);
-  const phone = params.phone || parsePhone(message);
-  const address = params.address || parseAddress(message);
-  const city = params.city || parseCity(message);
-  let name = params.client_name || params.name || extractQuotedText(message)
-    || extractAfterKeyword(message, [
-      'nouveau client', 'ajouter client', 'ajoute client', 'crée client', 'creer client',
-      'client', 'contact', 'pour',
-    ]);
-  if (name) {
-    name = String(name)
-      .replace(email || '', '')
-      .replace(phone || '', '')
-      .replace(/adresse\s*[:\-]?.*/i, '')
-      .replace(/[,|;]+/g, ' ')
-      .replace(/\b(email|courriel|téléphone|telephone|tel|phone|adresse|ville)\b/gi, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-  if (!name || name.length < 2) {
-    const cleaned = String(message || '')
-      .replace(/^(nouveau|ajouter|ajoute|crée|creer|créer)\s+(un\s+|le\s+)?(client|contact)\s*/i, '')
-      .replace(email || '', '')
-      .replace(phone || '', '')
-      .replace(/[,|;]+/g, ' ')
-      .trim();
-    const first = cleaned.split(/\s+/).slice(0, 4).join(' ').trim();
-    if (first.length >= 2 && !/^(email|tel|adresse)/i.test(first)) name = first;
-  }
-  return {
-    name: name ? name.slice(0, 200) : null,
-    email: email || null,
-    phone: phone || null,
-    address: address || null,
-    city: city || null,
-  };
-}
-
-export async function resolveClientId(params = {}, message = '', pageContext = null) {
-  if (pageContext?.type === 'client' && pageContext.id) return pageContext.id;
-  if (params.client_id) return Number(params.client_id);
-  const contact = parseClientContact(message, params);
-  const needle = String(params.client_name || params.name || contact.name || '').trim().toLowerCase();
-  if (!needle || needle.length < 2) return null;
-  const { rows } = await pool.query(
-    `SELECT id, name FROM clients
-     WHERE LOWER(name) = $1
-        OR LOWER(name) LIKE $2
-     ORDER BY CASE WHEN LOWER(name) = $1 THEN 0 ELSE 1 END, LENGTH(name) ASC
-     LIMIT 1`,
-    [needle, `%${needle}%`]
-  );
-  return rows[0]?.id || null;
-}
-
-/** Intent courriel libre (français). */
-export function detectMailIntent(message = '') {
-  if (detectCreateProjectFromQuoteEmailIntent(message)) return null;
-  const m = String(message);
-  if (/(ouvre|ouvrir|lis|lire|montre|regarde|détail|contenu).{0,40}(mail|courriel|message)\b/i.test(m)
-    || /(?:mail|courriel|message)\s*(?:n[o°]?\s*)?\d+/i.test(m)) {
-    return 'get_email';
-  }
-  if (/(cherche|recherch|trouve|trouver|regarde).{0,50}(mail|courriel|gmail|inbox)/i.test(m)
-    || /(mail|courriel|gmail).{0,30}(de|pour|concernant|à propos|sur)\s+\S+/i.test(m)
-    || /(infos?|coordonn|adresse|téléphone|telephone).{0,40}(mail|courriel)/i.test(m)
-    || /(dans|via|depuis).{0,15}(mes\s+)?(mails?|courriels?|gmail)/i.test(m)) {
-    return 'search_emails';
-  }
-  if (/(liste|voir|montre)\s+(mes\s+|les\s+)?(mails?|courriels?)/i.test(m)
-    || /\bmes\s+(mails?|courriels?)\b/i.test(m)
-    || /bo[iî]te\s*(mail|de\s*r[eé]ception)/i.test(m)
-    || /mails?\s+(non\s+lus|clients|fournisseurs)/i.test(m)) {
-    return 'list_emails';
-  }
-  return null;
-}
-
-/** Récupérer dates (souvent via mails) → projet (+ carnet d'heures). */
-export function detectImportMailDatesIntent(message = '') {
-  if (detectCreateProjectFromQuoteEmailIntent(message)) return null;
-  const m = String(message);
-  const hasDates = /\b(dates?|horaires?|agenda|calendrier|événements?|evenements?)\b/i.test(m)
-    || /\b(r[eé]cup[eè]re|rep[eè]re|extrais|extraire)\b/i.test(m);
-  const hasProjectWork = /\bprojets?\b|\binscri[st]|\bcarnets?\b|\bheures?\b|\btableau\b|\bplanifie/i.test(m);
-  const hasContact = /\bwaita\b|\bcorridor\b|en\s+lien\s+avec\s+\w+|(mails?|courriels?|gmail)/i.test(m);
-  if (hasDates && hasProjectWork && hasContact) return 'import_mail_dates_to_project';
-  if (hasDates && hasContact && /\b(inscrit|inscris|ajoute|noter?|agenda|calendrier|projet)\b/i.test(m)) {
-    return 'import_mail_dates_to_project';
-  }
-  return null;
-}
-
-export function extractProjectHintFromMessage(message = '') {
-  const m = String(message || '');
-  const a = m.match(
-    /\b(?:l['']?\s*)?e?projets?\s+([A-Za-zÀ-ÿ0-9][\wÀ-ÿ'’.-]*(?:\s+[A-Za-zÀ-ÿ0-9][\wÀ-ÿ'’.-]*){0,5})/i
-  );
-  if (a?.[1]) {
-    return a[1]
-      .replace(/\s+(en\s+lien|et\s+(inscrit|inscris|crée|creer|crée|tout|un|une)|tout\b|avec\b).*$/i, '')
-      .trim();
-  }
-  if (/\bcorridor\b/i.test(m)) return 'corridor';
-  return null;
-}
-
-export function extractContactFromMessage(message = '') {
-  const m = String(message || '');
-  const lien = m.match(/en\s+lien\s+avec\s+([A-Za-zÀ-ÿ][\wÀ-ÿ'’.-]+)/i);
-  if (lien?.[1]) return lien[1];
-  const known = m.match(/\b(waita)\b/i);
-  if (known?.[1]) return known[1];
-  return extractMailSearchQuery(m) || null;
-}
-
-function wantsHoursLogbook(message = '') {
-  return /\b(carnet|heures?|tableau|feuille\s+de\s+temps|timesheet|calcul\s+d['']?heure)\b/i.test(message);
-}
-
-function plannedMinutesForLabel(label = '', start = '', end = '') {
-  const fromTimes = minutesBetweenTimes(start, end);
-  if (fromTimes && fromTimes >= 30) return fromTimes;
-  const l = String(label).toLowerCase();
-  const bits = [];
-  // Tester démontage AVANT montage (sinon « démontage » matche « montage »)
-  if (/\bd[eé]montage\b/.test(l)) bits.push(150);
-  else if (/\bmontage\b/.test(l)) bits.push(210);
-  if (/\bm[eé]diation\b/.test(l)) bits.push(180);
-  if (bits.length) return bits.reduce((a, b) => a + b, 0);
-  return 180;
-}
-
-function parseClockToken(raw = '') {
-  const s = String(raw || '').trim().toLowerCase()
-    .replace(/\s+/g, '')
-    .replace(/h(?=\d)/, ':')
-    .replace(/h$/, ':00')
-    .replace(/am$/, '')
-    .replace(/pm$/, '');
-  let m = s.match(/^(\d{1,2})(?::(\d{2}))?$/);
-  if (!m) return null;
-  let h = Number(m[1]);
-  let min = Number(m[2] || 0);
-  if (/pm/i.test(raw) && h < 12) h += 12;
-  if (/am/i.test(raw) && h === 12) h = 0;
-  if (h > 23 || min > 59) return null;
-  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
-}
-
-function minutesBetweenTimes(start, end) {
-  const a = parseClockToken(start);
-  const b = parseClockToken(end);
-  if (!a || !b) return null;
-  const [ah, am] = a.split(':').map(Number);
-  const [bh, bm] = b.split(':').map(Number);
-  let mins = (bh * 60 + bm) - (ah * 60 + am);
-  if (mins <= 0) mins += 24 * 60;
-  return mins;
-}
-
-function formatHm(hm) {
-  if (!hm) return '';
-  const [h, m] = hm.split(':');
-  return `${Number(h)}:${m}`;
-}
-
-/** Repérer montage / médiation / démontage (+ horaires) dans un segment. */
-function extractWorkSlots(segment = '') {
-  const text = String(segment || '')
-    .replace(/&[#\w]+;/g, ' ')
-    .replace(/[<>]/g, ' ')
-    .replace(/[>]{1,}/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (!text) return [];
-
-  const slots = [];
-  const re = /\b(montage|d[eé]montage|m[eé]diation)\b(?:[^0-9\n]{0,35}?)?(?:(?:[àa]|de|:)\s*)?(\d{1,2}(?::\d{2})?\s*(?:h(?:\d{2})?|am|pm)?)?(?:\s*(?:-|–|—|à|a|au|jusqu['’]?[aà]?)\s*)?(\d{1,2}(?::\d{2})?\s*(?:h(?:\d{2})?|am|pm)?)?/gi;
-  let m;
-  while ((m = re.exec(text)) !== null) {
-    const kind = m[1].toLowerCase()
-      .normalize('NFD').replace(/\p{M}/gu, '')
-      .replace('demontage', 'démontage')
-      .replace('mediation', 'médiation');
-    const pretty = kind.charAt(0).toUpperCase() + kind.slice(1);
-    const start = parseClockToken(m[2] || '');
-    const end = parseClockToken(m[3] || '');
-    slots.push({ kind: pretty, start, end });
-  }
-  return slots;
-}
-
-function summarizeSlots(slots = []) {
-  if (!slots.length) return null;
-  const kinds = [...new Set(slots.map(s => s.kind))];
-  const starts = slots.map(s => s.start).filter(Boolean).sort();
-  const ends = slots.map(s => s.end).filter(Boolean).sort();
-  const start = starts[0] || '';
-  const end = ends[ends.length - 1] || '';
-  let planned = 0;
-  for (const s of slots) {
-    const mins = minutesBetweenTimes(s.start, s.end);
-    if (mins) planned += mins;
-    else planned += plannedMinutesForLabel(s.kind);
-  }
-  // Si plages se chevauchent sur la même journée, plafonner à debut→fin globale
-  const span = minutesBetweenTimes(start, end);
-  if (span && span < planned) planned = span;
-  if (!planned) planned = plannedMinutesForLabel(kinds.join(' · '));
-  return {
-    label: kinds.join(' · '),
-    start: start ? formatHm(start) : '',
-    end: end ? formatHm(end) : '',
-    planned_minutes: planned,
-    planned_hours: Math.round((planned / 60) * 4) / 4,
-  };
-}
-
-function isJunkEventLabel(label = '') {
-  const l = String(label || '').toLowerCase();
-  if (!l || l.length < 3) return true;
-  if (/@|neyafurniture|salut\s+mehdi|fais[- ]moi savoir|tel que discut|message d['']origine|forwarded|>{2,}/i.test(l)) return true;
-  if (/^[,:\s]*[àa]\s+\d{1,2}\s*h/.test(l)) return true;
-  if (!/\b(montage|d[eé]montage|m[eé]diation|livraison|horaire|mandat)\b/i.test(l) && l.length > 60) return true;
-  return false;
-}
-
-function conciseLabelFromRaw(rawLabel = '', source = {}) {
-  const slots = extractWorkSlots(rawLabel);
-  const summarized = summarizeSlots(slots);
-  if (summarized) return summarized;
-  const cleaned = String(rawLabel || '')
-    .replace(/https?:\S+/g, '')
-    .replace(/&[#\w]+;/g, ' ')
-    .replace(/[<>]/g, ' ')
-    .replace(/[>]{1,}/g, ' ')
-    .replace(/\b(salut|bonjour|allo|merci|fais[- ]moi savoir|tel que discut)[\s\S]*/i, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 48);
-  if (isJunkEventLabel(cleaned)) {
-    return {
-      label: /mandat/i.test(source.subject || '') ? 'Mandat' : 'Intervention',
-      start: '',
-      end: '',
-      planned_minutes: 180,
-      planned_hours: 3,
-    };
-  }
-  return {
-    label: cleaned || 'Intervention',
-    start: '',
-    end: '',
-    planned_minutes: plannedMinutesForLabel(cleaned),
-    planned_hours: plannedMinutesForLabel(cleaned) / 60,
-  };
-}
-
-const HOURS_LOG_MARKER = '<!-- neya-hours-logbook -->';
-
-function buildHoursLogbookMarkdown(rows, { contact, projectName } = {}) {
-  const header = `${HOURS_LOG_MARKER}\n## Carnet d'heures${projectName ? ` — ${projectName}` : ''}${contact ? ` (source : ${contact})` : ''}\n`;
-  const tableHeader = '| Date | Travaux | H prévues | Début | Fin | H réelles | Notes |\n|------|---------|-----------|-------|-----|-----------|-------|\n';
-  const body = rows.map(r => {
-    const d = r.dateKey || r.date;
-    const planned = Number(r.planned_hours || 0).toFixed(1).replace('.0', '');
-    const actual = r.actual_hours != null && r.actual_hours !== '' ? String(r.actual_hours) : '';
-    return `| ${d} | ${(r.label || '').replace(/\|/g, '/')} | ${planned} | ${r.start || ''} | ${r.end || ''} | ${actual} | ${(r.notes || '').replace(/\|/g, '/')} |`;
-  }).join('\n');
-  return `${header}${tableHeader}${body}\n`;
-}
-
-async function upsertProjectHoursLogbook(project, events, { contact, replace = true } = {}) {
-  const rows = events
-    .filter(ev => !isJunkEventLabel(ev.label))
-    .map(ev => {
-      const concise = conciseLabelFromRaw(ev.label, { subject: ev.sourceSubject });
-      const start = ev.start || concise.start || '';
-      const end = ev.end || concise.end || '';
-      const planned_minutes = ev.planned_minutes || concise.planned_minutes || plannedMinutesForLabel(concise.label, start, end);
-      return {
-        dateKey: ev.dateKey,
-        label: concise.label,
-        planned_minutes,
-        planned_hours: Math.round((planned_minutes / 60) * 4) / 4,
-        start,
-        end,
-        actual_hours: '',
-        notes: '',
-        taskId: ev.taskId || null,
-      };
-    });
-
-  const prevMeta = typeof project.meta === 'string' ? JSON.parse(project.meta || '{}') : (project.meta || {});
-  let merged;
-  if (replace) {
-    merged = rows.sort((a, b) => String(a.dateKey).localeCompare(String(b.dateKey)));
-  } else {
-    const prevLog = (prevMeta.hours_logbook?.rows || []).filter(r => !isJunkEventLabel(r.label));
-    const byDay = new Map(prevLog.map(r => [r.dateKey, r]));
-    for (const r of rows) {
-      const old = byDay.get(r.dateKey);
-      const keepActual = old && (old.actual_hours !== '' && old.actual_hours != null);
-      byDay.set(r.dateKey, {
-        ...(old || {}),
-        ...r,
-        // Conserver saisie manuelle réelle ; rafraîchir libellés/prévu/début/fin
-        start: r.start || old?.start || '',
-        end: r.end || old?.end || '',
-        actual_hours: keepActual ? old.actual_hours : '',
-        notes: old?.notes || '',
-      });
-    }
-    merged = [...byDay.values()].sort((a, b) => String(a.dateKey).localeCompare(String(b.dateKey)));
-  }
-
-  const hours_logbook = {
-    updated_at: new Date().toISOString(),
-    source: contact || 'mail',
-    rows: merged,
-    planned_total: merged.reduce((s, r) => s + Number(r.planned_hours || 0), 0),
-    actual_total: merged.reduce((s, r) => s + (r.actual_hours === '' || r.actual_hours == null ? 0 : Number(r.actual_hours)), 0),
-  };
-  const meta = { ...prevMeta, hours_logbook };
-
-  const md = buildHoursLogbookMarkdown(merged, { contact, projectName: project.name });
-  let notes = String(project.notes || '');
-  if (notes.includes(HOURS_LOG_MARKER)) {
-    notes = notes.replace(new RegExp(`${HOURS_LOG_MARKER}[\\s\\S]*?(?=\\n##(?!#)|$)`), md.trimEnd() + '\n');
-  } else {
-    notes = `${notes.trim()}\n\n${md}`.trim();
-  }
-
-  const { rows: updated } = await pool.query(
-    `UPDATE projects SET meta = $1::jsonb, notes = $2 WHERE id = $3 RETURNING *`,
-    [JSON.stringify(meta), notes, project.id]
-  );
-  return { project: updated[0], hours_logbook, markdown: md };
-}
-
-const MAIL_QUERY_STOP = /\b(et|puis|ensuite|pour|afin\s+de|ensuite)\s+(rep[eè]re|rep[eé]rer|trouve|trouver|extrais|extraire|note|noter|synth[eé]tise|r[eé]sume|liste|identifie|donne|dis[- ]?moi|r[eé]cup[eè]re)\b/i;
-const MAIL_INSTRUCTION_RE = /\b(dates?|evenements?|événements?|coordonn|adresse|t[eé]l[eé]phone|horaire|quand|r[eé]sume|synth[eè]se)\b/i;
-
-/** Nettoie une requête Gmail : enlève l’instruction utilisateur après le mot-clé. */
-export function cleanMailSearchQuery(raw = '') {
-  let q = String(raw || '').trim();
-  if (!q) return '';
-
-  // Couper à « et repère… », « puis extrais… », etc.
-  const stop = q.match(MAIL_QUERY_STOP);
-  if (stop && stop.index > 0) {
-    q = q.slice(0, stop.index).trim();
-  }
-
-  // Couper à virgule + instruction
-  const commaParts = q.split(/\s*,\s*/);
-  if (commaParts.length > 1 && MAIL_INSTRUCTION_RE.test(commaParts.slice(1).join(' '))) {
-    q = commaParts[0].trim();
-  }
-
-  // Si trop long et contient une instruction, garder le début (mots de recherche)
-  if (q.split(/\s+/).length > 6 && MAIL_INSTRUCTION_RE.test(q)) {
-    const words = q.split(/\s+/);
-    const cut = words.findIndex(w => MAIL_INSTRUCTION_RE.test(w) || /^(et|puis|pour)$/i.test(w));
-    if (cut > 0) q = words.slice(0, cut).join(' ').trim();
-  }
-
-  return q.replace(/^["'«]+|["'»]+$/g, '').trim();
-}
-
-export function extractMailSearchQuery(message = '') {
-  const quoted = extractQuotedText(message);
-  if (quoted) return cleanMailSearchQuery(quoted);
-
-  const after = extractAfterKeyword(message, [
-    'cherche dans mes mails', 'cherche dans mes courriels', 'cherche dans gmail',
-    'cherche mail', 'chercher mail', 'cherche courriel', 'rechercher mail',
-    'mails de', 'courriels de', 'mail de', 'courriel de', 'email de',
-    'regarde le mail de', 'regarde mail de', 'trouve le mail',
-  ]);
-  if (after && after.length >= 2) return cleanMailSearchQuery(after);
-
-  const stripped = String(message || '')
-    .replace(/^(cherche|rechercher|trouver|trouve|regarde|lis|ouvre|montre).{0,50}?(mails?|courriels?|emails?|gmail)\s*(de|pour|sur|concernant|à propos)?\s*/i, '')
-    .replace(/^(dans|via|depuis)\s+(mes\s+)?(mails?|courriels?)\s*/i, '')
-    .trim();
-  return cleanMailSearchQuery(stripped);
-}
-
-function wantsMailDates(message = '') {
-  return /\b(dates?|evenements?|événements?|evenment|horaire|quand|calendrier|agenda)\b/i.test(message);
-}
-
-function wantsScheduleFromMail(message = '') {
-  return /\b(rep[eè]re|note|noter|ajoute|ajouter|planifie|planifier|calendrier|agenda|programme|enregistre|dans\s+l['']?agenda)\b/i.test(message)
-    || wantsMailDates(message);
-}
-
-const FR_MONTHS = {
-  janvier: 0, février: 1, fevrier: 1, mars: 2, avril: 3, mai: 4, juin: 5,
-  juillet: 6, août: 7, aout: 7, septembre: 8, octobre: 9, novembre: 10, décembre: 11, decembre: 11,
-};
-
-function resolveFrenchDate(day, monthName, yearHint = null) {
-  const month = FR_MONTHS[String(monthName || '').toLowerCase()];
-  if (month == null || !day) return null;
-  const now = new Date();
-  let year = yearHint ? Number(yearHint) : now.getFullYear();
-  if (year < 100) year += 2000;
-  let d = new Date(year, month, Number(day), 9, 0, 0, 0);
-  // Si la date est déjà passée de >30j et pas d'année explicite → année suivante
-  if (!yearHint && d.getTime() < now.getTime() - 30 * 86400000) {
-    d = new Date(year + 1, month, Number(day), 9, 0, 0, 0);
-  }
-  return d;
-}
-
-function formatEventDate(d) {
-  return d.toLocaleDateString('fr-CA', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-}
-
-function eventKey(d) {
-  return d.toISOString().slice(0, 10);
-}
-
-function isMailMetaDateContext(before = '', after = '') {
-  // Fenêtre courte — un header plus loin dans le fil ne doit pas tuer les vraies dates
-  const nearBefore = String(before || '').slice(-50).toLowerCase();
-  const nearAfter = String(after || '').slice(0, 48).toLowerCase();
-  const ctx = `${nearBefore} ${nearAfter}`;
-  if (/\ba\s+[eé]crit\b|\b[eé]crit\s*:|forwarded message|message d['']origine|de\s*:\s*\S+@|@neyafurniture|@gmail\.|contact@/i.test(ctx)) {
-    return true;
-  }
-  // Header style "Le mar. 30 juin 2026, à 11 h 43"
-  if (/\ble\s+(lun|mar|mer|jeu|ven|sam|dim)\.?\s*$/i.test(nearBefore.trim())
-    && (/\b[aà]\s+\d{1,2}\s*h\b/.test(nearAfter) || /\b\d{4}\b/.test(nearAfter.slice(0, 8)))) {
-    return true;
-  }
-  // Suite d'en-tête collée: ", à 11 h 43, Neya <contact…"
-  if (/^\s*,?\s*[aà]\s+\d{1,2}\s*h/.test(nearAfter) && /neya|contact@|mehdi/.test(nearAfter)) {
-    return true;
-  }
-  return false;
-}
-
-function labelFromAfterColon(tail = '') {
-  return String(tail)
-    .split(/(?=(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|\d{1,2}\s+(?:janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre)(?:\s|$|\s*[:\-–])))/i)[0]
-    .replace(/https?:\S+/g, '')
-    .replace(/&[#\w]+;/g, ' ')
-    .replace(/^[\s:–\-•>]+/, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 160);
-}
-
-/** Extraire événements datés + libellé concis depuis un corps de mail. */
-export function extractEventsFromText(text = '', source = {}) {
-  const raw = String(text || '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&[#\w]+;/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (!raw) return [];
-  const byDay = new Map();
-
-  const pushEv = (date, rawLabel, priority = 1) => {
-    if (!date || Number.isNaN(date.getTime())) return;
-    if (isJunkEventLabel(rawLabel) && !extractWorkSlots(rawLabel).length) return;
-    const concise = conciseLabelFromRaw(rawLabel, source);
-    const ev = {
-      date,
-      dateKey: eventKey(date),
-      label: concise.label,
-      start: concise.start,
-      end: concise.end,
-      planned_minutes: concise.planned_minutes,
-      planned_hours: concise.planned_hours,
-      priority,
-      sourceSubject: source.subject || null,
-      sourceFrom: source.from || null,
-    };
-    if (isJunkEventLabel(ev.label) && !/\b(montage|médiation|démontage|intervention|mandat)\b/i.test(ev.label)) return;
-    const prev = byDay.get(ev.dateKey);
-    // Préférer priorité haute, puis label avec créneaux, puis label plus court/propre
-    const score = (e) => (e.priority || 0) * 100 + (e.start ? 20 : 0) + (extractWorkSlots(e.label).length ? 10 : 0) - Math.min(String(e.label).length, 40);
-    if (!prev || score(ev) >= score(prev)) byDay.set(ev.dateKey, ev);
-  };
-
-  // Blocs datés : "10 juillet: …" / "Dimanche 19 juillet - …"
-  const lined = raw.matchAll(
-    /(?:(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\s+)?(\d{1,2})\s+(janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre)(?:\s+(\d{4}))?\s*[:\-–]\s*/gi
-  );
-  for (const m of lined) {
-    const d = resolveFrenchDate(m[1], m[2], m[3]);
-    if (!d) continue;
-    const idx = (m.index || 0) + m[0].length;
-    const before = raw.slice(Math.max(0, (m.index || 0) - 30), m.index || 0);
-    const after = labelFromAfterColon(raw.slice(idx, idx + 180));
-    if (isMailMetaDateContext(before, after)) continue;
-    pushEv(d, after, 4);
-  }
-
-  // Dates sans deux-points : "Dimanche 12 juillet médiation…"
-  const loose = raw.matchAll(
-    /(?:(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\s+)?(?:le\s+)?(\d{1,2})\s+(janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre)(?:\s+(\d{4}))?/gi
-  );
-  for (const m of loose) {
-    const d = resolveFrenchDate(m[1], m[2], m[3]);
-    if (!d) continue;
-    const idx = m.index ?? 0;
-    const before = raw.slice(Math.max(0, idx - 50), idx);
-    const after = raw.slice(idx + m[0].length, idx + m[0].length + 140);
-    if (isMailMetaDateContext(before, after)) continue;
-    if (byDay.get(eventKey(d))?.priority >= 4) continue;
-    if (!extractWorkSlots(after).length && !/\b(montage|d[eé]montage|m[eé]diation)\b/i.test(after.slice(0, 60))) continue;
-    pushEv(d, labelFromAfterColon(after), 2);
-  }
-
-  return [...byDay.values()]
-    .map(({ priority, ...rest }) => rest)
-    .filter(ev => !isJunkEventLabel(ev.label) || extractWorkSlots(ev.label).length)
-    .sort((a, b) => a.date - b.date);
-}
-
-/** Éclater un événement en un créneau par type de travail (montage, démontage, médiation…). */
-function expandEventToSlots(ev) {
-  const slots = extractWorkSlots(ev.label);
-  if (slots.length <= 1) return [ev];
-  return slots.map(slot => {
-    const minutes = minutesBetweenTimes(slot.start, slot.end) || plannedMinutesForLabel(slot.kind);
-    return {
-      ...ev,
-      label: slot.kind,
-      start: slot.start ? formatHm(slot.start) : (ev.start || ''),
-      end: slot.end ? formatHm(slot.end) : (ev.end || ''),
-      planned_minutes: minutes,
-      planned_hours: Math.round((minutes / 60) * 4) / 4,
-    };
-  });
-}
-
-async function scheduleMailEvents(events, { query, pageContext, subjectHint, projectId: forcedProjectId = null }) {
-  const actions = [];
-  const created = [];
-  if (!events.length) return { actions, created };
-
-  let projectId = forcedProjectId || (pageContext?.type === 'project' ? pageContext.id : null);
-  if (!projectId) {
-    const hint = query || subjectHint || '';
-    const p = await resolveProjectByHint(hint, pageContext)
-      || await resolveProjectByHint('corridor', pageContext)
-      || await resolveProjectByHint('waita', pageContext);
-    projectId = p?.id || null;
-  }
-
-  for (const rawEv of events) {
-    for (const ev of expandEventToSlots(rawEv)) {
-    const minutes = ev.planned_minutes || plannedMinutesForLabel(ev.label, ev.start, ev.end);
-    const kindHint = ev.label.toLowerCase().slice(0, 24);
-    const { rows: existing } = await pool.query(
-      `SELECT id, title FROM tasks
-       WHERE status != 'done'
-         AND project_id IS NOT DISTINCT FROM $4
-         AND DATE(start_time) = $1::date
-         AND (LOWER(title) LIKE $2 OR LOWER(title) LIKE $3 OR LOWER(title) LIKE $5)
-       LIMIT 1`,
-      [
-        ev.dateKey,
-        `%${String(query || '').toLowerCase().slice(0, 20)}%`,
-        `%${ev.label.toLowerCase().slice(0, 20)}%`,
-        projectId,
-        `%${kindHint}%`,
-      ]
-    );
-    if (existing[0]) {
-      created.push({ ...ev, skipped: true, taskId: existing[0].id, title: existing[0].title, planned_minutes: minutes });
-      continue;
-    }
-
-    const title = `${ev.label} — ${query || 'mail'}`.replace(/\s+/g, ' ').trim().slice(0, 180);
-    const type = 'admin';
-    let task;
-    if (projectId) {
-      task = await insertTaskForProject(projectId, title, type, minutes);
-    } else {
-      const { rows } = await pool.query(
-        `INSERT INTO tasks (title, type, status, estimated_minutes, sort_order)
-         VALUES ($1,$2,'todo',$3,0) RETURNING *`,
-        [title, type, minutes]
-      );
-      task = rows[0];
-    }
-    const start = new Date(ev.date);
-    const clock = parseClockToken(ev.start || '9:00') || '09:00';
-    const [hh, mm] = clock.split(':').map(Number);
-    start.setHours(hh, mm, 0, 0);
-    const endMins = minutesBetweenTimes(ev.start, ev.end);
-    const end = endMins
-      ? (() => { const e = new Date(start); const [eh, em] = (parseClockToken(ev.end) || '10:00').split(':').map(Number); e.setHours(eh, em, 0, 0); return e; })()
-      : new Date(start.getTime() + minutes * 60000);
-    const { rows } = await pool.query(
-      'UPDATE tasks SET start_time=$1, end_time=$2 WHERE id=$3 RETURNING *',
-      [start.toISOString(), end.toISOString(), task.id]
-    );
-    actions.push({ type: 'schedule_task', data: rows[0] });
-    actions.push({ type: 'create_task', data: rows[0] });
-    created.push({ ...ev, skipped: false, taskId: rows[0].id, title: rows[0].title, planned_minutes: minutes });
-    }
-  }
-  return { actions, created, projectId };
-}
-
-async function collectEventsFromMessages(messages, q) {
-  const gmail = await import('./google-gmail.js');
-  const ranked = [...messages].sort((a, b) => {
-    const score = (m) => {
-      let s = 0;
-      const from = String(m.from || '').toLowerCase();
-      if (q && from.includes(String(q).toLowerCase())) s += 3;
-      if (!/^re:/i.test(m.subject || '')) s += 2;
-      if (/mandat|horaire|dates|montage/i.test(m.subject || '')) s += 2;
-      return s;
-    };
-    return score(b) - score(a);
-  });
-
-  const allEvents = [];
-  for (const m of ranked.slice(0, 6)) {
-    let body = String(m.snippet || '');
-    try {
-      const full = await gmail.getMessage(m.id);
-      body = `${full.subject || ''}\n${full.snippet || ''}\n${full.body || ''}`;
-    } catch { /* snippet */ }
-    for (const ev of extractEventsFromText(body, { subject: m.subject, from: m.from })) {
-      allEvents.push(ev);
-    }
-  }
-
-  const byDay = new Map();
-  for (const ev of allEvents) {
-    const prev = byDay.get(ev.dateKey);
-    if (!prev || ev.label.length > prev.label.length) byDay.set(ev.dateKey, ev);
-  }
-  const uniqueEvents = [...byDay.values()].sort((a, b) => a.date - b.date)
-    .filter(ev => {
-      const now = Date.now();
-      return ev.date.getTime() > now - 14 * 86400000 || ev.date.getTime() > now;
-    });
-  return { uniqueEvents, ranked };
-}
-
-async function importMailDatesToProject(message, pageContext, params = {}) {
-  const gmail = await import('./google-gmail.js');
-  const mailQ = cleanMailSearchQuery(String(
-    params.query || params.contact || extractContactFromMessage(message) || 'waita'
-  ));
-  const projectHint = String(
-    params.project_name || params.project || extractProjectHintFromMessage(message) || ''
-  ).trim() || (pageContext?.type === 'project' ? null : 'corridor');
-
-  let project = projectHint
-    ? await resolveProjectByHint(projectHint, pageContext)
-    : null;
-  if (!project) project = await resolveProjectByHint(null, pageContext);
-  if (!project && /\bcorridor\b/i.test(message)) {
-    project = await resolveProjectByHint('corridor', pageContext);
-  }
-  if (!project) {
-    return {
-      reply: `Projet introuvable${projectHint ? ` pour « ${projectHint} »` : ''}. Créez-le ou donnez le nom exact (ex. Corridor Culturel).`,
-      actions: [],
-    };
-  }
-
-  let usedQuery = mailQ;
-  let { messages } = await gmail.searchMessages(mailQ || 'waita', 12);
-  if (!messages?.length && mailQ !== 'corridor') {
-    const retry = await gmail.searchMessages('corridor', 12);
-    if (retry.messages?.length) {
-      messages = retry.messages;
-      usedQuery = 'corridor';
-    }
-  }
-  if (!messages?.length) {
-    return {
-      reply: `Aucun mail trouvé pour « ${mailQ} ». Impossible d’extraire les dates pour « ${project.name} ».`,
-      actions: [],
-    };
-  }
-
-  const { uniqueEvents, ranked } = await collectEventsFromMessages(messages, usedQuery);
-  if (!uniqueEvents.length) {
-    return {
-      reply: `J’ai lu ${messages.length} mail(s) « ${usedQuery} », mais aucune date d’événement claire. Ouvre le fil Waita si besoin.`,
-      actions: [{ type: 'search_emails', data: { query: usedQuery, messages } }],
-    };
-  }
-
-  const sched = await scheduleMailEvents(uniqueEvents, {
-    query: usedQuery,
-    pageContext: { type: 'project', id: project.id, label: project.name },
-    subjectHint: ranked[0]?.subject,
-    projectId: project.id,
-  });
-
-  const eventsWithTasks = uniqueEvents.map(ev => {
-    const c = sched.created.find(x => x.dateKey === ev.dateKey);
-    return { ...ev, taskId: c?.taskId || null };
-  });
-
-  const makeLogbook = wantsHoursLogbook(message) || /import_mail|carnet|heures|tableau|projet/i.test(message);
-  let logbookResult = null;
-  if (makeLogbook) {
-    logbookResult = await upsertProjectHoursLogbook(project, eventsWithTasks, { contact: usedQuery });
-  }
-
-  const actions = [
-    { type: 'search_emails', data: { query: usedQuery, messages, events: uniqueEvents } },
-    ...sched.actions,
-  ];
-  if (logbookResult) {
-    actions.push({ type: 'update_project', data: logbookResult.project });
-    actions.push({ type: 'hours_logbook', data: logbookResult.hours_logbook });
-  }
-  actions.push({ type: 'navigate', data: { href: `/projects/${project.id}?tab=hours` } });
-
-  const planned = sched.created.filter(c => !c.skipped);
-  const skipped = sched.created.filter(c => c.skipped);
-  const table = uniqueEvents.map((ev, i) => {
-    const h = (plannedMinutesForLabel(ev.label) / 60).toFixed(1).replace(/\.0$/, '');
-    return `${i + 1}. ${formatEventDate(ev.date)} — ${ev.label} (${h} h prévues)`;
-  }).join('\n');
-
-  let reply = `C’est fait pour le projet « ${project.name} » (#${project.id}), à partir des mails « ${usedQuery} ».\n\n`
-    + `Agenda inscrit :\n${table}`;
-  if (planned.length) reply += `\n\n${planned.length} tâche(s) créée(s)/planifiée(s) sur le projet.`;
-  if (skipped.length) reply += `\n(${skipped.length} déjà présentes, non dupliquées.)`;
-  if (logbookResult) {
-    reply += `\n\nCarnet d’heures par jour créé (tableau) — onglet Heures du projet. Colonnes : date, travaux, h prévues, début, fin, h réelles.`;
-  }
-  reply += `\n\nJe t’ouvre le projet.`;
-
-  return { reply, actions };
-}
-
-async function analyzeMailSearchAndAct({ q, messages, userMessage, pageContext }) {
-  const wantsDates = wantsMailDates(userMessage);
-  const wantsSchedule = wantsScheduleFromMail(userMessage);
-  const { uniqueEvents, ranked } = await collectEventsFromMessages(messages, q);
-
-  const actions = [{ type: 'search_emails', data: { query: q, messages, events: uniqueEvents } }];
-
-  let scheduleBlock = '';
-  if (wantsSchedule && uniqueEvents.length) {
-    const projectHint = extractProjectHintFromMessage(userMessage);
-    let forcedId = pageContext?.type === 'project' ? pageContext.id : null;
-    if (!forcedId && projectHint) {
-      const p = await resolveProjectByHint(projectHint, pageContext);
-      forcedId = p?.id || null;
-    }
-    const result = await scheduleMailEvents(uniqueEvents, {
-      query: q,
-      pageContext,
-      subjectHint: ranked[0]?.subject,
-      projectId: forcedId,
-    });
-    actions.push(...result.actions);
-
-    if (wantsHoursLogbook(userMessage) && result.projectId) {
-      const { rows } = await pool.query('SELECT * FROM projects WHERE id = $1', [result.projectId]);
-      if (rows[0]) {
-        const withTasks = uniqueEvents.map(ev => {
-          const c = result.created.find(x => x.dateKey === ev.dateKey);
-          return { ...ev, taskId: c?.taskId || null };
-        });
-        const log = await upsertProjectHoursLogbook(rows[0], withTasks, { contact: q });
-        actions.push({ type: 'update_project', data: log.project });
-        actions.push({ type: 'hours_logbook', data: log.hours_logbook });
-        actions.push({ type: 'navigate', data: { href: `/projects/${result.projectId}?tab=hours` } });
-        scheduleBlock += `\n\nCarnet d’heures créé sur le projet (#${result.projectId}).`;
-      }
-    }
-
-    const planned = result.created.filter(c => !c.skipped);
-    const skipped = result.created.filter(c => c.skipped);
-    if (planned.length) {
-      scheduleBlock += `\n\nÉtapes suivantes — ${planned.length} tâche(s) ajoutée(s) au calendrier :\n`
-        + planned.map(c => `• ${formatEventDate(c.date)} — ${c.title}`).join('\n');
-    }
-    if (skipped.length) {
-      scheduleBlock += `\n(déjà planifié : ${skipped.map(c => formatEventDate(c.date)).join(', ')})`;
-    }
-    if (result.projectId) {
-      scheduleBlock += `\nLié au projet #${result.projectId}.`;
-    } else {
-      scheduleBlock += `\nAstuce : nommez le projet (ex. Corridor) pour y rattacher ces tâches.`;
-    }
-  }
-
-  const contact = ranked.find(m => String(m.from || '').toLowerCase().includes(String(q).toLowerCase()))?.from
-    || ranked[0]?.from
-    || q;
-  let reply = `J’ai trouvé ${messages.length} mail(s) liés à « ${q} »`;
-  if (contact) reply += ` (ex. ${contact})`;
-  reply += '.';
-
-  if (uniqueEvents.length) {
-    reply += `\n\nAgenda extrait des échanges :\n`
-      + uniqueEvents.map((ev, i) => `${i + 1}. ${formatEventDate(ev.date)} — ${ev.label}`).join('\n');
-  } else if (wantsDates) {
-    reply += '\n\nJe n’ai pas repéré de dates d’événement claires dans les messages lus.';
-  }
-
-  if (!wantsDates && !wantsSchedule) {
-    reply += '\n\nAperçu :\n'
-      + ranked.slice(0, 4).map((s, i) => `${i + 1}. ${s.subject}\n   ${String(s.snippet || '').slice(0, 120)}`).join('\n');
-  }
-
-  reply += scheduleBlock;
-
-  if (uniqueEvents.length && !wantsSchedule) {
-    reply += `\n\nDis « ajoute ces dates à l’agenda du projet Corridor » pour les inscrire + carnet d’heures.`;
-  }
-
-  return { reply, actions };
+  const m = message.match(/(\+?1?\s?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/);
+  return m ? m[0].replace(/\s/g, ' ') : null;
 }
 
 export async function createProjectFromStandard(pageContext, message) {
@@ -1379,10 +523,7 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
   if (!projectId) {
     projectId = await resolveProjectId(params, msg, pageContext) || projectId;
   }
-  let clientId = pageContext?.type === 'client' ? pageContext.id : null;
-  if (!clientId) {
-    clientId = await resolveClientId(params, msg, pageContext) || null;
-  }
+  const clientId = pageContext?.type === 'client' ? pageContext.id : null;
 
   switch (actionType) {
     case 'search_projects':
@@ -1562,23 +703,10 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
     }
 
     case 'create_client': {
-      const contact = parseClientContact(msg, params);
-      const name = contact.name || 'Nouveau client';
-      const { rows } = await pool.query(
-        `INSERT INTO clients (name, email, phone, address, city)
-         VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-        [name, contact.email, contact.phone, contact.address, contact.city]
-      );
+      const name = extractQuotedText(message) || extractAfterKeyword(message, ['client']) || 'Nouveau client';
+      const { rows } = await pool.query('INSERT INTO clients (name) VALUES ($1) RETURNING *', [name.slice(0, 200)]);
       actions.push({ type: 'create_client', data: rows[0] });
-      actions.push({ type: 'navigate', data: { href: `/clients/${rows[0].id}` } });
-      const bits = [];
-      if (rows[0].email) bits.push(rows[0].email);
-      if (rows[0].phone) bits.push(rows[0].phone);
-      if (rows[0].address) bits.push(rows[0].address);
-      return {
-        reply: `Client ajouté : « ${rows[0].name} »${bits.length ? ` — ${bits.join(' · ')}` : ''}`,
-        actions,
-      };
+      return { reply: `Client ajouté : « ${rows[0].name} »`, actions };
     }
 
     case 'complete_task':
@@ -1680,54 +808,49 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
       if (notes != null && params.append_notes && p.notes) {
         notes = `${p.notes}\n${notes}`;
       }
+      let clientId = p.client_id;
+      if (params.client_id !== undefined) {
+        clientId = params.client_id === '' || params.client_id == null ? null : Number(params.client_id);
+      } else if (pageContext?.type === 'client' && /lier|associer|assigner.*(client|ce client)/i.test(msg)) {
+        clientId = pageContext.id;
+      }
       const { rows } = await pool.query(
-        `UPDATE projects SET name=$1, status=$2, deadline=$3, budget_estimated=$4, notes=$5 WHERE id=$6 RETURNING *`,
+        `UPDATE projects SET name=$1, status=$2, deadline=$3, budget_estimated=$4, notes=$5, client_id=$6 WHERE id=$7 RETURNING *`,
         [
           name || p.name,
           status || p.status,
           deadline ? (deadline instanceof Date ? deadline.toISOString().slice(0, 10) : String(deadline).slice(0, 10)) : p.deadline,
           budget != null && (params.budget_estimated != null || /budget/i.test(msg)) ? budget : p.budget_estimated,
           notes != null ? notes : p.notes,
+          clientId,
           id,
         ]
       );
-      actions.push({ type: 'update_project', data: rows[0] });
-      return { reply: `Projet « ${rows[0].name} » mis à jour${notes != null ? ' (notes/descriptif)' : ''}.`, actions };
+      const { rows: full } = await pool.query(
+        `SELECT p.*, c.name AS client_name FROM projects p
+         LEFT JOIN clients c ON c.id = p.client_id WHERE p.id = $1`,
+        [id]
+      );
+      actions.push({ type: 'update_project', data: full[0] || rows[0] });
+      const linked = full[0]?.client_name ? ` — client : ${full[0].client_name}` : (clientId == null && p.client_id ? ' — client retiré' : '');
+      return { reply: `Projet « ${rows[0].name} » mis à jour${linked}${notes != null ? ' (notes/descriptif)' : ''}.`, actions };
     }
 
     case 'update_client': {
-      const id = clientId || await resolveClientId(params, msg, pageContext);
-      if (!id) {
-        return {
-          reply: 'Précisez le client (ex. « email de Dupont = jean@x.com ») ou ouvrez sa fiche.',
-          actions,
-        };
-      }
+      const id = clientId;
+      if (!id) return { reply: 'Ouvrez la fiche d\'un client pour le modifier.', actions };
       const { rows: existing } = await pool.query('SELECT * FROM clients WHERE id = $1', [id]);
       const c = existing[0];
       if (!c) return { reply: 'Client introuvable.', actions };
-      const contact = parseClientContact(msg, params);
-      const rename = extractQuotedText(msg) && /renommer|appeler/i.test(msg)
-        ? extractQuotedText(msg)
-        : (/renommer|appeler/i.test(msg) ? extractAfterKeyword(msg, ['renommer', 'appeler']) : null);
-      const finalName = params.name || rename || c.name;
-      const email = contact.email || params.email || c.email;
-      const phone = contact.phone || params.phone || c.phone;
-      const address = contact.address || params.address || c.address;
-      const city = contact.city || params.city || c.city;
+      const name = extractQuotedText(message) || (/renommer|appeler/i.test(message) ? extractAfterKeyword(message, ['renommer', 'appeler']) : null);
+      const email = parseEmail(message) || c.email;
+      const phone = parsePhone(message) || c.phone;
       const { rows } = await pool.query(
-        `UPDATE clients SET name=$1, email=$2, phone=$3, address=$4, city=$5 WHERE id=$6 RETURNING *`,
-        [finalName, email, phone, address, city, id]
+        'UPDATE clients SET name=$1, email=$2, phone=$3 WHERE id=$4 RETURNING *',
+        [name || c.name, email, phone, id]
       );
       actions.push({ type: 'update_client', data: rows[0] });
-      const bits = [];
-      if (rows[0].email) bits.push(rows[0].email);
-      if (rows[0].phone) bits.push(rows[0].phone);
-      if (rows[0].address) bits.push(rows[0].address);
-      return {
-        reply: `Client « ${rows[0].name} » mis à jour${bits.length ? ` — ${bits.join(' · ')}` : ''}.`,
-        actions,
-      };
+      return { reply: `Client « ${rows[0].name} » mis à jour.`, actions };
     }
 
     case 'list_clients': {
@@ -1793,93 +916,32 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
     case 'search_emails': {
       try {
         const gmail = await import('./google-gmail.js');
-        const q = cleanMailSearchQuery(String(
-          params.query || params.q || extractMailSearchQuery(msg) || extractQuotedText(msg) || ''
-        ));
+        const q = String(
+          params.query || params.q || extractQuotedText(msg)
+          || extractAfterKeyword(msg, ['cherche mail', 'chercher mail', 'cherche courriel', 'rechercher mail', 'mails de', 'courriels de', 'email de'])
+          || msg.replace(/^(cherche|rechercher|trouver|liste)\s+(les?\s+)?(mails?|courriels?|emails?)\s*/i, '')
+        ).trim();
         if (!q || q.length < 2) {
-          return { reply: 'Précisez la recherche, ex. « cherche mails waita » ou « mails de Dupont ».', actions };
+          return { reply: 'Précisez la recherche, ex. « cherche mails de The NNS » ou « mails facture ».', actions };
         }
         const max = Math.min(Number(params.max) || 12, 25);
-        let { messages } = await gmail.searchMessages(q, max);
-        let usedQuery = q;
-        if (!messages?.length) {
-          const short = q.split(/\s+/)[0];
-          if (short && short.length >= 2 && short.toLowerCase() !== q.toLowerCase()) {
-            const retry = await gmail.searchMessages(short, max);
-            if (retry.messages?.length) {
-              messages = retry.messages;
-              usedQuery = short;
-            }
-          }
-        }
+        const { messages } = await gmail.searchMessages(q, max);
         if (!messages?.length) {
           return { reply: `Aucun courriel trouvé pour « ${q} ».`, actions };
         }
-
-        // Si l'utilisateur vise un projet + carnet → pipeline import complet
-        if (detectImportMailDatesIntent(`${msg} ${message || ''}`) || wantsHoursLogbook(msg)) {
-          return importMailDatesToProject(message || msg, pageContext, { ...params, query: usedQuery });
-        }
-
-        return analyzeMailSearchAndAct({
-          q: usedQuery,
-          messages,
-          userMessage: `${msg} ${message || ''}`,
-          pageContext,
-        });
+        const lines = messages.map((m, i) => (
+          `${i + 1}. ${m.from || '?'} — ${m.subject || '(sans objet)'}\n   ${String(m.snippet || '').slice(0, 120)}`
+        )).join('\n');
+        actions.push({ type: 'search_emails', data: { query: q, messages } });
+        return {
+          reply: `Résultats Gmail pour « ${q} » (${messages.length}) :\n${lines}\n\nPour le contenu : get_email avec {"message_id":"…"} ou « ouvre le mail 1 ».`,
+          actions,
+        };
       } catch (err) {
         return {
           reply: `Recherche Gmail impossible : ${err.message}. Vérifiez la connexion Google.`,
           actions,
         };
-      }
-    }
-
-    case 'import_mail_dates_to_project': {
-      try {
-        return await importMailDatesToProject(message || msg, pageContext, params);
-      } catch (err) {
-        return {
-          reply: `Import des dates impossible : ${err.message}`,
-          actions,
-        };
-      }
-    }
-
-    case 'create_project_from_quote_email': {
-      try {
-        const q = String(
-          params.query
-          || params.client_name
-          || params.q
-          || extractQuoteImportQuery(msg)
-          || extractQuotedText(msg)
-          || ''
-        ).trim();
-        const result = await createProjectsFromQuoteEmails({
-          query: q,
-          maxEmails: Math.min(Number(params.max) || 4, 6),
-          messageId: params.message_id || params.id || null,
-        });
-        for (const a of result.actions || []) actions.push(a);
-        const lines = result.created.map((c, i) => {
-          const p = c.project;
-          const quote = c.quote;
-          return `${i + 1}. Projet « ${p.name} » (#${p.id}) — devis ${quote.quote_number} (${quote.total} $ TTC) — ${c.tasks_count} tâches → /projects/${p.id}`;
-        }).join('\n');
-        const files = (result.emails_used || [])
-          .map(e => `• ${e.subject} (${(e.files || []).join(', ') || 'sans PJ'})`)
-          .join('\n');
-        actions.push({ type: 'navigate', data: { href: `/clients/${result.client.id}` } });
-        if (result.created[0]?.project?.id) {
-          actions.push({ type: 'navigate', data: { href: `/projects/${result.created[0].project.id}` } });
-        }
-        return {
-          reply: `Client « ${result.client?.name} » prêt. ${result.created.length} projet(s) créé(s) depuis les devis Gmail/PDF :\n${lines}\n\nMails utilisés :\n${files}`,
-          actions,
-        };
-      } catch (err) {
-        return { reply: `Création projet depuis devis : ${err.message}`, actions };
       }
     }
 
@@ -1894,13 +956,10 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
           messageId = messages?.[indexHint - 1]?.id || null;
         }
         if (!messageId) {
-          const q = String(params.query || extractMailSearchQuery(msg) || extractQuotedText(msg) || '').trim();
-          if (q && q.length >= 2) {
+          const q = String(params.query || extractQuotedText(msg) || '').trim();
+          if (q) {
             const { messages } = await gmail.searchMessages(q, 5);
             messageId = messages?.[0]?.id || null;
-            if (!messageId) {
-              return { reply: `Aucun courriel trouvé pour « ${q} ».`, actions };
-            }
           }
         }
         if (!messageId) {
@@ -2136,9 +1195,8 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
       const q = existing[0];
       if (!q) return { reply: 'Devis introuvable.', actions };
 
-      const { normalizeQuoteDocument, serializeQuoteDocument, flattenQuoteLines } = await import('./quote-document.js');
-      const doc = normalizeQuoteDocument(q.lines);
-      let lines = flattenQuoteLines(doc);
+      let lines = typeof q.lines === 'string' ? JSON.parse(q.lines || '[]') : (q.lines || []);
+      if (!Array.isArray(lines)) lines = [];
 
       // Remplacement complet des lignes
       if (Array.isArray(params.lines) && params.lines.length) {
@@ -2203,10 +1261,6 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
         || (/refusé|refuse|rejected/i.test(msg) ? 'rejected' : null)
         || q.status;
 
-      const storedDoc = serializeQuoteDocument({
-        ...doc,
-        sections: [{ ...(doc.sections[0] || { id: 'main', title: 'Travaux' }), lines: lines.length ? lines : [{ description: '', qty: 1, price: 0 }] }],
-      });
       const subtotal = lines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.price) || 0), 0);
       const total = Math.round(subtotal * 1.14975 * 100) / 100;
 
@@ -2220,7 +1274,7 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
           title,
           notes,
           status,
-          JSON.stringify(storedDoc),
+          JSON.stringify(lines),
           subtotal,
           total,
           params.project_id || null,
@@ -2256,27 +1310,8 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
     }
 
     case 'create_invoice': {
-      let clientId = pageContext?.type === 'client' ? pageContext.id : (params.client_id || null);
-      if (!clientId && pageContext?.type === 'project' && pageContext.project?.client_id) {
-        clientId = pageContext.project.client_id;
-      }
-      if (!clientId) {
-        const nameGuess = extractQuotedText(message)
-          || extractAfterKeyword(message, ['facture pour', 'facture client', 'client']);
-        if (nameGuess && nameGuess.length >= 2) {
-          const { rows } = await pool.query(
-            `SELECT id, name FROM clients WHERE LOWER(name) LIKE $1 ORDER BY LENGTH(name) ASC LIMIT 1`,
-            [`%${nameGuess.toLowerCase()}%`]
-          );
-          if (rows[0]) clientId = rows[0].id;
-        }
-      }
-      if (!clientId) {
-        return {
-          reply: 'Pour créer une facture métier : précisez le client (« nouvelle facture pour Dupont ») ou ouvrez sa fiche. Si vous vouliez une feature UI (éditeur, clic…), redites-le — je lance Cursor.',
-          actions: [],
-        };
-      }
+      const clientId = pageContext?.type === 'client' ? pageContext.id : null;
+      if (!clientId) return { reply: 'Ouvrez la fiche client pour créer une facture.', actions };
       const title = extractQuotedText(message) || extractAfterKeyword(message, ['facture', 'invoice']) || 'Facture';
       const amount = extractAmount(message) || 0;
       const inv = await createInvoiceRecord({
@@ -2286,8 +1321,7 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
         lines: [{ description: title, qty: 1, price: amount }],
       });
       actions.push({ type: 'create_invoice', data: inv });
-      actions.push({ type: 'navigate', data: { href: `/invoices/${inv.id}` } });
-      return { reply: `Facture #${inv.invoice_number} créée — ouvrez-la pour l’éditeur visuel.`, actions };
+      return { reply: `Facture #${inv.invoice_number} créée`, actions };
     }
 
     case 'convert_quote': {
@@ -2537,170 +1571,6 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
       const { reply, href, section } = buildManualReply(message);
       actions.push({ type: 'navigate', data: { href, section } });
       return { reply: reply.replace(/\*\*/g, ''), actions };
-    }
-
-    case 'atelier_habits': {
-      try {
-        const { readHabitsFile, appendHabit } = await import('./atelier-habits.js');
-        const rule = String(
-          params.rule || params.habit || extractQuotedText(msg) || extractAfterKeyword(msg, [
-            'ajoute une habitude', 'ajouter une habitude', 'nouvelle habitude',
-            'habitude :', 'habitude:', 'retiens comme habitude',
-          ]) || ''
-        ).trim().replace(/^[-•*]\s*/, '');
-
-        const section = String(params.section || 'Général').trim() || 'Général';
-        const wantsList = /liste|voir|montre|quelles?\s+habitudes|lire\s+habitudes/i.test(msg) && !rule;
-
-        if (rule && !wantsList) {
-          const result = appendHabit({ section, rule });
-          actions.push({ type: 'atelier_habits', data: { appended: !result.already, rule, section } });
-          actions.push({ type: 'navigate', data: { href: '/settings?tab=habits' } });
-          return {
-            reply: result.already
-              ? `Cette habitude existe déjà dans ATELIER_HABITS.md.`
-              : `Habitude ajoutée (${section}) : « ${rule} ». Lia et Cursor s'y conformeront.`,
-            actions,
-          };
-        }
-
-        const data = readHabitsFile();
-        const preview = String(data.content || '').trim().slice(0, 2500);
-        actions.push({ type: 'atelier_habits', data: { path: data.path } });
-        actions.push({ type: 'navigate', data: { href: '/settings?tab=habits' } });
-        return {
-          reply: `Bonnes habitudes atelier (${data.path}) :\n\n${preview}${preview.length >= 2500 ? '\n…' : ''}\n\nPour en ajouter : « ajoute une habitude : … »`,
-          actions,
-        };
-      } catch (e) {
-        return { reply: `Habitudes atelier : ${e.message}`, actions: [] };
-      }
-    }
-
-    case 'demande_modification_erp': {
-      try {
-        const { startAgentRun, getCursorConfig } = await import('./cursor-agent.js');
-        const cfg = await getCursorConfig();
-        if (!cfg.configured) {
-          return {
-            reply: 'Clé Cursor API manquante. Allez dans Paramètres → Agent Cursor pour la configurer, puis redemandez.',
-            actions: [{ type: 'navigate', data: { href: '/settings?tab=cursor' } }],
-          };
-        }
-        if (cfg.runtime !== 'cloud' && cfg.host && !cfg.host.available) {
-          return {
-            reply: `Runner Cursor hôte hors ligne : ${cfg.host.error || 'service arrêté'}. Vérifiez neya-cursor-agent sur le VPS.`,
-            actions: [],
-          };
-        }
-
-        const feature = String(params.feature || params.template || '').toLowerCase();
-        const rawPrompt = String(
-          params.prompt
-          || params.request
-          || params.description
-          || extractQuotedText(msg)
-          || extractAfterKeyword(msg, [
-            'modifie l\'erp', 'modifier l\'erp', 'modification erp', 'change le code',
-            'demande modification', 'fais évoluer', 'améliore l\'erp', 'améliore l\'interface',
-            'change l\'interface', 'modifie l\'interface', 'modifie la boîte', 'modifie la boite',
-            'ajoute dans le mail', 'ajoute au mail', 'crée une passerelle', 'lance cursor',
-            'demande à cursor', 'fais modifier', 'éditeur visuel', 'visualiser les factures',
-            'en cliquant', 'modifier directement',
-          ])
-          || msg
-        ).trim();
-
-        const TEMPLATES = {
-          mail_planning: `Dans le repo NEYA ERP (frontend Next.js + backend Express), enrichis le module Courriel (/mail) pour l'atelier :
-
-1. Planification des départs : UI pour planifier / voir les départs liés aux projets/livraisons depuis la boîte mail (dates, projet, statut).
-2. Pré-réponses en proposition : pour les mails à répondre, proposer 1–3 brouillons de réponse (IA) que l'utilisateur peut éditer puis envoyer via Gmail existant.
-3. Intégration cohérente avec l'UI mail actuelle (sobre, pas de cards "AI bubble"), réutiliser google-gmail.js et les routes /api/gmail/*.
-4. Commence par un plan court puis implémente les fichiers concrets (backend + frontend).`,
-          mail_prereply: `Dans NEYA ERP, ajoute des propositions de pré-réponse IA dans /mail : analyse du fil, 2–3 brouillons éditables, envoi via Gmail API existante. Style UI sobre. Plan court puis code.`,
-          invoice_visual: `Dans NEYA ERP (Next.js frontend), sur /invoices et /invoices/[id] :
-
-1. Au clic sur une facture dans la liste → ouvrir la fiche.
-2. Afficher la facture comme un document/aperçu éditable (éditeur visuel) : titre, client, notes, lignes (description, qté, prix), totaux.
-3. Cliquer un champ ou une ligne = éditer directement ; enregistrer via PUT /api/invoices/:id (lines, title, notes, etc.).
-4. Style sobre cohérent avec l'ERP (pas de gros cards orange arrondis). Réutilise EasyTable si utile.
-5. Plan court puis implémentation concrète.`,
-          ui_change: `Dans NEYA ERP, applique cette modification d'interface (Next.js frontend, style existant sobre — pas de pills orange "AI") :\n\n${rawPrompt}\n\nTouche uniquement les fichiers nécessaires. Plan court puis implémentation.`,
-          passerelle_cursor: `Dans NEYA ERP, vérifie / améliore la passerelle Cursor hôte VPS (deploy/cursor-host-runner + skill assistant demande_modification_erp + Paramètres Agent Cursor). Corrige les bugs éventuels et documente brièvement.`,
-        };
-
-        let agentPrompt;
-        if (feature && TEMPLATES[feature]) {
-          agentPrompt = TEMPLATES[feature];
-          if (feature === 'ui_change' && rawPrompt.length > 15) {
-            agentPrompt = TEMPLATES.ui_change;
-          }
-        } else if (/[eé]diteur\s*visuel|visualiser\s*(les\s*)?facture|facture.*cliqu|cliquer.*facture|modifier\s*directement.*facture|aper[cç]u\s*facture/i.test(rawPrompt + ' ' + msg)) {
-          agentPrompt = TEMPLATES.invoice_visual + `\n\nPrécisions utilisateur :\n${rawPrompt}`;
-        } else if (/planif.*d[eé]part|d[eé]part.*mail|pr[eé]-?r[eé]ponse|pr[eé]r[eé]ponse|bo[iî]te\s*mail.*(planif|d[eé]part|r[eé]ponse)/i.test(rawPrompt + ' ' + msg)) {
-          agentPrompt = TEMPLATES.mail_planning;
-          if (rawPrompt.length > 40 && !/planif|d[eé]part|pr[eé]/i.test(rawPrompt)) {
-            agentPrompt += `\n\nPrécisions utilisateur :\n${rawPrompt}`;
-          } else if (rawPrompt.length > 80) {
-            agentPrompt += `\n\nPrécisions utilisateur :\n${rawPrompt}`;
-          }
-        } else if (/passerelle\s*cursor|agent\s*cursor|host\s*runner/i.test(rawPrompt + ' ' + msg)) {
-          agentPrompt = TEMPLATES.passerelle_cursor + `\n\nDemande :\n${rawPrompt}`;
-        } else if (/interface|ui|écran|page|bouton|layout|dashboard|halo|orbe/i.test(rawPrompt + ' ' + msg)) {
-          agentPrompt = TEMPLATES.ui_change;
-        } else {
-          if (rawPrompt.length < 12) {
-            return {
-              reply: 'Décrivez la modification ERP (interface, mail, module…). Ex. « ajoute la planification des départs dans la boîte mail ».',
-              actions: [],
-            };
-          }
-          agentPrompt = `Dans le repo NEYA ERP (Express backend + Next.js frontend, prod sur VPS /opt/neya-erp), applique cette demande utilisateur de façon autonome.\nStyle UI : sobre, cohérent avec l'existant (éviter look "AI bubble").\nFais un plan court puis les modifications concrètes.\n\nDemande :\n${rawPrompt}`;
-        }
-
-        const pointed = pageContext?.meta?.element;
-        if (pointed) {
-          agentPrompt = `Cible UI pointée par l'utilisateur dans l'ERP (page ${pointed.pathname || pageContext.pathname || '?'}) :
-- sélecteur: ${pointed.selector}
-- tag: ${pointed.tag}${pointed.id ? ` #${pointed.id}` : ''}
-- texte visible: « ${(pointed.text || pointed.label || '').slice(0, 120)} »
-- classes: ${(pointed.classes || []).join(' ') || '—'}
-- heading section: ${pointed.heading || '—'}
-JSON: ${JSON.stringify(pointed)}
-
-Modifie précisément cet élément / cette zone (ou le composant Next.js qui le rend). ${agentPrompt}`;
-        }
-
-        try {
-          const { getHabitsPromptBlock } = await import('./atelier-habits.js');
-          const habits = getHabitsPromptBlock();
-          if (habits) {
-            agentPrompt = `${habits}\n\n---\n\n${agentPrompt}`;
-          }
-        } catch {
-          /* optional */
-        }
-
-        const run = await startAgentRun({
-          prompt: agentPrompt,
-          label: (params.label || rawPrompt || feature || 'modif ERP').slice(0, 80),
-          source: 'assistant_skill',
-        });
-
-        actions.push({
-          type: 'demande_modification_erp',
-          data: { run_id: run.id, status: run.status, label: run.label },
-        });
-        actions.push({ type: 'navigate', data: { href: '/settings?tab=cursor' } });
-
-        return {
-          reply: `Modification ERP lancée via Cursor sur le VPS (run #${run.id}). Backup Git créé automatiquement. Suivi dans Paramètres → Agent Cursor — je m'en occupe, tu peux continuer.`,
-          actions,
-        };
-      } catch (e) {
-        return { reply: `Impossible de lancer Cursor : ${e.message}`, actions: [] };
-      }
     }
 
     default:

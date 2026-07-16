@@ -26,6 +26,7 @@ export default function ClientDetailPage() {
   const [tab, setTab] = useState('projects');
   const [error, setError] = useState('');
   const [creatingQuote, setCreatingQuote] = useState(false);
+  const [creatingProject, setCreatingProject] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -69,6 +70,24 @@ export default function ClientDetailPage() {
     } catch (err) {
       setError(err.message);
       setCreatingQuote(false);
+    }
+  }
+
+  async function createLinkedProject() {
+    setCreatingProject(true);
+    setError('');
+    try {
+      const project = await api('/projects', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: `Projet — ${client.name}`,
+          client_id: Number(id),
+        }),
+      });
+      router.push(`/projects/${project.id}`);
+    } catch (err) {
+      setError(err.message);
+      setCreatingProject(false);
     }
   }
 
@@ -162,6 +181,16 @@ export default function ClientDetailPage() {
 
         {tab === 'projects' && (
           <div className="space-y-3">
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={createLinkedProject}
+                disabled={creatingProject}
+                className="btn-primary text-sm"
+              >
+                {creatingProject ? '…' : '+ Projet lié à ce client'}
+              </button>
+            </div>
             {client.projects?.length === 0 ? (
               <p className="text-sm text-neya-muted card">Aucun projet pour ce client.</p>
             ) : (

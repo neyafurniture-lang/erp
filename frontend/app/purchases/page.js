@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
+import PriceCompareLinks from '../../components/PriceCompareLinks';
 import { api, formatMoney, PURCHASE_NEED_CATEGORIES, PURCHASE_NEED_STATUS } from '../../lib/api';
+import { getPriceCompareLinks } from '../../lib/price-compare';
 
 const ORDER_STATUS = {
   planned: 'À prévoir',
@@ -14,24 +16,87 @@ const ORDER_STATUS = {
   received: 'Reçu',
 };
 
-function categoryLabel(value) {
-  return PURCHASE_NEED_CATEGORIES.find(c => c.value === value)?.label || value;
+function formFromItem(it) {
+  return {
+    title: it.title || '',
+    category: it.category || 'consommable',
+    quantity: it.quantity ?? 1,
+    unit: it.unit || 'unité',
+    priority: it.priority || 'normal',
+    status: it.status || 'needed',
+    supplier_id: it.supplier_id ? String(it.supplier_id) : '',
+    project_id: it.project_id ? String(it.project_id) : '',
+    notes: it.notes || '',
+  };
 }
 
-function NeedRow({ item, onChange }) {
+function NeedRow({ item, suppliers, projects, onChange, onUpdated }) {
   const st = PURCHASE_NEED_STATUS[item.status] || PURCHASE_NEED_STATUS.needed;
+  const priceLinks = getPriceCompareLinks(item);
+  const googleLink = priceLinks[0];
+  const [draft, setDraft] = useState(() => formFromItem(item));
+  const [saving, setSaving] = useState(false);
+  const [saveHint, setSaveHint] = useState('');
+  const [err, setErr] = useState('');
+  const saveTimer = useRef(null);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
 
-  async function setStatus(status) {
-    await api(`/purchases/needs/${item.id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
-    onChange();
+  useEffect(() => {
+    setDraft(formFromItem(item));
+  }, [item.id, item.title, item.category, item.quantity, item.unit, item.priority, item.status, item.supplier_id, item.project_id, item.notes]);
+
+  useEffect(() => () => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+  }, []);
+
+  function patchField(key, value) {
+    setDraft(prev => {
+      const next = { ...prev, [key]: value };
+      draftRef.current = next;
+      return next;
+    });
+    setErr('');
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      save(draftRef.current);
+    }, 450);
   }
 
-  async function toggleUrgent() {
-    await api(`/purchases/needs/${item.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ priority: item.priority === 'urgent' ? 'normal' : 'urgent' }),
-    });
-    onChange();
+  async function save(next = draftRef.current) {
+    const title = String(next.title || '').trim();
+    if (!title) {
+      setErr('Nom requis');
+      return;
+    }
+    setSaving(true);
+    setErr('');
+    try {
+      const updated = await api(`/purchases/needs/${item.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          title,
+          category: next.category,
+          quantity: Number(next.quantity) || 1,
+          unit: String(next.unit || 'unité').trim() || 'unité',
+          priority: next.priority,
+          status: next.status,
+          supplier_id: next.supplier_id === '' ? null : Number(next.supplier_id),
+          project_id: next.project_id === '' ? null : Number(next.project_id),
+          notes: String(next.notes || '').trim() || null,
+        }),
+      });
+      setSaveHint('Enregistré');
+      setTimeout(() => setSaveHint(''), 1200);
+      onUpdated?.(updated);
+      if (updated.status !== item.status || updated.priority !== item.priority || updated.category !== item.category) {
+        onChange();
+      }
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function remove() {
@@ -41,52 +106,138 @@ function NeedRow({ item, onChange }) {
   }
 
   return (
-    <div className={`card flex flex-col sm:flex-row sm:items-center gap-3 ${item.priority === 'urgent' && item.status === 'needed' ? 'border-red-200 bg-red-50/30' : ''}`}>
-      <div className="flex-1 min-w-0">
-        <div className="flex flex-wrap items-center gap-2 mb-1">
-          <p className="font-medium text-sm">{item.title}</p>
-          {item.priority === 'urgent' && item.status === 'needed' && (
-            <span className="text-[10px] font-bold uppercase tracking-wide text-red-700 bg-red-100 px-2 py-0.5 rounded-full">Urgent</span>
+    <div className={`card space-y-3 ${draft.priority === 'urgent' && draft.status === 'needed' ? 'border-red-200 bg-red-50/30' : ''}`}>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={`text-[10px] px-2 py-0.5 rounded-full ${st.cls}`}>{st.label}</span>
+        {draft.priority === 'urgent' && draft.status === 'needed' && (
+          <span className="text-[10px] font-bold uppercase tracking-wide text-red-700 bg-red-100 px-2 py-0.5 rounded-full">Urgent</span>
+        )}
+        <span className="text-[10px] text-neya-muted ml-auto">
+          {saving ? 'Enregistrement…' : saveHint || 'Modifiable'}
+        </span>
+      </div>
+
+      {err && <p className="text-xs text-red-700 bg-red-50 px-2 py-1">{err}</p>}
+
+      <div className="grid sm:grid-cols-2 lg:grid-cols-6 gap-2">
+        <input
+          className="input sm:col-span-2 lg:col-span-2 text-sm font-medium"
+          value={draft.title}
+          onChange={e => patchField('title', e.target.value)}
+          onBlur={() => save()}
+          placeholder="Nom de l’article"
+          aria-label="Nom"
+        />
+        <select
+          className="input text-sm"
+          value={draft.category}
+          onChange={e => patchField('category', e.target.value)}
+          aria-label="Catégorie"
+        >
+          {PURCHASE_NEED_CATEGORIES.map(c => (
+            <option key={c.value} value={c.value}>{c.label}</option>
+          ))}
+        </select>
+        <input
+          type="number"
+          min={0.001}
+          step="any"
+          className="input text-sm"
+          value={draft.quantity}
+          onChange={e => patchField('quantity', e.target.value)}
+          onBlur={() => save()}
+          aria-label="Quantité"
+          placeholder="Qté"
+        />
+        <input
+          className="input text-sm"
+          value={draft.unit}
+          onChange={e => patchField('unit', e.target.value)}
+          onBlur={() => save()}
+          aria-label="Unité"
+          placeholder="Unité"
+        />
+        <select
+          className="input text-sm"
+          value={draft.status}
+          onChange={e => patchField('status', e.target.value)}
+          aria-label="Statut"
+        >
+          <option value="needed">À acheter</option>
+          <option value="ordered">Commandé</option>
+          <option value="received">Reçu</option>
+        </select>
+      </div>
+
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2">
+        <select
+          className="input text-sm"
+          value={draft.priority}
+          onChange={e => patchField('priority', e.target.value)}
+          aria-label="Priorité"
+        >
+          <option value="normal">Priorité normale</option>
+          <option value="urgent">Urgent</option>
+        </select>
+        <select
+          className="input text-sm"
+          value={draft.supplier_id}
+          onChange={e => patchField('supplier_id', e.target.value)}
+          aria-label="Fournisseur"
+        >
+          <option value="">— Fournisseur —</option>
+          {suppliers.map(s => (
+            <option key={s.id} value={s.id}>{s.name}</option>
+          ))}
+        </select>
+        <select
+          className="input text-sm"
+          value={draft.project_id}
+          onChange={e => patchField('project_id', e.target.value)}
+          aria-label="Projet"
+        >
+          <option value="">— Projet —</option>
+          {projects.map(p => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+        <div className="flex flex-wrap gap-1.5 items-center">
+          {draft.status === 'needed' && googleLink && (
+            <a
+              href={googleLink.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-secondary text-xs py-1.5 px-3"
+              title="Google Shopping — comparer les prix"
+            >
+              Prix ↗
+            </a>
           )}
-          <span className={`text-[10px] px-2 py-0.5 rounded-full ${st.cls}`}>{st.label}</span>
+          <button type="button" onClick={() => save()} disabled={saving} className="btn-secondary text-xs py-1.5 px-3">
+            Sauver
+          </button>
+          <button type="button" onClick={remove} className="btn-secondary text-xs py-1.5 px-3 text-red-600 border-red-200">
+            ✕
+          </button>
         </div>
-        <p className="text-xs text-neya-muted">
-          {categoryLabel(item.category)} · {item.quantity} {item.unit}
-          {item.supplier_name && ` · ${item.supplier_name}`}
-          {item.project_name && ` · Projet: ${item.project_name}`}
+      </div>
+
+      <input
+        className="input text-sm w-full"
+        value={draft.notes}
+        onChange={e => patchField('notes', e.target.value)}
+        onBlur={() => save()}
+        placeholder="Notes (référence, magasin, urgence…)"
+        aria-label="Notes"
+      />
+
+      {item.stock_qty != null && (
+        <p className="text-[10px] text-neya-muted">
+          Stock actuel : {item.stock_qty}{item.stock_min > 0 ? ` / min ${item.stock_min}` : ''}
         </p>
-        {item.stock_qty != null && (
-          <p className="text-[10px] text-neya-muted mt-0.5">
-            Stock actuel : {item.stock_qty}{item.stock_min > 0 ? ` / min ${item.stock_min}` : ''}
-          </p>
-        )}
-        {item.notes && <p className="text-xs text-neya-muted mt-1">{item.notes}</p>}
-      </div>
-      <div className="flex flex-wrap gap-1.5 shrink-0">
-        {item.status === 'needed' && (
-          <>
-            <button type="button" onClick={() => setStatus('ordered')} className="btn-primary text-xs py-1.5 px-3">
-              Commandé
-            </button>
-            <button type="button" onClick={toggleUrgent} className="btn-secondary text-xs py-1.5 px-3">
-              {item.priority === 'urgent' ? 'Normal' : 'Urgent'}
-            </button>
-          </>
-        )}
-        {item.status === 'ordered' && (
-          <button type="button" onClick={() => setStatus('received')} className="btn-primary text-xs py-1.5 px-3">
-            Reçu
-          </button>
-        )}
-        {item.status === 'received' && (
-          <button type="button" onClick={() => setStatus('needed')} className="btn-secondary text-xs py-1.5 px-3">
-            Réacheter
-          </button>
-        )}
-        <button type="button" onClick={remove} className="btn-secondary text-xs py-1.5 px-3 text-red-600 border-red-200">
-          ✕
-        </button>
-      </div>
+      )}
+
+      {draft.status !== 'received' && <PriceCompareLinks item={{ ...item, title: draft.title }} />}
     </div>
   );
 }
@@ -97,6 +248,8 @@ export default function PurchasesPage({ title = 'Liste de courses', subtitle = '
   const [summary, setSummary] = useState(null);
   const [orders, setOrders] = useState([]);
   const [suggestions, setSuggestions] = useState(null);
+  const [suppliers, setSuppliers] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [filter, setFilter] = useState('needed');
   const [catFilter, setCatFilter] = useState('');
   const [syncing, setSyncing] = useState(false);
@@ -114,6 +267,15 @@ export default function PurchasesPage({ title = 'Liste de courses', subtitle = '
   };
 
   useEffect(() => { load(); }, [filter, catFilter]);
+
+  useEffect(() => {
+    api('/suppliers').then(setSuppliers).catch(() => setSuppliers([]));
+    api('/projects').then(list => setProjects((list || []).filter(p => p.status === 'active' || !p.status))).catch(() => setProjects([]));
+  }, []);
+
+  function onNeedUpdated(updated) {
+    setNeeds(prev => prev.map(n => (n.id === updated.id ? { ...n, ...updated } : n)));
+  }
 
   async function syncStock() {
     setSyncing(true);
@@ -178,6 +340,8 @@ export default function PurchasesPage({ title = 'Liste de courses', subtitle = '
       <AppShell title={title} wide>
         <p className="text-sm text-neya-muted mb-6">
           {subtitle}
+          {' '}
+          <span className="text-neya-ink/80">Chaque ligne est modifiable directement. Liens prix : Google, Home Depot, Rona, Canac…</span>
         </p>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
@@ -292,14 +456,23 @@ export default function PurchasesPage({ title = 'Liste de courses', subtitle = '
               ))}
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-3">
               {filteredNeeds.length === 0 ? (
                 <div className="card-flat text-center py-12">
                   <p className="text-sm text-neya-muted mb-2">Aucun article à acheter pour l&apos;instant</p>
                   <p className="text-xs text-neya-muted">Ajoutez un consommable manquant ou importez depuis le stock bas</p>
                 </div>
               ) : (
-                filteredNeeds.map(n => <NeedRow key={n.id} item={n} onChange={load} />)
+                filteredNeeds.map(n => (
+                  <NeedRow
+                    key={n.id}
+                    item={n}
+                    suppliers={suppliers}
+                    projects={projects}
+                    onChange={load}
+                    onUpdated={onNeedUpdated}
+                  />
+                ))
               )}
             </div>
           </>
