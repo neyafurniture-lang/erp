@@ -1,23 +1,81 @@
 import { execFileSync, spawn } from 'child_process';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { homedir } from 'os';
 import { getSetting, setSetting } from './settings.js';
 
 const backendRoot = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const repoRoot = join(backendRoot, '..');
+const home = homedir();
 
 /** IP / host VPS NEYA (même défaut que les scripts deploy/*.ps1). */
 export const DEFAULT_VPS_HOST = '51.222.31.75';
+const DEFAULT_REPO_PATH = '/opt/neya-erp';
 
 function resolveVpsHost(override = null) {
-  return String(
-    override
+  const raw = override
     || process.env.NEYA_VPS_HOST
     || process.env.DEPLOY_HOST
     || process.env.NEYA_DEPLOY_SSH_HOST
-    || DEFAULT_VPS_HOST
-  ).trim();
+    || DEFAULT_VPS_HOST;
+  return String(raw || '').trim();
+}
+
+function resolveRepoPath() {
+  return process.env.NEYA_REPO_DIR || process.env.DEPLOY_PATH || DEFAULT_REPO_PATH;
+}
+
+function resolvePassword() {
+  if (process.env.NEYA_VPS_PASSWORD?.trim()) return process.env.NEYA_VPS_PASSWORD.trim();
+  const secretFile = join(repoRoot, 'deploy', '.vps-secret');
+  if (existsSync(secretFile)) {
+    const line = readFileSync(secretFile, 'utf8').split('\n').map(l => l.trim()).find(l => l && !l.startsWith('#'));
+    if (line) return line;
+  }
+  return null;
+}
+
+/**
+ * Résout une clé SSH utilisable :
+ * 1. chemin NEYA_VPS_SSH_KEY / DEPLOY_SSH_KEY_PATH
+ * 2. contenu NEYA_VPS_SSH_PRIVATE_KEY / DEPLOY_SSH_KEY → écrit dans ~/.ssh/neya_vps_deploy
+ * 3. deploy/.vps-key (chemin) ou ~/.ssh/id_ed25519 / id_rsa
+ */
+export function resolveSshKeyPath() {
+  const fromEnv = process.env.NEYA_VPS_SSH_KEY || process.env.DEPLOY_SSH_KEY_PATH || process.env.NEYA_VPS_KEY;
+  if (fromEnv && existsSync(fromEnv)) return fromEnv;
+
+  const inline = process.env.NEYA_VPS_SSH_PRIVATE_KEY || process.env.DEPLOY_SSH_KEY;
+  if (inline && inline.includes('BEGIN') && inline.includes('PRIVATE KEY')) {
+    const dir = join(home, '.ssh');
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const keyPath = join(dir, 'neya_vps_deploy');
+    const normalized = inline.replace(/\\n/g, '\n').trim() + '\n';
+    writeFileSync(keyPath, normalized, { mode: 0o600 });
+    try { chmodSync(keyPath, 0o600); } catch { /* ignore */ }
+    return keyPath;
+  }
+
+  const keyFile = join(repoRoot, 'deploy', '.vps-key');
+  if (existsSync(keyFile)) {
+    const p = readFileSync(keyFile, 'utf8').trim();
+    if (p && existsSync(p)) return p;
+  }
+
+  for (const name of ['id_ed25519', 'id_rsa']) {
+    const p = join(home, '.ssh', name);
+    if (existsSync(p)) return p;
+  }
+  return null;
+}
+
+/** True si on tourne déjà sur le VPS (déploiement local sans SSH). */
+export function canDeployLocally(repoPath = resolveRepoPath()) {
+  if (process.env.NEYA_DEPLOY_MODE === 'local') return true;
+  if (process.env.NEYA_DEPLOY_MODE === 'ssh') return false;
+  return existsSync(join(repoPath, 'deploy', 'deploy.sh'))
+    && existsSync(join(repoPath, '.env.production'));
 }
 
 function runGit(args, { cwd = repoRoot, timeout = 20000 } = {}) {
@@ -111,19 +169,20 @@ export async function getGitDeployConfig() {
   const fromDb = normalizeSetting(await getSetting('git_deploy_repo_url').catch(() => null));
   const fromEnv = process.env.NEYA_GIT_REPO_URL || null;
   const vpsHost = resolveVpsHost();
-  const sshKey = process.env.NEYA_VPS_SSH_KEY || process.env.DEPLOY_SSH_KEY_PATH || null;
+  const sshKey = resolveSshKeyPath();
+  const password = Boolean(resolvePassword());
+  const local = canDeployLocally();
   return {
     repoUrl: fromDb || fromEnv || null,
     branch: process.env.NEYA_DEPLOY_BRANCH || 'main',
-    vpsPath: process.env.NEYA_REPO_DIR || '/opt/neya-erp',
+    vpsPath: resolveRepoPath(),
     vpsHost,
-    sshKeyConfigured: Boolean(sshKey && existsSync(sshKey)),
-    autoDeployConfigured: Boolean(
-      process.env.NEYA_VPS_HOST
-      || process.env.DEPLOY_HOST
-      || process.env.NEYA_DEPLOY_SSH_HOST
-      || sshKey
-      || process.env.NEYA_VPS_PASSWORD
+    sshKeyConfigured: Boolean(sshKey),
+    passwordConfigured: password,
+    localDeployAvailable: local,
+    oneClickReady: local || Boolean(sshKey) || password,
+    autoDeployConfigured: local || Boolean(sshKey) || password || Boolean(
+      process.env.NEYA_VPS_HOST || process.env.DEPLOY_HOST || process.env.NEYA_DEPLOY_SSH_HOST
     ),
   };
 }
@@ -135,56 +194,128 @@ export async function saveGitDeployConfig({ repoUrl }) {
   return getGitDeployConfig();
 }
 
-/**
- * Déclenche deploy.sh sur le VPS via SSH (clé ou password env).
- * Variables : NEYA_VPS_HOST (défaut 51.222.31.75), NEYA_VPS_USER, NEYA_VPS_SSH_KEY ou NEYA_VPS_PASSWORD
- * @param {{ force?: boolean, host?: string }} opts
- */
-export function triggerVpsGitDeploy({ force = false, host: hostOverride = null } = {}) {
-  const host = resolveVpsHost(hostOverride);
-  const user = process.env.NEYA_VPS_USER || process.env.DEPLOY_USER || 'ubuntu';
-  const path = process.env.NEYA_REPO_DIR || process.env.DEPLOY_PATH || '/opt/neya-erp';
-  const key = process.env.NEYA_VPS_SSH_KEY || process.env.DEPLOY_SSH_KEY_PATH;
-  const password = process.env.NEYA_VPS_PASSWORD;
-
-  if (!host) {
-    throw new Error(
-      `NEYA_VPS_HOST (ou DEPLOY_HOST) non configuré — ajoutez NEYA_VPS_HOST=${DEFAULT_VPS_HOST} dans backend/.env`
-    );
+function runLocalDeploy({ force = false, path } = {}) {
+  const repoPath = path || resolveRepoPath();
+  const script = join(repoPath, 'deploy', 'deploy.sh');
+  if (!existsSync(script)) {
+    throw new Error(`Script introuvable : ${script}`);
   }
-
-  const remoteCmd = `cd ${path} && ${force ? 'FORCE=1 ' : ''}./deploy/deploy.sh`;
-  const args = ['-o', 'StrictHostKeyChecking=accept-new', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15'];
-  if (key) {
-    if (!existsSync(key)) {
-      throw new Error(`Clé SSH introuvable : ${key} (NEYA_VPS_SSH_KEY)`);
-    }
-    args.push('-i', key);
-  }
-  args.push(`${user}@${host}`, remoteCmd);
-
-  if (password && !key) {
-    if (!existsSync('/usr/bin/sshpass') && process.platform !== 'win32') {
-      throw new Error('Configurez NEYA_VPS_SSH_KEY (chemin clé privée) pour déployer sans mot de passe interactif.');
-    }
-  }
-
+  const env = { ...process.env, FORCE: force ? '1' : '0' };
   return new Promise((resolve, reject) => {
-    const child = spawn('ssh', args, { env: process.env });
+    const child = spawn('bash', [script], { cwd: repoPath, env });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', d => { stdout += d.toString(); });
     child.stderr.on('data', d => { stderr += d.toString(); });
     child.on('error', reject);
     child.on('close', code => {
-      if (code === 0) resolve({ ok: true, stdout, stderr, host, path });
-      else {
-        const detail = (stderr || stdout || `ssh exit ${code}`).trim();
-        const hint = !key
-          ? ` — Ajoutez NEYA_VPS_SSH_KEY=/chemin/vers/id_ed25519 dans backend/.env (hôte ${host}).`
-          : '';
-        reject(new Error(`${detail}${hint}`));
-      }
+      if (code === 0) resolve({ ok: true, mode: 'local', stdout, stderr, host: 'localhost', path: repoPath });
+      else reject(new Error((stderr || stdout || `deploy.sh exit ${code}`).trim().slice(-2000)));
     });
   });
+}
+
+function runSsh(args, { password = null } = {}) {
+  return new Promise((resolve, reject) => {
+    let cmd = 'ssh';
+    let finalArgs = args;
+    const env = { ...process.env };
+    if (password) {
+      if (!existsSync('/usr/bin/sshpass')) {
+        reject(new Error('sshpass manquant — installez-le ou utilisez NEYA_VPS_SSH_PRIVATE_KEY'));
+        return;
+      }
+      cmd = 'sshpass';
+      finalArgs = ['-e', 'ssh', ...args];
+      env.SSHPASS = password;
+    }
+    const child = spawn(cmd, finalArgs, { env });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', d => { stdout += d.toString(); });
+    child.stderr.on('data', d => { stderr += d.toString(); });
+    child.on('error', reject);
+    child.on('close', code => {
+      if (code === 0) resolve({ stdout, stderr });
+      else reject(new Error((stderr || stdout || `ssh exit ${code}`).trim()));
+    });
+  });
+}
+
+/**
+ * Déclenche deploy.sh — local si on est sur le VPS, sinon SSH.
+ * Auth SSH : clé (fichier ou NEYA_VPS_SSH_PRIVATE_KEY) ou NEYA_VPS_PASSWORD (+ sshpass).
+ */
+export async function triggerVpsGitDeploy({ force = false, host: hostOverride = null } = {}) {
+  const path = resolveRepoPath();
+
+  if (canDeployLocally(path)) {
+    return runLocalDeploy({ force, path });
+  }
+
+  const host = resolveVpsHost(hostOverride);
+  const user = process.env.NEYA_VPS_USER || process.env.DEPLOY_USER || 'ubuntu';
+  const key = resolveSshKeyPath();
+  const password = resolvePassword();
+
+  if (!host) {
+    throw new Error(
+      `NEYA_VPS_HOST non configuré — ajoutez NEYA_VPS_HOST=${DEFAULT_VPS_HOST} dans backend/.env`
+    );
+  }
+  if (!key && !password) {
+    throw new Error(
+      'Aucun accès SSH : définissez NEYA_VPS_PASSWORD (mot de passe OVH) ou NEYA_VPS_SSH_PRIVATE_KEY dans backend/.env'
+    );
+  }
+
+  const remoteCmd = `cd ${path} && ${force ? 'FORCE=1 ' : ''}./deploy/deploy.sh`;
+  const args = [
+    '-o', 'StrictHostKeyChecking=accept-new',
+    '-o', 'ConnectTimeout=20',
+    '-o', password && !key ? 'PreferredAuthentications=password' : 'BatchMode=yes',
+  ];
+  if (key) args.push('-i', key);
+  args.push(`${user}@${host}`, remoteCmd);
+
+  try {
+    const { stdout, stderr } = await runSsh(args, { password: key ? null : password });
+    return { ok: true, mode: 'ssh', stdout, stderr, host, path };
+  } catch (err) {
+    const detail = String(err.message || err).trim();
+    const hint = !key && password
+      ? ` — Vérifiez NEYA_VPS_PASSWORD pour ${user}@${host}.`
+      : !key
+        ? ` — Ajoutez NEYA_VPS_PASSWORD ou NEYA_VPS_SSH_PRIVATE_KEY (hôte ${host}).`
+        : '';
+    throw new Error(`${detail}${hint}`);
+  }
+}
+
+/** Test rapide SSH / local (echo ok). */
+export async function testVpsConnection({ host: hostOverride = null } = {}) {
+  const path = resolveRepoPath();
+  if (canDeployLocally(path)) {
+    return { ok: true, mode: 'local', host: 'localhost', path, message: 'Déploiement local disponible (sur le VPS).' };
+  }
+  const host = resolveVpsHost(hostOverride);
+  const user = process.env.NEYA_VPS_USER || process.env.DEPLOY_USER || 'ubuntu';
+  const key = resolveSshKeyPath();
+  const password = resolvePassword();
+  if (!key && !password) {
+    return { ok: false, host, message: 'Pas de clé ni mot de passe SSH configuré.' };
+  }
+  const args = [
+    '-o', 'StrictHostKeyChecking=accept-new',
+    '-o', 'ConnectTimeout=15',
+    '-o', password && !key ? 'PreferredAuthentications=password' : 'BatchMode=yes',
+  ];
+  if (key) args.push('-i', key);
+  args.push(`${user}@${host}`, 'echo NEYA_SSH_OK && hostname && test -d ' + path + ' && echo REPO_OK');
+  try {
+    const { stdout } = await runSsh(args, { password: key ? null : password });
+    return { ok: true, mode: 'ssh', host, path, message: stdout.trim() };
+  } catch (err) {
+    return { ok: false, mode: 'ssh', host, path, message: String(err.message || err) };
+  }
 }

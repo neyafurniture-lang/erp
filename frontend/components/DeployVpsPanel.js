@@ -100,6 +100,24 @@ export default function DeployVpsPanel() {
     }
   }
 
+  async function testSsh() {
+    setProbing(true);
+    setErr('');
+    setOkMsg('');
+    try {
+      const data = await api('/deploy/git/test-ssh', {
+        method: 'POST',
+        body: JSON.stringify({ vpsHost }),
+      });
+      if (data.ok) setOkMsg(`Connexion OK (${data.mode}) — ${data.message}`);
+      else setErr(data.message || 'Connexion échouée');
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setProbing(false);
+    }
+  }
+
   async function generatePackage() {
     setPreparing(true);
     setErr('');
@@ -145,9 +163,9 @@ export default function DeployVpsPanel() {
   return (
     <div className="space-y-6">
       <section className="card">
-        <h2 className="font-heading text-lg mb-1">Mise à jour via Git</h2>
+        <h2 className="font-heading text-lg mb-1">Mettre à jour l&apos;ERP (1 clic)</h2>
         <p className="text-sm text-neya-muted mb-4">
-          Flux recommandé : commit local → push GitHub → le VPS fait <code className="text-xs">git pull</code> + rebuild Docker.
+          Poussez votre code sur GitHub, puis cliquez ci-dessous : le VPS fait <code className="text-xs">git pull</code> + rebuild.
         </p>
 
         {err && (
@@ -156,6 +174,36 @@ export default function DeployVpsPanel() {
         {okMsg && (
           <div className="text-sm text-green-800 bg-green-50 border border-green-200 px-3 py-2 rounded mb-4">{okMsg}</div>
         )}
+
+        <div className="rounded-xl border border-neya-orange/40 bg-neya-orange/5 p-4 mb-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => deployFromGit(false)}
+              disabled={deploying}
+              className="btn-primary text-base px-6 min-h-[48px] disabled:opacity-50"
+            >
+              {deploying ? 'Mise à jour en cours…' : '⬆ Mettre à jour la prod'}
+            </button>
+            <button type="button" onClick={() => deployFromGit(true)} disabled={deploying} className="btn-secondary min-h-[44px]">
+              Forcer rebuild
+            </button>
+            <button type="button" onClick={testSsh} disabled={probing} className="btn-ghost text-sm min-h-[44px]">
+              {probing ? '…' : 'Tester connexion VPS'}
+            </button>
+          </div>
+          <p className="text-xs text-neya-muted mt-3">
+            VPS <span className="font-mono text-neya-ink">{vpsHost || gitConfig?.vpsHost || '51.222.31.75'}</span>
+            {' · '}
+            {gitConfig?.oneClickReady
+              ? (gitConfig.localDeployAvailable
+                ? 'prêt (déploiement local)'
+                : gitConfig.sshKeyConfigured
+                  ? 'prêt (clé SSH)'
+                  : 'prêt (mot de passe SSH)')
+              : 'accès SSH manquant — NEYA_VPS_PASSWORD ou NEYA_VPS_SSH_PRIVATE_KEY dans backend/.env'}
+          </p>
+        </div>
 
         <div className="grid md:grid-cols-2 gap-4 mb-4">
           <div className="border border-neya-border p-4 bg-neya-surface/40">
@@ -233,22 +281,6 @@ export default function DeployVpsPanel() {
               </button>
             </div>
           </label>
-          <p className="text-xs text-neya-muted">
-            VPS : <span className="font-mono text-neya-ink">{vpsHost || gitConfig?.vpsHost || '51.222.31.75'}</span>
-            {gitConfig?.sshKeyConfigured
-              ? ' · clé SSH OK'
-              : ' · clé SSH manquante — ajoutez NEYA_VPS_SSH_KEY dans backend/.env (sinon Permission denied)'}
-          </p>
-        </div>
-
-        <div className="flex flex-wrap gap-2 mb-4">
-          <button type="button" onClick={() => deployFromGit(false)} disabled={deploying} className="btn-primary">
-            {deploying ? 'Déploiement…' : 'Déployer sur le VPS (git pull)'}
-          </button>
-          <button type="button" onClick={() => deployFromGit(true)} disabled={deploying} className="btn-secondary">
-            Forcer rebuild
-          </button>
-          <button type="button" onClick={load} className="btn-ghost text-sm">Actualiser</button>
         </div>
 
         <div className="border border-neya-border bg-neya-surface/30 p-4">
@@ -259,16 +291,14 @@ git add -A
 git commit -m "votre message"
 git push -u origin ${branch}
 
-# 2. Sur le VPS (ou bouton ci-dessus)
-cd /opt/neya-erp
-./deploy/check-update.sh
-./deploy/deploy.sh
+# 2. Un clic ci-dessus — ou sur le VPS :
+cd /opt/neya-erp && ./deploy/deploy.sh
 
 # Premier branchement VPS → Git (une fois)
 # .\\deploy\\vps-init-git.ps1 -RepoUrl "${origin}"`}
           </pre>
           <p className="text-xs text-neya-muted mt-2">
-            Automatique : GitHub Actions (.github/workflows/deploy.yml) après configuration des secrets DEPLOY_*.
+            Accès SSH : <code className="text-[10px]">NEYA_VPS_PASSWORD</code> (OVH) ou <code className="text-[10px]">NEYA_VPS_SSH_PRIVATE_KEY</code> dans <code className="text-[10px]">backend/.env</code>.
           </p>
         </div>
       </section>

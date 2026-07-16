@@ -179,7 +179,7 @@ export const ERP_MANUAL_SECTIONS = [
       { href: '/roadmap', label: 'Roadmap' },
     ],
     tips: [
-      'Déploiement : Paramètres → Déploiement VPS. Host par défaut 51.222.31.75 (NEYA_VPS_HOST dans backend/.env). Pour le bouton « Déployer », il faut aussi NEYA_VPS_SSH_KEY (chemin clé privée). Sinon : ssh ubuntu@51.222.31.75 puis ./deploy/deploy.sh.',
+      'Déploiement 1 clic : Paramètres → Déploiement → « Mettre à jour la prod ». Host 51.222.31.75. Accès : NEYA_VPS_PASSWORD (OVH) ou NEYA_VPS_SSH_PRIVATE_KEY dans backend/.env. Sur le VPS lui-même, le bouton lance deploy.sh en local.',
       'Site planté ? SSH : back.sh (restaure backup DB + commit précédent).',
       'Clés Claude/OpenAI dans Paramètres → Assistant IA (sinon skills par mots-clés seulement).',
     ],
