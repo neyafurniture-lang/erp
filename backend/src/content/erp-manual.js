@@ -185,7 +185,7 @@ export const ERP_MANUAL_SECTIONS = [
       { href: '/roadmap', label: 'Roadmap' },
     ],
     tips: [
-      'Déploiement : quand le local fonctionne → générer package ZIP + script VPS.',
+      'Déploiement 1 clic : Paramètres → Déploiement → « Mettre à jour la prod ». Host 51.222.31.75. Accès : NEYA_VPS_PASSWORD ou clé SSH dans backend/.env.',
       'Site planté ? SSH : back.sh (restaure backup DB + commit précédent).',
       'Clés Claude/OpenAI dans Paramètres → Assistant IA (sinon skills par mots-clés seulement).',
     ],
