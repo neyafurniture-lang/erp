@@ -91,8 +91,11 @@ export default function DeployVpsPanel() {
         method: 'POST',
         body: JSON.stringify({ force, vpsHost }),
       });
-      setOkMsg(data.message || 'Déploiement lancé.');
-      await probeVps();
+      setOkMsg(data.message || (data.started
+        ? 'Mise à jour lancée sur le VPS (1–3 min). Rechargez après.'
+        : 'Déploiement lancé.'));
+      // Laisser le rebuild finir avant de re-sonder la prod
+      setTimeout(() => { probeVps().catch(() => {}); }, data.started ? 45000 : 3000);
     } catch (e) {
       setErr(e.message);
     } finally {

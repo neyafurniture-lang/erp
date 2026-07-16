@@ -78,9 +78,10 @@ router.post('/git/deploy', async (req, res) => {
     });
     res.json({
       ok: true,
-      message: result.mode === 'local'
-        ? 'Mise à jour lancée en local sur le serveur.'
-        : 'Déploiement Git lancé sur le VPS (pull + build Docker).',
+      message: result.message
+        || (result.mode === 'local'
+          ? 'Mise à jour lancée en local sur le serveur.'
+          : 'Déploiement Git lancé sur le VPS (pull + build Docker).'),
       ...result,
     });
   } catch (err) {

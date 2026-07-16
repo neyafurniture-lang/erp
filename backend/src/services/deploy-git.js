@@ -269,7 +269,16 @@ export async function triggerVpsGitDeploy({ force = false, host: hostOverride = 
     );
   }
 
-  const remoteCmd = `cd ${path} && ${force ? 'FORCE=1 ' : ''}./deploy/deploy.sh`;
+  // Lancer en arrière-plan sur l'hôte : sinon le rebuild Docker tue le backend
+  // au milieu de la requête HTTP (502).
+  const logFile = `${path}/deploy/logs/one-click-latest.log`;
+  const remoteCmd = [
+    `mkdir -p ${path}/deploy/logs`,
+    `printf '%s\\n' "[$(date -Iseconds)] one-click démarré (force=${force ? '1' : '0'})" > ${logFile}`,
+    `nohup env FORCE=${force ? '1' : '0'} bash -lc 'cd ${path} && ./deploy/deploy.sh' >>${logFile} 2>&1 &`,
+    `echo DEPLOY_STARTED pid=$! log=${logFile}`,
+  ].join(' && ');
+
   const args = [
     '-o', 'StrictHostKeyChecking=accept-new',
     '-o', 'ConnectTimeout=20',
@@ -280,7 +289,17 @@ export async function triggerVpsGitDeploy({ force = false, host: hostOverride = 
 
   try {
     const { stdout, stderr } = await runSsh(args, { password: key ? null : password });
-    return { ok: true, mode: 'ssh', stdout, stderr, host, path };
+    return {
+      ok: true,
+      mode: 'ssh-async',
+      started: true,
+      stdout,
+      stderr,
+      host,
+      path,
+      logFile,
+      message: 'Mise à jour lancée sur le VPS (1–3 min). Rechargez la page après.',
+    };
   } catch (err) {
     const detail = String(err.message || err).trim();
     const hint = !key && password
