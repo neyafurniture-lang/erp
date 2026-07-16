@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
+import PriceCompareLinks from '../../components/PriceCompareLinks';
 import { api, formatMoney, PURCHASE_NEED_CATEGORIES, PURCHASE_NEED_STATUS } from '../../lib/api';
+import { getPriceCompareLinks } from '../../lib/price-compare';
 
 const ORDER_STATUS = {
   planned: 'À prévoir',
@@ -20,6 +22,8 @@ function categoryLabel(value) {
 
 function NeedRow({ item, onChange }) {
   const st = PURCHASE_NEED_STATUS[item.status] || PURCHASE_NEED_STATUS.needed;
+  const priceLinks = getPriceCompareLinks(item);
+  const googleLink = priceLinks[0];
 
   async function setStatus(status) {
     await api(`/purchases/needs/${item.id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
@@ -61,6 +65,7 @@ function NeedRow({ item, onChange }) {
           </p>
         )}
         {item.notes && <p className="text-xs text-neya-muted mt-1">{item.notes}</p>}
+        {item.status !== 'received' && <PriceCompareLinks item={item} />}
       </div>
       <div className="flex flex-wrap gap-1.5 shrink-0">
         {item.status === 'needed' && (
@@ -71,6 +76,17 @@ function NeedRow({ item, onChange }) {
             <button type="button" onClick={toggleUrgent} className="btn-secondary text-xs py-1.5 px-3">
               {item.priority === 'urgent' ? 'Normal' : 'Urgent'}
             </button>
+            {googleLink && (
+              <a
+                href={googleLink.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-secondary text-xs py-1.5 px-3"
+                title="Google Shopping — comparer les prix"
+              >
+                Prix ↗
+              </a>
+            )}
           </>
         )}
         {item.status === 'ordered' && (
@@ -178,6 +194,8 @@ export default function PurchasesPage({ title = 'Liste de courses', subtitle = '
       <AppShell title={title} wide>
         <p className="text-sm text-neya-muted mb-6">
           {subtitle}
+          {' '}
+          <span className="text-neya-ink/80">Sur chaque article : liens pour comparer les prix (Google, Home Depot, Rona, Canac…).</span>
         </p>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
