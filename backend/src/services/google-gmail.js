@@ -31,16 +31,44 @@ function getHeader(headers, name) {
   return h?.value || '';
 }
 
+function htmlToReadableText(html) {
+  return String(html || '')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|tr|li|h[1-6])>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
 function extractBody(payload) {
   if (!payload) return '';
-  if (payload.body?.data) return decodeBase64Url(payload.body.data);
+  // Préférer text/plain
   for (const part of payload.parts || []) {
     if (part.mimeType === 'text/plain' && part.body?.data) return decodeBase64Url(part.body.data);
   }
   for (const part of payload.parts || []) {
-    if (part.mimeType === 'text/html' && part.body?.data) return decodeBase64Url(part.body.data);
+    if (part.mimeType === 'text/html' && part.body?.data) {
+      return htmlToReadableText(decodeBase64Url(part.body.data));
+    }
     const nested = extractBody(part);
     if (nested) return nested;
+  }
+  if (payload.body?.data) {
+    const raw = decodeBase64Url(payload.body.data);
+    if (payload.mimeType === 'text/html' || /<\/?[a-z][\s\S]*>/i.test(raw)) {
+      return htmlToReadableText(raw);
+    }
+    return raw;
   }
   return '';
 }

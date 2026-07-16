@@ -159,8 +159,10 @@ export function classifyMailMessage({
   thread = null,
   clientEmails = null,
   ownEmails = null,
-}) {
-  if (thread?.mail_category) return thread.mail_category;
+  preferStored = false,
+} = {}) {
+  // Ne plus coller une mauvaise catégorie pour toujours — recalcul live par défaut.
+  if (preferStored && thread?.mail_category) return thread.mail_category;
 
   const emails = clientEmails || new Set();
   const addresses = collectAddresses(
@@ -174,14 +176,17 @@ export function classifyMailMessage({
     thread?.needs_response === true || thread?.latest_needs_response === true
   );
   const clientIntent = thread?.client_intent || thread?.latest_client_intent;
-  const supplier = detectSupplier(from, subject, snippet);
-  const isSupplier = looksLikeSupplierInvoice(from, subject, snippet) || Boolean(supplier);
+  const isSupplierInvoice = looksLikeSupplierInvoice(from, subject, snippet);
 
-  if (isSupplier) return 'fournisseurs';
+  // Priorité atelier : répondre / clients avant newsletters fournisseurs
   if (needsResponse || (isUnread && hasClient && !isOutbound)) return 'a_repondre';
   if (hasProject) return 'projets';
   if (hasClient || CLIENT_INTENTS.has(clientIntent)) return 'clients';
+  if (isSupplierInvoice) return 'fournisseurs';
   if (isPromotion(from, subject, snippet)) return 'promotions';
+  // Domaine fournisseur sans facture → promotions plutôt que « Fournisseurs »
+  if (detectSupplier(from, subject, snippet) && isPromotion(from, subject, snippet)) return 'promotions';
+  if (detectSupplier(from, subject, snippet)) return 'autres';
   return 'autres';
 }
 
@@ -201,9 +206,13 @@ export async function findClientByEmails(emails = []) {
 }
 
 export function computeMailCategoryForThread(threadRow, synthesis = null, { ownEmails = null, clientEmails = null } = {}) {
-  const participants = threadRow.participant_emails || [];
+  const participants = Array.isArray(threadRow.participant_emails) ? threadRow.participant_emails : [];
+  // From ≈ premier participant non-interne si possible
+  const own = ownEmails || new Set();
+  const external = participants.find(e => e && !own.has(String(e).toLowerCase()));
+  const fromHint = external || participants[0] || '';
   return classifyMailMessage({
-    from: participants[0] || '',
+    from: fromHint,
     to: participants.join(', '),
     subject: threadRow.subject || '',
     snippet: '',
@@ -318,17 +327,28 @@ export async function enrichInboxMessages(messages = []) {
       clientEmails,
       ownEmails,
     });
+    const supplier = detectSupplier(m.from, m.subject, m.snippet);
 
     enriched.push({
       ...m,
       mailCategory,
+      supplierLabel: supplier?.label || null,
+      supplierId: supplier?.id || null,
       isOutbound,
       client_id: thread?.client_id || null,
       project_id: thread?.project_id || null,
       client_name: thread?.client_name || null,
       project_name: thread?.project_name || null,
+      sortDate: m.date || m.internalDate || null,
     });
   }
+
+  // Tri stable : non-lus d'abord, puis date décroissante
+  enriched.sort((a, b) => {
+    const ur = Number(Boolean(b.isUnread || b.unread)) - Number(Boolean(a.isUnread || a.unread));
+    if (ur) return ur;
+    return new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
+  });
 
   const counts = {};
   for (const s of MAIL_SECTIONS) {

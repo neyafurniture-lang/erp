@@ -21,7 +21,9 @@ function enrichQuery() {
 router.get('/pending', async (_req, res) => {
   try {
     const { rows } = await pool.query(
-      `${enrichQuery()} WHERE s.status = 'pending' ORDER BY s.created_at DESC LIMIT 20`
+      `${enrichQuery()} WHERE s.status = 'pending'
+       ORDER BY COALESCE(s.supplier_label, 'zzz') ASC, s.created_at DESC
+       LIMIT 40`
     );
     res.json(rows);
   } catch (err) {
