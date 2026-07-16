@@ -34,8 +34,8 @@ export const ERP_MANUAL_SECTIONS = [
     tips: [
       'Parler : enregistrez → révisez le texte → « Construire le plan » → confirmez.',
       'Exemples : « Demain finition banc olive Mehdi, mail client », « Cocher débitage », « Dépense 120$ matériaux ».',
-      'Joindre 📎 : photos, PDF, plans, reçus — l’IA peut lire l’image (scan ticket, facture).',
-      'Sur une fiche projet/client, l’assistant connaît le contexte automatiquement.',
+      'Joindre 📎 : photos, PDF, plans, reçus — l’IA lit le fichier, le classe (facture, plan, reçu…) et propose de le ranger (notes projet, dépense, plan de fabrication).',
+      'Sur une fiche projet/client, l’assistant connaît le contexte automatiquement et peut ajouter le résumé aux notes du projet.',
       'Dites « manuel », « aide ERP » ou « comment faire » pour ouvrir ce guide.',
     ],
   },

@@ -183,7 +183,7 @@ export default function ChatAssistant() {
           {
             role: 'assistant',
             content:
-              "Bonjour ! Je suis Lia, l'assistant NEYA.\n\nJe me souviens de notre conversation et je connais vos projets/clients.\n\n• Créer tâches, projets, dépenses\n• Planifier au calendrier\n• « Retiens que… » pour mémoriser une préférence\n• Joindre photos, plans PDF, reçus…",
+              "Bonjour ! Je suis Lia, l'assistant NEYA.\n\nJe me souviens de notre conversation et je connais vos projets/clients.\n\n• Créer tâches, projets, dépenses\n• Planifier au calendrier\n• « Retiens que… » pour mémoriser une préférence\n• Joindre photos, plans PDF, reçus — Lia les lit, classe et range",
             attachments: [],
           },
         ])

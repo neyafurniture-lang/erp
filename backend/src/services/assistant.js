@@ -440,6 +440,16 @@ export async function processMessage(message, attachments = [], rawContext = nul
     return fab;
   }
 
+  // Toute pièce jointe → lire / classer / ranger (pas seulement « reçu »)
+  if (attachments.length) {
+    const studied = await handleAttachments(message, attachments, pageContext, extracts);
+    await pool.query(
+      'INSERT INTO assistant_messages (role, content, actions_taken, attachments) VALUES ($1,$2,$3,$4)',
+      ['assistant', studied.reply, JSON.stringify(studied.actions || []), JSON.stringify(studied.attachments || [])]
+    );
+    return studied;
+  }
+
   async function runKeywordActions(msg = message) {
     if (isDayPlanMessage(msg)) {
       return runSkillAction('plan_day', msg, pageContext);
@@ -484,9 +494,6 @@ export async function processMessage(message, attachments = [], rawContext = nul
         return runSkillAction('update_quote', msg, pageContext);
       }
     }
-    if (attachments.length > 0) {
-      return handleAttachments(msg, attachments, pageContext);
-    }
     return null;
   }
 
@@ -514,17 +521,11 @@ export async function processMessage(message, attachments = [], rawContext = nul
         };
       } else {
         result = {
-          reply: `Commandes ERP :\n• Planifier : « Demain finition banc olive, mail The NNS »\n• Créer : tâche, projet, client, dépense\n• Modifier : cocher tâche, deadline, budget, email client\n• Lister : tâches du jour, demain, projets, clients, dépenses, skills\n• Gérer skills : « liste skills », « activer skill X »\n\nJoignez photos, PDF ou reçus.`,
+          reply: `Commandes ERP :\n• Planifier : « Demain finition banc olive, mail The NNS »\n• Créer : tâche, projet, client, dépense\n• Modifier : cocher tâche, deadline, budget, email client\n• Lister : tâches du jour, demain, projets, clients, dépenses, skills\n• Gérer skills : « liste skills », « activer skill X »\n\nJoignez photos, PDF ou reçus — je les lis, classe et range.`,
           actions: [],
         };
       }
     }
-  }
-
-  if (attachments.length > 0 && !result.actions?.some(a => a.type === 'store_attachments')) {
-    const expenseAction = await maybeCreateExpenseFromAttachments(message, attachments, pageContext);
-    if (expenseAction) result.actions = [...(result.actions || []), expenseAction];
-    result.attachments = attachments;
   }
 
   await pool.query(
@@ -535,59 +536,117 @@ export async function processMessage(message, attachments = [], rawContext = nul
   return result;
 }
 
-async function handleAttachments(message, attachments, pageContext = null) {
-  if (wantsFabricationPlan(message)) {
+async function handleAttachments(message, attachments, pageContext = null, preExtracts = null) {
+  const {
+    extractAllAttachments,
+    classifyAndStudyAttachments,
+    formatStudyReply,
+  } = await import('./attachment-extract.js');
+
+  const extracts = preExtracts?.length ? preExtracts : await extractAllAttachments(attachments);
+  const names = attachments.map(a => a.name).filter(Boolean);
+  const projectHint = pageContext?.type === 'project' ? pageContext.label : null;
+  const projectId = pageContext?.type === 'project' ? pageContext.id : null;
+
+  const study = await classifyAndStudyAttachments({ message, extracts, projectHint });
+  const actions = [{ type: 'document_classified', data: { ...study, files: names } }];
+  const extras = [];
+
+  // Demande explicite de plan → pipeline fabrication
+  if (wantsFabricationPlan(message) || (study.suggested_actions || []).includes('fabrication_plan') && /plan|étape|fabrication|checklist/i.test(message)) {
     return buildFabricationFromAttachments(message, attachments, pageContext);
   }
 
-  const names = attachments.map(a => a.name).join(', ');
-  const hasReceipt = attachments.some(a => /image|pdf/i.test(a.type || ''));
-  const projectId = pageContext?.type === 'project' ? pageContext.id : null;
+  // Ticket / facture → dépense si montant ou intention claire
+  const wantsExpense = (study.suggested_actions || []).includes('expense')
+    || /dépense|facture|reçu|acheté|ticket/i.test(message)
+    || study.doc_type === 'receipt'
+    || study.doc_type === 'supplier_invoice';
 
-  if (/dépense|facture|reçu|acheté/i.test(message)) {
-    const expenseAction = await maybeCreateExpenseFromAttachments(message, attachments, pageContext);
+  if (wantsExpense) {
+    const expenseAction = await maybeCreateExpenseFromAttachments(
+      message,
+      attachments,
+      pageContext,
+      study
+    );
     if (expenseAction) {
-      const linked = projectId ? ` Liée au projet « ${pageContext.label} ».` : '';
-      return {
-        reply: `Fichiers reçus (${names}). Dépense enregistrée avec reçu joint.${linked}`,
-        actions: [expenseAction, { type: 'store_attachments', data: attachments }],
-        attachments,
-      };
+      actions.push(expenseAction);
+      extras.push(`Dépense enregistrée${study.amount ? ` (${study.amount} $)` : ''}${projectId ? ` sur « ${pageContext.label} »` : ''}.`);
+    } else if (study.doc_type === 'receipt' || study.doc_type === 'supplier_invoice') {
+      extras.push('Pour créer la dépense : indiquez le montant (ex. « Dépense 85$ matériaux ») ou scannez via Dépenses → Scanner ticket.');
     }
   }
 
-  // Si le fichier contient assez de texte et un projet est ouvert → proposer / créer un plan
-  if (projectId || /projet|plan|étape|fabrication/i.test(message)) {
-    return buildFabricationFromAttachments(message, attachments, pageContext);
+  // Ranger dans les notes du projet ouvert (ou projet suggéré)
+  const wantsNotes = (study.suggested_actions || []).includes('project_notes')
+    || Boolean(projectId)
+    || /note|range|classer|ajoute|projet/i.test(message);
+
+  if (wantsNotes && study.summary) {
+    const noteBlock = [
+      `[PJ ${new Date().toISOString().slice(0, 10)}] ${study.label_fr}`,
+      study.summary,
+      ...(study.key_facts || []).map(f => `- ${f}`),
+      names.length ? `Fichiers : ${names.join(', ')}` : '',
+    ].filter(Boolean).join('\n');
+
+    if (projectId) {
+      try {
+        const result = await runSkillAction('update_project', message, pageContext, {}, {
+          project_id: projectId,
+          append_notes: true,
+          notes: noteBlock,
+        });
+        if (result?.actions?.length) {
+          actions.push(...result.actions);
+          extras.push(`Notes ajoutées au projet « ${pageContext.label} ».`);
+        }
+      } catch { /* ignore */ }
+    } else if (study.suggested_project_query) {
+      extras.push(`Projet suggéré : « ${study.suggested_project_query} » — ouvrez-le ou dites « ajoute aux notes du projet ${study.suggested_project_query} ».`);
+    }
   }
 
-  const ctxHint = projectId
-    ? `\n\nContexte : projet « ${pageContext.label} » — dites « crée un plan de fabrication » pour générer les étapes.`
-    : '\n\nDites par ex. « Crée un plan de fabrication sur le projet Olive à partir de ce fichier ».';
+  // Plan client clair sans projet → proposer fabrication
+  if (study.doc_type === 'client_plan' && !extras.some(e => /plan de fabrication|Notes ajoutées/i.test(e))) {
+    extras.push('Dites « crée un plan de fabrication » (avec le nom du projet) pour générer les étapes atelier.');
+  }
+
+  actions.push({ type: 'store_attachments', data: attachments });
 
   return {
-    reply: `J'ai bien reçu ${attachments.length} fichier(s) : ${names}.${
-      hasReceipt ? '\nPour lier à une dépense, écrivez par ex. « Dépense 85$ matériaux » avec le reçu.' : ''
-    }${ctxHint}`,
-    actions: [{ type: 'store_attachments', data: attachments }],
+    reply: formatStudyReply(study, { fileNames: names, extras: extras.join('\n') }),
+    actions,
     attachments,
+    study,
   };
 }
 
-async function maybeCreateExpenseFromAttachments(message, attachments, pageContext = null) {
-  const amount = extractAmount(message);
-  if (!amount && !/dépense|reçu|facture/i.test(message)) return null;
+async function maybeCreateExpenseFromAttachments(message, attachments, pageContext = null, study = null) {
+  const amount = extractAmount(message) || study?.amount || null;
+  if (!amount && !/dépense|reçu|facture/i.test(message) && study?.doc_type !== 'receipt') {
+    // facture fournisseur sans montant : ne pas créer 0$
+    if (study?.doc_type === 'supplier_invoice') return null;
+    if (!study?.amount) return null;
+  }
+  if (!amount) return null;
 
   const receipt = attachments.find(a => /image|pdf/i.test(a.type || ''));
   let category = 'materiaux';
   if (/outil/i.test(message)) category = 'outils';
   else if (/transport/i.test(message)) category = 'transport';
+  else if (study?.vendor && /home\s*depot|rona|canac/i.test(study.vendor)) category = 'materiaux';
 
   const projectId = pageContext?.type === 'project' ? pageContext.id : null;
+  const description = [
+    study?.label_fr || message.slice(0, 120) || 'Via assistant',
+    study?.vendor ? `(${study.vendor})` : '',
+  ].filter(Boolean).join(' ').slice(0, 300);
 
   const { rows } = await pool.query(
     `INSERT INTO expenses (amount, category, description, receipt_url, project_id) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-    [amount || 0, category, message.slice(0, 300) || 'Via assistant', receipt?.url || attachments[0]?.url, projectId]
+    [amount, category, description, receipt?.url || attachments[0]?.url, projectId]
   );
   return { type: 'create_expense', data: rows[0] };
 }

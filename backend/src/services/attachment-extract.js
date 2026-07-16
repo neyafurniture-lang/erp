@@ -138,6 +138,187 @@ export function formatExtractsForPrompt(extracts = []) {
 }
 
 /**
+ * À partir du texte extrait, classe le document et propose un rangement ERP.
+ * Fallback heuristique si pas de clé IA.
+ */
+export async function classifyAndStudyAttachments({ message = '', extracts = [], projectHint = null } = {}) {
+  const joined = extracts.map(e => e.text || '').join('\n').trim();
+  const names = extracts.map(e => e.name).filter(Boolean);
+
+  const heuristic = heuristicClassify({ message, extracts, projectHint });
+  if (joined.length < 30 && !names.length) {
+    return heuristic;
+  }
+
+  try {
+    const { callRawLLM } = await import('./ai-chat.js');
+    const fileBlock = formatExtractsForPrompt(extracts);
+    const systemPrompt = `Tu es l'assistant documentaire NEYA Furniture (atelier meubles, Québec).
+Lis le(s) fichier(s) et classe-les pour l'ERP.
+
+Réponds UNIQUEMENT en JSON :
+{
+  "doc_type": "receipt|supplier_invoice|client_plan|quote|contract|photo_atelier|email|other",
+  "label_fr": "étiquette courte FR (ex. Facture Rona, Plan banc olive)",
+  "summary": "résumé utile 2-4 phrases",
+  "key_facts": ["fait 1", "fait 2"],
+  "suggested_project_query": "mots pour retrouver un projet ERP ou null",
+  "suggested_actions": ["fabrication_plan"|"expense"|"project_notes"|"drive"|"none"],
+  "confidence": 0.0,
+  "amount": null,
+  "vendor": null,
+  "client_name": null
+}
+
+Règles :
+- receipt = ticket de caisse / petit reçu
+- supplier_invoice = facture fournisseur
+- client_plan = plan, cote, brief client, dimensions
+- quote = devis
+- photo_atelier = photo chantier/atelier sans doc texte
+- suggested_actions : 1 à 3 actions pertinentes
+- amount en nombre CAD si visible, sinon null
+- summary en français, concret (pas de blabla)`;
+
+    const userMsg = `Message utilisateur : """${message || '(fichier seul)'}"""
+Projet page ouverte : ${projectHint || 'aucun'}
+Noms fichiers : ${names.join(', ') || '—'}
+${fileBlock}
+
+Classe et étudie ce document.`;
+
+    const ai = await callRawLLM({ systemPrompt, message: userMsg });
+    if (!ai || typeof ai !== 'object') return heuristic;
+
+    const allowedTypes = new Set([
+      'receipt', 'supplier_invoice', 'client_plan', 'quote', 'contract', 'photo_atelier', 'email', 'other',
+    ]);
+    const allowedActions = new Set(['fabrication_plan', 'expense', 'project_notes', 'drive', 'none']);
+    const docType = allowedTypes.has(ai.doc_type) ? ai.doc_type : heuristic.doc_type;
+    let actions = Array.isArray(ai.suggested_actions)
+      ? ai.suggested_actions.filter(a => allowedActions.has(a))
+      : heuristic.suggested_actions;
+    if (!actions.length) actions = ['none'];
+
+    return {
+      doc_type: docType,
+      label_fr: String(ai.label_fr || heuristic.label_fr || 'Document').slice(0, 120),
+      summary: String(ai.summary || heuristic.summary || '').slice(0, 1200),
+      key_facts: Array.isArray(ai.key_facts)
+        ? ai.key_facts.map(f => String(f).slice(0, 200)).filter(Boolean).slice(0, 8)
+        : heuristic.key_facts,
+      suggested_project_query: ai.suggested_project_query
+        ? String(ai.suggested_project_query).slice(0, 120)
+        : heuristic.suggested_project_query,
+      suggested_actions: actions,
+      confidence: Number(ai.confidence) > 0 ? Math.min(1, Number(ai.confidence)) : heuristic.confidence,
+      amount: ai.amount != null && Number(ai.amount) > 0 ? Number(ai.amount) : heuristic.amount,
+      vendor: ai.vendor ? String(ai.vendor).slice(0, 120) : heuristic.vendor,
+      client_name: ai.client_name ? String(ai.client_name).slice(0, 120) : heuristic.client_name,
+      source: 'ai',
+    };
+  } catch (err) {
+    console.warn('classifyAndStudyAttachments:', err.message);
+    return heuristic;
+  }
+}
+
+function heuristicClassify({ message = '', extracts = [], projectHint = null }) {
+  const blob = `${message}\n${extracts.map(e => `${e.name || ''}\n${e.text || ''}`).join('\n')}`.toLowerCase();
+  const names = extracts.map(e => e.name).filter(Boolean);
+  const excerpt = extracts.map(e => (e.text || '').trim()).join('\n').slice(0, 500);
+
+  let doc_type = 'other';
+  let suggested_actions = ['none'];
+  let label_fr = names[0] || 'Document';
+  let amount = null;
+  let vendor = null;
+
+  const amountMatch = blob.match(/(?:\$|cad|total)[^\d]{0,8}(\d+[.,]\d{2})|(\d+[.,]\d{2})\s*(?:\$|cad)/i)
+    || message.match(/(\d+[.,]\d{2}|\d+)\s*\$/);
+  if (amountMatch) {
+    amount = Number(String(amountMatch[1] || amountMatch[2]).replace(',', '.'));
+  }
+
+  if (/re[cç]u|ticket|caisse|receipt|pos\b/.test(blob)) {
+    doc_type = 'receipt';
+    suggested_actions = ['expense'];
+    label_fr = 'Ticket / reçu';
+  } else if (/facture|invoice|tps|tvq|gst|qst|fournisseur/.test(blob)) {
+    doc_type = 'supplier_invoice';
+    suggested_actions = ['expense', 'project_notes'];
+    label_fr = 'Facture fournisseur';
+  } else if (/devis|quote|soumission/.test(blob)) {
+    doc_type = 'quote';
+    suggested_actions = ['project_notes'];
+    label_fr = 'Devis';
+  } else if (/plan|cote|dimension|mm\b|pouce|"|banc|meuble|assemblage|d[eé]bitage|client/.test(blob)
+    || /\.(dwg|dxf|pdf)$/i.test(names.join(' '))) {
+    doc_type = 'client_plan';
+    suggested_actions = ['fabrication_plan', 'project_notes'];
+    label_fr = 'Plan / brief client';
+  } else if (/contrat|agreement|entente/.test(blob)) {
+    doc_type = 'contract';
+    suggested_actions = ['project_notes'];
+    label_fr = 'Contrat';
+  } else if (extracts.some(e => e.source === 'vision') && excerpt.length < 40) {
+    doc_type = 'photo_atelier';
+    suggested_actions = ['project_notes'];
+    label_fr = 'Photo';
+  }
+
+  const vendorMatch = blob.match(/\b((?:home\s*depot|rona|canac|amazon|ups|fedex|canadian\s*tire|bmr)[\wÀ-ÿ&' -]*)/i);
+  if (vendorMatch && (doc_type === 'receipt' || doc_type === 'supplier_invoice')) {
+    vendor = vendorMatch[0].slice(0, 80);
+  }
+
+  const summary = excerpt
+    ? `Lu automatiquement (${doc_type}). Extrait : ${excerpt.slice(0, 280)}${excerpt.length > 280 ? '…' : ''}`
+    : `Fichier reçu (${names.join(', ') || 'sans nom'}) — peu de texte extractible.`;
+
+  const key_facts = [];
+  if (amount) key_facts.push(`Montant ≈ ${amount} $`);
+  if (vendor) key_facts.push(`Fournisseur : ${vendor}`);
+  if (projectHint) key_facts.push(`Contexte page : ${projectHint}`);
+
+  return {
+    doc_type,
+    label_fr,
+    summary,
+    key_facts,
+    suggested_project_query: projectHint || null,
+    suggested_actions,
+    confidence: excerpt.length > 80 ? 0.55 : 0.35,
+    amount,
+    vendor,
+    client_name: null,
+    source: 'heuristic',
+  };
+}
+
+export function formatStudyReply(study, { fileNames = [], extras = '' } = {}) {
+  if (!study) return 'Fichier reçu.';
+  const facts = (study.key_facts || []).map(f => `• ${f}`).join('\n');
+  const actionsHint = (study.suggested_actions || [])
+    .filter(a => a !== 'none')
+    .map(a => ({
+      fabrication_plan: 'plan de fabrication',
+      expense: 'dépense / reçu',
+      project_notes: 'notes projet',
+      drive: 'Drive',
+    }[a] || a))
+    .join(', ');
+
+  let reply = `📎 ${study.label_fr || 'Document'} (${study.doc_type})`
+    + (fileNames.length ? `\nFichier(s) : ${fileNames.join(', ')}` : '')
+    + `\n\n${study.summary || ''}`;
+  if (facts) reply += `\n\nPoints clés :\n${facts}`;
+  if (actionsHint) reply += `\n\nRangé / proposé : ${actionsHint}.`;
+  if (extras) reply += `\n\n${extras}`;
+  return reply.trim();
+}
+
+/**
  * À partir d'un texte (mail, PDF, notes), produit un plan d'étapes atelier.
  */
 export async function proposeFabricationPlanFromText({ message, extracts, projectHint }) {
