@@ -275,6 +275,20 @@ export async function initDb() {
       UNIQUE(supplier_id, keyword_pattern)
     )
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS cutting_plans (
+      id SERIAL PRIMARY KEY,
+      title TEXT NOT NULL DEFAULT 'Plan de coupe',
+      project_label TEXT DEFAULT '',
+      notes TEXT DEFAULT '',
+      plan_input JSONB NOT NULL DEFAULT '{}',
+      result_cache JSONB,
+      project_id INT REFERENCES projects(id) ON DELETE SET NULL,
+      created_by INT REFERENCES users(id) ON DELETE SET NULL,
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
 
   await pool.query(`ALTER TABLE admin_tasks ADD COLUMN IF NOT EXISTS priority_tier TEXT NOT NULL DEFAULT 'p2'`);
   await pool.query(`ALTER TABLE assistant_memories ADD COLUMN IF NOT EXISTS client_id INT REFERENCES clients(id) ON DELETE CASCADE`);

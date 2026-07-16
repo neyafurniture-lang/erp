@@ -53,6 +53,7 @@ export const ERP_MANUAL_SECTIONS = [
       { href: '/production', label: 'Production' },
       { href: '/projects', label: 'Projets' },
       { href: '/sauna-cloud', label: 'Sauna Cloud' },
+      { href: '/cutting-plans', label: 'Plans de coupe' },
       { href: '/standards', label: 'Fiches standards' },
     ],
     tips: [
@@ -62,6 +63,7 @@ export const ERP_MANUAL_SECTIONS = [
       'Depuis une fiche standard : « Créer projet depuis cette fiche ».',
       'Depuis Gmail : « Analyse les devis The NNS et crée les projets » (skill create_project_from_quote_email).',
       'Sauna Cloud (/sauna-cloud) : liste des frames à fabriquer, cocher pour l’avancement %, notes par frame et notes projet. Permission Production.',
+      'Plans de coupe (/cutting-plans) : nomenclature SKU (frames), stock atelier, optimisation planches 8 pi et feuilles 4×8, patterns colorés, export PDF type Cutting Plan Sierra. Charger l’exemple Sierra pour démarrer. Permission Production.',
     ],
   },
   {

@@ -45,6 +45,7 @@ import emailThreadsRoutes from './routes/email-threads.js';
 import deployRoutes from './routes/deploy.js';
 import timeOffRoutes from './routes/time-off.js';
 import saunaCloudRoutes from './routes/sauna-cloud.js';
+import cuttingPlansRoutes from './routes/cutting-plans.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -135,6 +136,7 @@ protectedRouter.use('/cursor-agent', cursorAgentRoutes);
 protectedRouter.use('/manual', manualRoutes);
 protectedRouter.use('/habits', atelierHabitsRoutes);
 protectedRouter.use('/sauna-cloud', saunaCloudRoutes);
+protectedRouter.use('/cutting-plans', cuttingPlansRoutes);
 
 app.use('/api', protectedRouter);
 
