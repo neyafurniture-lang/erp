@@ -6,6 +6,8 @@ build/
 .env.local
 .env.production
 .deploy-state.json
+deploy/.last-activity
+deploy/.auto-update-installed
 backend/uploads/*
 !backend/uploads/.gitkeep
 deploy/backups/
