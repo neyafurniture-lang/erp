@@ -149,6 +149,7 @@ export const ERP_MANUAL_SECTIONS = [
     ],
     tips: [
       'Liste de courses : besoins consommables à commander.',
+      'Chaque ligne est modifiable directement (nom, qté, catégorie, notes, fournisseur, projet, statut, priorité) — sauvegarde auto.',
       'Sur chaque article « À acheter » : liens Prix le moins cher (Google Shopping, Home Depot, Rona, Canac, Canadian Tire, Amazon.ca).',
       'Bouton « Prix ↗ » ouvre Google Shopping ; « Ouvrir les 3 meilleurs » lance Google + Home Depot + Rona.',
       'Achats atelier : bons de commande fournisseurs.',
