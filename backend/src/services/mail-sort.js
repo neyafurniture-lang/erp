@@ -140,6 +140,7 @@ function collectAddresses({ from = '', to = '', cc = '', participants = [] } = {
 }
 
 function isPromotion(from, subject, snippet) {
+  if (NOT_PROMO_FROM_RE.test(String(from || ''))) return false;
   const hay = `${from} ${subject} ${snippet}`;
   return PROMO_RE.test(hay);
 }
