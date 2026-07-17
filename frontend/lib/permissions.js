@@ -10,6 +10,7 @@ export const PERMISSION_AREAS = {
   drive: { label: 'Google Drive', group: 'Intégrations' },
   mail: { label: 'Gmail', group: 'Intégrations' },
   invoices: { label: 'Devis & factures', group: 'Finance' },
+  finance: { label: 'Finance & bénéfices', group: 'Finance' },
   expenses: { label: 'Dépenses', group: 'Opérations' },
   clients: { label: 'Clients', group: 'Commercial' },
   standards: { label: 'Standards', group: 'Commercial' },
@@ -49,6 +50,7 @@ const PATH_MAP = [
   ['/drive', 'drive'],
   ['/mail', 'mail'],
   ['/invoices', 'invoices'],
+  ['/finance', 'finance'],
   ['/expenses', 'expenses'],
   ['/clients', 'clients'],
   ['/standards', 'standards'],
@@ -68,6 +70,11 @@ export function canAccessPath(user, pathname) {
   if (!user) return false;
   const key = permissionForPath(pathname);
   if (!key) return isAdmin(user);
+  if (key === 'finance') {
+    return hasPermission(user, 'finance')
+      || hasPermission(user, 'invoices')
+      || hasPermission(user, 'expenses');
+  }
   return hasPermission(user, key);
 }
 

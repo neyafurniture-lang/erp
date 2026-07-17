@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { FolderKanban, Hammer, LayoutDashboard, Mail, MoreHorizontal } from 'lucide-react';
 import { useAuth } from '../lib/auth-context';
-import { hasPermission } from '../lib/permissions';
+import { canAccessPath, hasPermission } from '../lib/permissions';
 
 const TABS = [
   { href: '/', label: 'Accueil', permission: 'dashboard', Icon: LayoutDashboard },
@@ -48,6 +48,7 @@ const MENU_GROUPS = [
     title: 'Facturation',
     items: [
       { href: '/invoices', label: 'Devis & factures', permission: 'invoices' },
+      { href: '/finance', label: 'Finance', permission: 'finance' },
     ],
   },
   {
@@ -78,9 +79,12 @@ export default function MobileNav() {
   const { user } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const tabs = TABS.filter(t => hasPermission(user, t.permission));
+  const canSee = (permission, href) => (
+    permission === 'finance' ? canAccessPath(user, href || '/finance') : hasPermission(user, permission)
+  );
+  const tabs = TABS.filter(t => canSee(t.permission, t.href));
   const groups = MENU_GROUPS
-    .map(g => ({ ...g, items: g.items.filter(i => hasPermission(user, i.permission)) }))
+    .map(g => ({ ...g, items: g.items.filter(i => canSee(i.permission, i.href)) }))
     .filter(g => g.items.length > 0);
 
   const menuActive = !tabs.some(t => isActivePath(pathname, t.href));

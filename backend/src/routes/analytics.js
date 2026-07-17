@@ -2,8 +2,20 @@ import { Router } from 'express';
 import pool from '../db/pool.js';
 import { computeProjectCosts } from '../services/project-costs.js';
 import { syncMaterialsFromQuote, findQuoteForProject } from '../services/project-materials.js';
+import { computeMonthlyPnl } from '../services/monthly-pnl.js';
 
 const router = Router();
+
+router.get('/monthly-pnl', async (req, res) => {
+  try {
+    const year = Number(req.query.year) || new Date().getFullYear();
+    const meName = String(req.query.me || req.user?.employee_name || 'Mehdi').trim() || 'Mehdi';
+    const data = await computeMonthlyPnl(year, { meName });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 router.get('/profitability', async (_req, res) => {
   try {

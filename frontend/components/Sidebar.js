@@ -21,13 +21,13 @@ import {
   BookOpen,
   Settings,
   Map,
-  Globe,
+  TrendingUp,
   LogOut,
   MoreHorizontal,
 } from 'lucide-react';
 import { api, logout } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
-import { hasPermission } from '../lib/permissions';
+import { canAccessPath, hasPermission } from '../lib/permissions';
 import NeyaMark from './NeyaMark';
 
 const NAV = [
@@ -46,6 +46,7 @@ const NAV = [
   { href: '/drive', label: 'Drive', section: 'integrations', permission: 'drive', icon: HardDrive },
   { href: '/mail', label: 'Courriel', section: 'integrations', permission: 'mail', icon: Mail },
   { href: '/invoices', label: 'Devis & factures', section: 'facturation', permission: 'invoices', icon: FileText },
+  { href: '/finance', label: 'Finance', section: 'facturation', permission: 'finance', icon: TrendingUp },
   { href: '/clients', label: 'Clients', section: 'crm', permission: 'clients', icon: Users },
   { href: '/standards', label: 'Standards', section: 'crm', permission: 'standards', icon: BookOpen },
   { href: '/web', label: 'Site web', section: 'crm', permission: 'web', icon: Globe },
@@ -76,7 +77,11 @@ export default function Sidebar() {
   const { user } = useAuth();
   const [shopUrl, setShopUrl] = useState('https://neyafurniture.ca');
 
-  const visibleNav = NAV.filter(n => hasPermission(user, n.permission));
+  const visibleNav = NAV.filter(n => (
+    n.permission === 'finance'
+      ? canAccessPath(user, '/finance')
+      : hasPermission(user, n.permission)
+  ));
   const showSettings = hasPermission(user, 'settings');
   const shopHost = shopUrl.replace(/^https?:\/\//, '');
   const initials = (user?.name || user?.email || 'N')
