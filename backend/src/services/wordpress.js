@@ -15,20 +15,48 @@ function stripAccents(s) {
   return String(s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
 }
 
-function findProductForStandard(std, meta, products) {
-  const sku = meta.sku || std.product_type;
-  const norm = normSku(sku);
-  const plain = stripAccents(sku);
+function normSku(s) {
+  return String(s || '').trim().toLowerCase().replace(/\s+/g, '_');
+}
 
-  return products.find(p => normSku(p.sku) === norm)
-    || products.find(p => normSku(p.slug) === norm)
-    || products.find(p => stripAccents(p.slug) === plain)
-    || products.find(p => normSku(std.product_type) === normSku(p.sku))
-    || products.find(p => {
-      const name = stripAccents(p.name || '');
-      return plain.length >= 2 && name.includes(plain);
-    })
-    || products.find(p => p.name?.toLowerCase().includes(std.name.toLowerCase().slice(0, 12)));
+/** Score de matching fiche ↔ produit web (plus haut = mieux). */
+function scoreProductMatch(std, meta, product) {
+  const sku = meta.sku || std.product_type;
+  const skuN = normSku(sku);
+  const skuPlain = stripAccents(sku);
+  if (!skuN || skuN === 'guide') return 0;
+
+  const pSku = normSku(product.sku);
+  const pSlug = stripAccents(product.slug || '');
+  const pName = stripAccents(product.name || '');
+  const stdName = stripAccents(std.name || '');
+
+  let score = 0;
+  if (pSku && pSku === skuN) score += 100;
+  if (pSlug === skuPlain) score += 90;
+  if (pSlug.startsWith(`${skuPlain}-`) || pSlug.startsWith(`${skuPlain}_`)) score += 80;
+  if (pName.startsWith(skuPlain)) score += 70;
+  if (skuPlain.length >= 2 && pName.includes(skuPlain)) score += 40;
+  if (stdName.length >= 8 && pName.includes(stdName.slice(0, 16))) score += 30;
+  // Préférer les fiches FR (souvent id plus bas / slug avec accents décodés)
+  if (/[àâäéèêëïîôùûüç—]/.test(product.name || '') || /-bureau|-table|-planche|-miroir|-etagere|-tabouret/.test(pSlug)) {
+    score += 5;
+  }
+  if ((product.images || []).length) score += 2;
+  return score;
+}
+
+function findProductForStandard(std, meta, products) {
+  let best = null;
+  let bestScore = 0;
+  for (const p of products) {
+    const score = scoreProductMatch(std, meta, p);
+    if (score > bestScore) {
+      bestScore = score;
+      best = p;
+    }
+  }
+  return bestScore >= 40 ? best : null;
 }
 
 async function downloadWebImage(url, baseName) {
@@ -54,7 +82,7 @@ async function downloadWebImage(url, baseName) {
 }
 
 async function attachProductPhotos(product, meta, { force = true } = {}) {
-  const images = (product.images || []).map(i => i.src).filter(Boolean);
+  const images = (product.images || []).map(i => (typeof i === 'string' ? i : i?.src)).filter(Boolean);
   const primaryUrl = images[0] || meta.web_image_url;
   if (!primaryUrl) return { meta, photos_downloaded: 0 };
 
@@ -93,7 +121,7 @@ async function attachProductPhotos(product, meta, { force = true } = {}) {
     web_image_url: primaryUrl,
     web_images: images,
     web_image_local: localPath || meta.web_image_local,
-    image: localPath || meta.image,
+    image: localPath || primaryUrl || meta.image,
     image_gallery: gallery.length ? gallery : meta.image_gallery,
     photos_synced_at: new Date().toISOString(),
   };
@@ -108,6 +136,33 @@ function wpAuthQuery(settings) {
   return `consumer_key=${encodeURIComponent(key)}&consumer_secret=${encodeURIComponent(secret)}`;
 }
 
+function formatStorePrice(product) {
+  const raw = product.prices?.price ?? product.price;
+  if (raw == null || raw === '') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return String(raw);
+  // Store API : prix en centimes (ex. 112900 → 1129.00)
+  if (product.prices?.price != null && n >= 100) return (n / 100).toFixed(2);
+  return String(n);
+}
+
+/** Uniformise REST v3 et Store API vers le même shape. */
+function normalizeProduct(p) {
+  if (!p) return null;
+  const images = (p.images || [])
+    .map(i => (typeof i === 'string' ? { src: i } : { src: i?.src || i?.thumbnail || '' }))
+    .filter(i => i.src);
+  return {
+    id: p.id,
+    name: p.name || '',
+    slug: p.slug || '',
+    sku: p.sku || '',
+    permalink: p.permalink || p.permalink_template || '',
+    price: formatStorePrice(p),
+    images,
+  };
+}
+
 export async function getWpBase() {
   const s = await getAllSettings();
   return (s.wordpress_url || process.env.WORDPRESS_URL || 'https://neyafurniture.ca').replace(/\/$/, '');
@@ -120,6 +175,8 @@ export async function getWordPressConfig() {
   return {
     base,
     configured: Boolean(auth),
+    /** Photos / liaison fiches possibles via Store API publique même sans clés. */
+    photos_available: true,
     key_preview: s.woocommerce_key ? `••••${String(s.woocommerce_key).slice(-4)}` : '',
   };
 }
@@ -139,20 +196,53 @@ async function wpFetch(path, settings) {
   return res.json();
 }
 
+async function fetchStoreApiPages(base) {
+  const all = [];
+  for (let page = 1; page <= 20; page++) {
+    const res = await fetch(
+      `${base}/wp-json/wc/store/v1/products?per_page=100&page=${page}`,
+      { headers: { Accept: 'application/json', 'User-Agent': 'NeyaERP/1.0' } }
+    );
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Store API ${res.status}: ${text.slice(0, 200)}`);
+    }
+    const batch = await res.json();
+    if (!Array.isArray(batch) || !batch.length) break;
+    all.push(...batch.map(normalizeProduct));
+    if (batch.length < 100) break;
+  }
+  return all;
+}
+
 async function fetchAllPages(settings, path) {
   const all = [];
   for (let page = 1; page <= 20; page++) {
     const sep = path.includes('?') ? '&' : '?';
     const batch = await wpFetch(`${path}${sep}per_page=100&page=${page}`, settings);
     if (!batch.length) break;
-    all.push(...batch);
+    all.push(...batch.map(normalizeProduct));
     if (batch.length < 100) break;
   }
   return all;
 }
 
-function normSku(s) {
-  return String(s || '').trim().toLowerCase().replace(/\s+/g, '_');
+/**
+ * Récupère les produits : REST authentifié si clés OK, sinon Store API publique.
+ */
+export async function fetchShopProducts(settings) {
+  const base = (settings.wordpress_url || process.env.WORDPRESS_URL || 'https://neyafurniture.ca').replace(/\/$/, '');
+  if (wpAuthQuery(settings)) {
+    try {
+      return { products: await fetchAllPages(settings, '/products'), source: 'rest' };
+    } catch (err) {
+      // Fallback Store API si les clés sont invalides
+      const products = await fetchStoreApiPages(base);
+      return { products, source: 'store', rest_error: err.message };
+    }
+  }
+  const products = await fetchStoreApiPages(base);
+  return { products, source: 'store' };
 }
 
 export async function getWebStatus() {
@@ -173,7 +263,12 @@ export async function getWebStatus() {
   const { rows: photoStats } = await pool.query(`
     SELECT COUNT(*)::int AS n FROM standards
     WHERE product_type != 'guide'
-    AND (meta->>'image' LIKE '/uploads/web/%' OR meta->>'web_image_local' IS NOT NULL)
+    AND (
+      meta->>'image' LIKE '/uploads/web/%'
+      OR meta->>'web_image_local' IS NOT NULL
+      OR meta->>'web_image_url' IS NOT NULL
+      OR meta->>'photos_synced_at' IS NOT NULL
+    )
   `);
   return {
     ...cfg,
@@ -186,10 +281,10 @@ export async function getWebStatus() {
   };
 }
 
-/** Synchronise images + liens web depuis WooCommerce vers standards (match SKU) */
+/** Synchronise images + liens web depuis WooCommerce vers standards (match SKU / slug / nom) */
 export async function syncWordPressProducts({ downloadPhotos = true } = {}) {
   const s = await getAllSettings();
-  const products = await fetchAllPages(s, '/products');
+  const { products, source } = await fetchShopProducts(s);
   const { rows: standards } = await pool.query('SELECT * FROM standards WHERE product_type != $1', ['guide']);
 
   let matched = 0;
@@ -219,13 +314,19 @@ export async function syncWordPressProducts({ downloadPhotos = true } = {}) {
       web_synced_at: new Date().toISOString(),
     };
 
-    if (downloadPhotos && newMeta.web_image_url) {
+    if (downloadPhotos && (newMeta.web_image_url || product.images?.length)) {
       const photoResult = await attachProductPhotos(product, newMeta);
       newMeta = photoResult.meta;
       photosDownloaded += photoResult.photos_downloaded;
     }
 
-    if (newMeta.web_image_url !== meta.web_image_url || newMeta.image !== meta.image) updated++;
+    if (
+      newMeta.web_image_url !== meta.web_image_url
+      || newMeta.image !== meta.image
+      || newMeta.wp_product_id !== meta.wp_product_id
+    ) {
+      updated++;
+    }
     await pool.query('UPDATE standards SET meta = $1 WHERE id = $2', [JSON.stringify(newMeta), std.id]);
     details.push({
       standard: std.name,
@@ -233,6 +334,7 @@ export async function syncWordPressProducts({ downloadPhotos = true } = {}) {
       status: 'linked',
       url: product.permalink,
       photo: newMeta.image || newMeta.web_image_url,
+      wp_product_id: product.id,
     });
   }
 
@@ -240,6 +342,7 @@ export async function syncWordPressProducts({ downloadPhotos = true } = {}) {
 
   return {
     products_found: products.length,
+    source,
     standards_checked: standards.length,
     matched,
     updated,
@@ -256,6 +359,7 @@ export async function syncWebPhotos() {
     photos_downloaded: result.photos_downloaded,
     updated: result.updated,
     products_found: result.products_found,
+    source: result.source,
     details: result.details.filter(d => d.status === 'linked'),
   };
 }
@@ -409,7 +513,7 @@ export async function fullWebSync() {
   return { products, orders };
 }
 
-/** Rafraîchit la photo d'une fiche depuis WooCommerce */
+/** Rafraîchit la photo d'une fiche depuis WooCommerce / Store API */
 export async function syncStandardPhoto(standardId) {
   const { rows } = await pool.query('SELECT * FROM standards WHERE id=$1', [standardId]);
   if (!rows[0]) throw new Error('Fiche introuvable');
@@ -417,11 +521,11 @@ export async function syncStandardPhoto(standardId) {
   if (std.product_type === 'guide') throw new Error('Les guides n\'ont pas de photo produit');
 
   const s = await getAllSettings();
-  const products = await fetchAllPages(s, '/products');
+  const { products } = await fetchShopProducts(s);
   const meta = typeof std.meta === 'string' ? JSON.parse(std.meta) : (std.meta || {});
   const product = findProductForStandard(std, meta, products);
   if (!product) {
-    throw new Error(`Produit non trouvé sur neyafurniture.ca pour « ${meta.sku || std.name} » — vérifiez le SKU WooCommerce`);
+    throw new Error(`Produit non trouvé sur neyafurniture.ca pour « ${meta.sku || std.name} » — vérifiez le SKU / nom`);
   }
 
   let newMeta = {
@@ -447,8 +551,22 @@ export async function syncStandardPhoto(standardId) {
 
 export async function testWordPressConnection() {
   const cfg = await getWordPressConfig();
-  if (!cfg.configured) throw new Error('Clés WooCommerce non configurées');
   const s = await getAllSettings();
-  const data = await wpFetch('/products?per_page=1', s);
-  return { ok: true, base: cfg.base, sample: data[0]?.name || 'OK', shop_url: cfg.base };
+  if (cfg.configured) {
+    const data = await wpFetch('/products?per_page=1', s);
+    return { ok: true, base: cfg.base, sample: data[0]?.name || 'OK', shop_url: cfg.base, mode: 'rest' };
+  }
+  // Sans clés : valider via Store API (suffisant pour lier les photos)
+  const { products, source } = await fetchShopProducts(s);
+  if (!products.length) throw new Error('Aucun produit trouvé sur le site');
+  return {
+    ok: true,
+    base: cfg.base,
+    sample: products[0]?.name || 'OK',
+    shop_url: cfg.base,
+    mode: source,
+    products_found: products.length,
+    note: 'Photos disponibles via Store API (clés Woo optionnelles pour les commandes)',
+  };
 }
+
