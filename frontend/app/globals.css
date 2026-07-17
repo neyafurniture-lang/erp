@@ -1119,7 +1119,35 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .dash-section {
-  @apply py-6 border-b border-neya-border last:border-0;
+  @apply py-0 border-0;
+}
+
+.dash-section > .dash-block,
+.dash-section > .dash-split,
+.dash-section > .dash-metrics,
+.dash-section > .dash-alerts {
+  @apply rounded-2xl border border-neya-border bg-white shadow-sm;
+}
+
+.dash-section > .dash-block,
+.dash-section > .dash-alerts {
+  @apply p-4 sm:p-5;
+}
+
+.dash-section > .dash-split {
+  @apply p-4 sm:p-5 gap-6;
+}
+
+.dash-section > .dash-metrics {
+  @apply p-0 border-0 bg-transparent shadow-none gap-3;
+}
+
+.dash-section-title {
+  @apply font-display text-[16px] font-semibold text-neya-ink tracking-tight;
+}
+
+.dash-link {
+  @apply text-[12.5px] font-medium text-neya-orange hover:bg-neya-orange-soft rounded-md px-2 py-1 transition-colors;
 }
 
 .dash-section:empty {
@@ -1134,16 +1162,8 @@ h1, h2, h3, h4, h5, h6 {
   @apply flex items-center justify-between gap-3 mb-3;
 }
 
-.dash-section-title {
-  @apply text-sm font-semibold text-neya-ink tracking-tight;
-}
-
-.dash-link {
-  @apply text-xs text-neya-muted hover:text-neya-ink transition-colors;
-}
-
 .dash-count {
-  @apply text-[11px] font-medium text-neya-muted tabular-nums border border-neya-border px-1.5 py-0.5;
+  @apply text-[11px] font-medium text-neya-muted tabular-nums border border-neya-border px-1.5 py-0.5 rounded-full;
 }
 
 .dash-metrics {

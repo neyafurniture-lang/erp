@@ -36,7 +36,7 @@ function ProductionCard({ item, onAdvance, advancing }) {
   const nextTask = item.tasks?.find(t => t.status !== 'done');
 
   return (
-    <div className="card p-0 overflow-hidden flex flex-col h-full">
+    <div className="card p-0 overflow-hidden flex flex-col h-full rounded-2xl shadow-sm">
       <div className="relative h-36 bg-neya-surface border-b border-neya-border">
         {image ? (
           <Image src={image} alt="" fill className="object-contain p-2" unoptimized />
@@ -52,7 +52,7 @@ function ProductionCard({ item, onAdvance, advancing }) {
             {item.sku && (
               <span className="text-[10px] font-bold text-neya-orange">{item.sku}{qty}</span>
             )}
-            <h3 className="font-semibold text-base sm:text-lg leading-tight text-neya-ink">{item.name}</h3>
+            <h3 className="font-display font-semibold text-base sm:text-lg leading-tight text-neya-ink">{item.name}</h3>
           </div>
           <StageBadge stage={stage} />
         </div>
@@ -168,8 +168,8 @@ export default function ProductionPage() {
 
   return (
     <AuthGuard>
-      <AppShell title="Production">
-        <p className="text-sm text-neya-muted mb-6">
+      <AppShell title="Production" subtitle="File atelier — bancs catalogue et sur mesure">
+        <p className="text-sm text-neya-muted mb-6 lg:hidden">
           Suivez la fabrication des bancs catalogue et de vos meubles sur mesure — étape par étape.
         </p>
 

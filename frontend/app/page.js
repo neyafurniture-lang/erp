@@ -5,6 +5,7 @@ import Link from 'next/link';
 import AppShell from '../components/AppShell';
 import AuthGuard from '../components/AuthGuard';
 import { api, formatMoney, formatDate } from '../lib/api';
+import { useAuth } from '../lib/auth-context';
 import { AdminTasksSummary } from '../components/AdminTasksPanel';
 import SupplierInvoiceQueue from '../components/SupplierInvoiceQueue';
 import EditableSection from '../components/EditableSection';
@@ -200,10 +201,12 @@ function ProjectRow({ project }) {
 }
 
 export default function DashboardPage() {
+  const { user } = useAuth();
   const [data, setData] = useState(null);
   const [layout, setLayout] = useState(null);
   const [sauna, setSauna] = useState(null);
   const [error, setError] = useState('');
+  const firstName = (user?.name || '').split(/\s+/)[0] || '';
 
   const load = () => Promise.all([
     api('/dashboard'),
@@ -626,44 +629,67 @@ export default function DashboardPage() {
 
   return (
     <AuthGuard>
-      <AppShell title="Accueil" wide>
+      <AppShell
+        title={firstName ? `${greeting} ${firstName}` : greeting}
+        subtitle={`Voici l'atelier · ${todayLabel}`}
+        wide
+      >
         {error && (
-          <div className="mb-6 text-sm text-red-700 bg-red-50 border border-red-200 px-4 py-3">{error}</div>
+          <div className="mb-6 text-sm text-red-700 bg-red-50 border border-red-200 px-4 py-3 rounded-xl">{error}</div>
         )}
 
-        <header className="dash-hero">
+        <header className="dash-hero lg:hidden">
           <div>
-            <p className="dash-hero-kicker">Neya · atelier</p>
-            <h1 className="dash-hero-title">{greeting}</h1>
-            <p className="dash-hero-sub capitalize">{todayLabel}</p>
+            <p className="dash-hero-kicker capitalize">{todayLabel}</p>
+            <h1 className="dash-hero-title">
+              {greeting}{' '}
+              <span className="text-neya-orange">{firstName || 'atelier'}</span>
+            </h1>
+            <p className="dash-hero-sub">
+              {s.activeProjects ?? 0} projets actifs
+              {s.overdueProjects > 0 ? ` · ${s.overdueProjects} en retard` : ''}
+              {todayCount > 0 ? ` · ${todayCount} tâches aujourd'hui` : ''}
+            </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {editMode && (
-              <button type="button" onClick={addTodoList} className="btn-secondary text-sm">
-                + Liste todo
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={toggleEditMode}
-              className={`text-sm px-3 py-2 border font-medium transition-colors ${
-                editMode
-                  ? 'bg-neya-ink text-white border-neya-ink'
-                  : 'bg-white border-neya-border text-neya-ink hover:bg-neya-surface'
-              }`}
-            >
-              {editMode ? 'Terminer' : 'Réorganiser'}
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={toggleEditMode}
+            className={`text-sm px-3 py-2 rounded-lg border font-medium transition-colors ${
+              editMode
+                ? 'bg-neya-ink text-white border-neya-ink'
+                : 'bg-white border-neya-border text-neya-ink hover:bg-neya-surface'
+            }`}
+          >
+            {editMode ? 'Terminer' : 'Réorganiser'}
+          </button>
         </header>
 
+        <div className="hidden lg:flex justify-end mb-4 gap-2">
+          {editMode && (
+            <button type="button" onClick={addTodoList} className="btn-secondary text-sm">
+              + Liste todo
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={toggleEditMode}
+            className={`text-sm px-3 py-2 rounded-lg border font-medium transition-colors ${
+              editMode
+                ? 'bg-neya-ink text-white border-neya-ink'
+                : 'bg-white border-neya-border text-neya-ink hover:bg-neya-surface'
+            }`}
+          >
+            {editMode ? 'Terminer' : 'Réorganiser'}
+          </button>
+        </div>
+
         {editMode && (
-          <div className="dash-edit-banner mb-6">
+          <div className="dash-edit-banner mb-6 rounded-xl">
             Mode édition — utilisez ↑ ↓ pour déplacer les blocs. L’ordre est sauvegardé pour votre compte.
           </div>
         )}
 
-        <div className="dash-stack">
+        <div className="dash-stack space-y-6">
           {sections.map(renderSection)}
         </div>
       </AppShell>
