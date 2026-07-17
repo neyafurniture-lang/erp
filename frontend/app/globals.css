@@ -715,13 +715,30 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .mail-body {
-    @apply flex-1 overflow-y-auto px-4 sm:px-8 py-5 sm:py-6 text-[15px] sm:text-[15px] leading-[1.7] text-neya-ink whitespace-pre-wrap break-words min-w-0 w-full;
+    @apply flex-1 overflow-y-auto px-4 sm:px-8 py-5 sm:py-6 min-w-0 w-full;
     -webkit-overflow-scrolling: touch;
-    overflow-wrap: anywhere;
-    word-break: break-word;
     background:
       radial-gradient(900px 280px at 10% -10%, rgba(216, 107, 48, 0.05), transparent 55%),
       #fff;
+  }
+
+  .mail-body-text {
+    @apply text-[15px] sm:text-[15px] leading-[1.7] text-neya-ink whitespace-pre-wrap break-words;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .mail-body--html {
+    @apply px-2 sm:px-3 py-2 sm:py-3;
+  }
+
+  .mail-html-frame {
+    display: block;
+    width: 100%;
+    border: 0;
+    background: #fff;
+    min-height: 12rem;
+    border-radius: 0.5rem;
   }
 
   .mail-compose {

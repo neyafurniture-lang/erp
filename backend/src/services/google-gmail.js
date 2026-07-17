@@ -50,31 +50,82 @@ function htmlToReadableText(html) {
     .trim();
 }
 
-function extractBody(payload) {
-  if (!payload) return '';
-  // Préférer text/plain
-  for (const part of payload.parts || []) {
-    if (part.mimeType === 'text/plain' && part.body?.data) return decodeBase64Url(part.body.data);
+/** Extrait text/plain + text/html (multipart nested inclus). */
+function extractBodies(payload) {
+  let text = '';
+  let html = '';
+
+  function walk(part) {
+    if (!part) return;
+    const data = part.body?.data ? decodeBase64Url(part.body.data) : '';
+    if (part.mimeType === 'text/plain' && data && !text) text = data;
+    if (part.mimeType === 'text/html' && data && !html) html = data;
+    for (const child of part.parts || []) walk(child);
   }
-  for (const part of payload.parts || []) {
-    if (part.mimeType === 'text/html' && part.body?.data) {
-      return htmlToReadableText(decodeBase64Url(part.body.data));
-    }
-    const nested = extractBody(part);
-    if (nested) return nested;
-  }
-  if (payload.body?.data) {
+
+  if (!payload) return { text: '', html: '' };
+
+  if (payload.mimeType === 'text/plain' && payload.body?.data) {
+    text = decodeBase64Url(payload.body.data);
+  } else if (payload.mimeType === 'text/html' && payload.body?.data) {
+    html = decodeBase64Url(payload.body.data);
+  } else if (payload.body?.data && !payload.parts?.length) {
     const raw = decodeBase64Url(payload.body.data);
-    if (payload.mimeType === 'text/html' || /<\/?[a-z][\s\S]*>/i.test(raw)) {
-      return htmlToReadableText(raw);
-    }
-    return raw;
+    if (payload.mimeType === 'text/html' || /<\/?[a-z][\s\S]*>/i.test(raw)) html = raw;
+    else text = raw;
+  } else {
+    walk(payload);
   }
-  return '';
+
+  if (!text && html) text = htmlToReadableText(html);
+  return { text, html };
+}
+
+/** Collecte les parts text/html|plain dont le corps est en pièce jointe Gmail. */
+function collectBodyAttachmentRefs(payload, acc = []) {
+  if (!payload) return acc;
+  if (
+    (payload.mimeType === 'text/html' || payload.mimeType === 'text/plain')
+    && payload.body?.attachmentId
+    && !payload.body?.data
+  ) {
+    acc.push({ mimeType: payload.mimeType, attachmentId: payload.body.attachmentId });
+  }
+  for (const part of payload.parts || []) collectBodyAttachmentRefs(part, acc);
+  return acc;
+}
+
+async function hydrateBodyAttachments(messageId, payload) {
+  const refs = collectBodyAttachmentRefs(payload);
+  if (!refs.length) return payload;
+
+  await Promise.all(refs.map(async (ref) => {
+    try {
+      const att = await gmailFetch(`/messages/${messageId}/attachments/${ref.attachmentId}`);
+      if (!att?.data) return;
+      // Injecte les données sur la part correspondante
+      function inject(part) {
+        if (!part) return false;
+        if (part.body?.attachmentId === ref.attachmentId) {
+          part.body.data = att.data;
+          return true;
+        }
+        for (const child of part.parts || []) {
+          if (inject(child)) return true;
+        }
+        return false;
+      }
+      inject(payload);
+    } catch (err) {
+      console.warn('Gmail body attachment:', err.message);
+    }
+  }));
+  return payload;
 }
 
 export function formatMessage(msg) {
   const headers = msg.payload?.headers || [];
+  const { text, html } = extractBodies(msg.payload);
   return {
     id: msg.id,
     threadId: msg.threadId,
@@ -85,7 +136,8 @@ export function formatMessage(msg) {
     date: getHeader(headers, 'Date'),
     snippet: msg.snippet,
     labelIds: msg.labelIds || [],
-    body: extractBody(msg.payload),
+    body: text,
+    bodyHtml: html || null,
     isUnread: (msg.labelIds || []).includes('UNREAD'),
   };
 }
@@ -111,12 +163,18 @@ export async function listMessages({ label = 'INBOX', max = 30, pageToken = null
 
 export async function getMessage(messageId) {
   const msg = await gmailFetch(`/messages/${messageId}?format=full`);
+  if (msg?.payload) {
+    await hydrateBodyAttachments(messageId, msg.payload);
+  }
   return formatMessage(msg);
 }
 
 export async function getThread(threadId) {
   const data = await gmailFetch(`/threads/${threadId}?format=full`);
-  const messages = (data.messages || []).map(formatMessage);
+  const messages = await Promise.all((data.messages || []).map(async (msg) => {
+    if (msg?.payload && msg.id) await hydrateBodyAttachments(msg.id, msg.payload);
+    return formatMessage(msg);
+  }));
   return { id: data.id, messages };
 }
 

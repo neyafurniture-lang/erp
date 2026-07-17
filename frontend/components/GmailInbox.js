@@ -112,6 +112,85 @@ function readableMailBody(raw) {
     .trim();
 }
 
+/** Nettoyage léger avant iframe (scripts / handlers). */
+function sanitizeEmailHtml(html) {
+  return String(html || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<iframe[\s\S]*?<\/iframe>/gi, '')
+    .replace(/<object[\s\S]*?<\/object>/gi, '')
+    .replace(/<embed[\s\S]*?>/gi, '')
+    .replace(/<form[\s\S]*?<\/form>/gi, '')
+    .replace(/\son\w+\s*=\s*(['"])[\s\S]*?\1/gi, '')
+    .replace(/\son\w+\s*=\s*[^\s>]+/gi, '')
+    .replace(/javascript:/gi, '')
+    .replace(/data:text\/html/gi, 'data:text/plain');
+}
+
+function buildMailSrcDoc(html) {
+  const safe = sanitizeEmailHtml(html);
+  // Si le mail est déjà un document complet, injecter base + CSS sans double html
+  const hasDoc = /<html[\s>]/i.test(safe);
+  const baseCss = `html,body{margin:0;padding:0;background:#fff;color:#0d0b09;font:15px/1.55 system-ui,-apple-system,sans-serif;word-wrap:break-word;overflow-wrap:anywhere;-webkit-text-size-adjust:100%}
+img,video{max-width:100%!important;height:auto!important}
+a{color:#D86B30}
+table{max-width:100%!important}
+blockquote{margin:0.5em 0;padding-left:0.75em;border-left:3px solid #e6e4e2;color:#666}`;
+  if (hasDoc) {
+    let doc = safe;
+    if (!/<base[\s>]/i.test(doc)) {
+      doc = doc.replace(/<head([^>]*)>/i, '<head$1><base target="_blank" rel="noopener noreferrer">');
+    }
+    if (/<\/head>/i.test(doc)) {
+      doc = doc.replace(/<\/head>/i, `<style>${baseCss}</style></head>`);
+    } else {
+      doc = `<style>${baseCss}</style>${doc}`;
+    }
+    return doc;
+  }
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base target="_blank" rel="noopener noreferrer"><style>${baseCss}</style></head><body>${safe}</body></html>`;
+}
+
+function MailHtmlBody({ html }) {
+  const ref = useRef(null);
+  const [height, setHeight] = useState(280);
+  const srcDoc = useMemo(() => buildMailSrcDoc(html), [html]);
+
+  useEffect(() => {
+    const iframe = ref.current;
+    if (!iframe) return undefined;
+
+    function resize() {
+      try {
+        const doc = iframe.contentDocument;
+        if (!doc?.body) return;
+        const h = Math.max(doc.body.scrollHeight, doc.documentElement?.scrollHeight || 0, 120);
+        setHeight(Math.min(h + 12, 16000));
+      } catch {
+        /* ignore */
+      }
+    }
+
+    iframe.addEventListener('load', resize);
+    const t = setTimeout(resize, 80);
+    return () => {
+      iframe.removeEventListener('load', resize);
+      clearTimeout(t);
+    };
+  }, [srcDoc]);
+
+  return (
+    <iframe
+      ref={ref}
+      title="Contenu du courriel"
+      className="mail-html-frame"
+      sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+      referrerPolicy="no-referrer"
+      srcDoc={srcDoc}
+      style={{ height }}
+    />
+  );
+}
+
 function sortMailItems(items = []) {
   return [...items].sort((a, b) => {
     const ur = Number(Boolean(b.isUnread || b.unread)) - Number(Boolean(a.isUnread || a.unread));
@@ -384,7 +463,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
     setShowDraftInstr(false);
 
     try {
-      const full = m.body ? m : await api(`/gmail/messages/${id}`);
+      const full = (m.body || m.bodyHtml) ? m : await api(`/gmail/messages/${id}`);
       setSelected(full);
     } catch (e) {
       setErr(e.message);
@@ -940,11 +1019,15 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                   </div>
                 </header>
 
-                <div className="mail-body">
-                  {threadLoading && !selected.body ? (
+                <div className={`mail-body ${selected.bodyHtml ? 'mail-body--html' : ''}`}>
+                  {threadLoading && !selected.body && !selected.bodyHtml ? (
                     <p className="text-neya-muted text-sm">Chargement du contenu…</p>
+                  ) : selected.bodyHtml ? (
+                    <MailHtmlBody html={selected.bodyHtml} />
                   ) : (
-                    readableMailBody(selected.body || selected.snippet)
+                    <div className="mail-body-text">
+                      {readableMailBody(selected.body || selected.snippet)}
+                    </div>
                   )}
                 </div>
 
