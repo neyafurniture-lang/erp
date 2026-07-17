@@ -1,7 +1,7 @@
 import pool from '../db/pool.js';
 import * as gmail from './google-gmail.js';
 import { extractKeywords, matchProjectFromRules } from './invoice-email-router.js';
-import { getOpenAIKey, getAnthropicKey, getSetting, isAssistantAiEnabled } from './settings.js';
+import { getOpenAIKey, getAnthropicKey, getAnthropicModel, getSetting, isAssistantAiEnabled } from './settings.js';
 
 function parseEmailAddress(raw) {
   if (!raw) return null;
@@ -443,8 +443,7 @@ async function callSynthesisLLM(prompt) {
   async function tryClaude() {
     const key = await getAnthropicKey();
     if (!key) throw new Error('Clé Claude absente');
-    let model = (await getSetting('anthropic_model')) || 'claude-sonnet-4-20250514';
-    if (model === 'claude-sonnet-5') model = 'claude-sonnet-4-20250514';
+    const model = await getAnthropicModel();
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {

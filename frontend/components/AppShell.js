@@ -20,7 +20,7 @@ export default function AppShell({ children, title, subtitle, wide = false, flus
         {title && <h1 className="text-sm font-display font-semibold text-neya-ink truncate flex-1">{title}</h1>}
       </div>
 
-      <main className="lg:ml-[var(--sidebar-w)] min-h-screen min-h-[100dvh] pb-shell">
+      <main className={`lg:ml-[var(--sidebar-w)] min-h-screen min-h-[100dvh] ${flushMobile ? 'pb-mail' : 'pb-shell'}`}>
         <header className="hidden lg:flex sticky top-0 z-30 bg-white/85 backdrop-blur-md border-b border-neya-border px-8 h-16 items-center gap-3">
           <div className="min-w-0 flex-1">
             {title && (

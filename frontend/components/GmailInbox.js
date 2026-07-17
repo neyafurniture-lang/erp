@@ -719,7 +719,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
         </div>
       )}
 
-      <div className="mail-layout min-h-[480px]">
+      <div className="mail-layout min-h-0">
         <aside className="mail-sidebar">
           <p className="px-4 py-1 text-[10px] font-semibold uppercase tracking-widest text-neya-muted">Gmail</p>
           {SYSTEM_FOLDERS.map(folder => {

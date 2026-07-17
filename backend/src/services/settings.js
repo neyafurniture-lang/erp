@@ -1,10 +1,18 @@
 import pool from '../db/pool.js';
 import { clearCompanyCache } from './company-config.js';
 
+/** Modèles Anthropic retirés → remplacement API actuel (juin 2026+). */
+const RETIRED_ANTHROPIC_MODELS = {
+  'claude-sonnet-4-20250514': 'claude-sonnet-4-6',
+  'claude-opus-4-20250514': 'claude-opus-4-8',
+  'claude-3-7-sonnet-20250219': 'claude-sonnet-4-6',
+  'claude-3-5-haiku-20241022': 'claude-haiku-4-5-20251001',
+};
+
 const DEFAULTS = {
   ai_provider: 'anthropic',
   anthropic_api_key: '',
-  anthropic_model: 'claude-sonnet-4-20250514',
+  anthropic_model: 'claude-sonnet-5',
   openai_api_key: '',
   openai_model: 'gpt-4o-mini',
   assistant_ai_enabled: true,
@@ -72,7 +80,7 @@ export async function getPublicSettings() {
   const wooSecret = all.woocommerce_secret || process.env.WOOCOMMERCE_SECRET || '';
   return {
     ai_provider: all.ai_provider || 'anthropic',
-    anthropic_model: all.anthropic_model,
+    anthropic_model: resolveAnthropicModel(all.anthropic_model),
     anthropic_configured: Boolean(anthropicKey),
     anthropic_api_key_preview: anthropicKey ? maskSecret(anthropicKey) : '',
     openai_model: all.openai_model,
@@ -135,6 +143,24 @@ export async function getAnthropicKey() {
   const fromDb = await getSetting('anthropic_api_key');
   if (fromDb && String(fromDb).trim()) return String(fromDb).trim();
   return process.env.ANTHROPIC_API_KEY || null;
+}
+
+/** Normalise un ID modèle Claude (aliases / modèles retirés → ID API valide). */
+export function resolveAnthropicModel(raw) {
+  const model = String(raw || '').trim() || DEFAULTS.anthropic_model;
+  if (RETIRED_ANTHROPIC_MODELS[model]) return RETIRED_ANTHROPIC_MODELS[model];
+  return model;
+}
+
+/** Modèle Claude à utiliser pour les appels API (+ migration soft si ID retiré en DB). */
+export async function getAnthropicModel() {
+  const raw = await getSetting('anthropic_model');
+  const resolved = resolveAnthropicModel(raw);
+  const stored = raw == null ? '' : String(raw).trim();
+  if (stored && RETIRED_ANTHROPIC_MODELS[stored] && resolved !== stored) {
+    setSetting('anthropic_model', resolved).catch(() => {});
+  }
+  return resolved;
 }
 
 export async function isAssistantAiEnabled() {

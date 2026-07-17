@@ -95,9 +95,17 @@ h1, h2, h3, h4, h5, h6 {
     padding-bottom: calc(var(--mobile-nav-h) + var(--safe-bottom) + 5.5rem);
   }
 
+  /* Mail / écrans plein viewport : seulement la place du dock, pas de scroll page */
+  .pb-mail {
+    padding-bottom: calc(var(--mobile-nav-h) + var(--safe-bottom));
+  }
+
   @media (min-width: 1024px) {
     .pb-shell {
       padding-bottom: 0.5rem;
+    }
+    .pb-mail {
+      padding-bottom: 0;
     }
   }
 
@@ -501,8 +509,10 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .mail-shell {
-    @apply flex flex-col overflow-hidden bg-white;
-    min-height: min(78vh, 820px);
+    @apply flex flex-col overflow-hidden bg-white min-h-0;
+    /* Contient le scroll dans la coquille — évite de faire défiler toute la page */
+    height: calc(100dvh - 5.5rem);
+    max-height: calc(100dvh - 5.5rem);
     border-radius: 1rem;
     border: 1px solid var(--border, #e6e4e2);
     box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.04), 0 1px 3px 0 rgb(0 0 0 / 0.06);
@@ -514,20 +524,29 @@ h1, h2, h3, h4, h5, h6 {
     to { opacity: 1; transform: none; }
   }
 
+  @media (min-width: 1024px) {
+    .mail-shell {
+      height: calc(100dvh - 6.5rem);
+      max-height: calc(100dvh - 6.5rem);
+    }
+  }
+
   @media (max-width: 767px) {
     .mail-shell {
       border: 0;
       border-radius: 0;
       box-shadow: none;
       background: #faf9f7;
-      min-height: calc(100dvh - 7.5rem);
-      height: calc(100dvh - 7.5rem);
-      max-height: calc(100dvh - 7.5rem);
+      /* header sticky 3.5rem + dock bas */
+      height: calc(100dvh - 3.5rem - var(--mobile-nav-h) - var(--safe-bottom));
+      max-height: calc(100dvh - 3.5rem - var(--mobile-nav-h) - var(--safe-bottom));
+      min-height: 0;
     }
     .mail-page-flush {
       margin-left: -1rem;
       margin-right: -1rem;
-      margin-bottom: -1rem;
+      margin-bottom: 0;
+      overflow: hidden;
     }
     .mail-page-flush .mail-supplier-mobile {
       display: none;
@@ -591,7 +610,7 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .mail-list {
-    @apply flex flex-col w-full md:w-[min(400px,40vw)] shrink-0 min-w-0;
+    @apply flex flex-col w-full md:w-[min(400px,40vw)] shrink-0 min-w-0 min-h-0;
     border-right: 1px solid rgba(10, 10, 10, 0.06);
     background: #fff;
   }

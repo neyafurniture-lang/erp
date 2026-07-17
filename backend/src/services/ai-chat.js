@@ -1,5 +1,6 @@
 import {
   getAnthropicKey,
+  getAnthropicModel,
   getOpenAIKey,
   getSetting,
   isAssistantAiEnabled,
@@ -275,7 +276,7 @@ async function callClaude({ systemPrompt, history, message }) {
   const apiKey = await getAnthropicKey();
   if (!apiKey) return null;
 
-  const model = (await getSetting('anthropic_model')) || 'claude-sonnet-5';
+  const model = await getAnthropicModel();
   const messages = buildClaudeMessages(history, message);
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -343,7 +344,7 @@ export async function callRawLLM({ systemPrompt, message, history = [] }) {
     if (provider === 'anthropic') {
       const apiKey = await getAnthropicKey();
       if (!apiKey) return null;
-      const model = (await getSetting('anthropic_model')) || 'claude-sonnet-5';
+      const model = await getAnthropicModel();
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
