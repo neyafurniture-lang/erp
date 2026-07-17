@@ -1,6 +1,6 @@
 FROM node:22-alpine
 WORKDIR /app
-RUN apk add --no-cache git openssh-client sshpass \
+RUN apk add --no-cache git openssh-client sshpass python3 \
   && git config --global --add safe.directory /workspace \
   && git config --global --add safe.directory '*'
 COPY backend/package*.json ./
