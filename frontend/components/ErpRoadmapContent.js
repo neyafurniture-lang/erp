@@ -219,8 +219,8 @@ export default function ErpRoadmapContent() {
       </Section>
 
       <p className="text-xs text-neya-muted border-t border-neya-border pt-4 leading-relaxed">
-        Design UI : fiches Lovable page par page dans{' '}
-        <code className="text-neya-ink bg-neya-cream px-1.5 py-0.5 rounded">docs/cahier-pages-lovable-une-par-une.md</code>
+        Design UI :{' '}
+        <code className="text-neya-ink bg-neya-cream px-1.5 py-0.5 rounded">docs/cahier-des-charges-design-lovable.md</code>
         {' '}· agent Cursor :{' '}
         <Link href="/settings?tab=cursor" className="text-neya-orange hover:underline">
           Paramètres
