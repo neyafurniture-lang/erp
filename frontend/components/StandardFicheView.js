@@ -413,6 +413,29 @@ export default function StandardFicheView({ standard, onStandardChange, onCreate
     }
   }
 
+  async function setPrimaryPhoto(url) {
+    if (!url || url === meta.image) return;
+    await persistStandard({
+      ...meta,
+      image: url,
+      web_image_local: String(url).startsWith('/uploads/') ? url : meta.web_image_local,
+      photos_synced_at: new Date().toISOString(),
+    });
+  }
+
+  const rawGallery = (meta.image_gallery?.length ? meta.image_gallery : meta.web_images) || [];
+  const galleryItems = rawGallery
+    .filter(Boolean)
+    .map(raw => ({ raw, url: resolveImageUrl(raw, meta.photos_synced_at) }))
+    .filter(g => g.url);
+  // Dédupliquer par URL résolue
+  const seen = new Set();
+  const galleryUnique = galleryItems.filter(g => {
+    if (seen.has(g.url)) return false;
+    seen.add(g.url);
+    return true;
+  });
+
   async function handlePdf() {
     setPdfError(null);
     setPdfLoading(true);
@@ -436,6 +459,29 @@ export default function StandardFicheView({ standard, onStandardChange, onCreate
             className="mb-3"
           />
         )}
+        {!isGuide && galleryUnique.length > 1 && (
+          <div className="flex flex-wrap gap-2 mb-3">
+            {galleryUnique.map(({ raw, url }) => {
+              const isPrimary = meta.image === raw
+                || resolveImageUrl(meta.image, meta.photos_synced_at) === url
+                || productImage === url;
+              return (
+                <button
+                  key={raw}
+                  type="button"
+                  onClick={() => setPrimaryPhoto(raw)}
+                  className={`relative w-16 h-16 rounded-lg overflow-hidden border-2 bg-neya-surface ${
+                    isPrimary ? 'border-neya-orange ring-1 ring-neya-orange/40' : 'border-neya-border hover:border-neya-ink/30'
+                  }`}
+                  title="Définir comme photo principale"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={url} alt="" className="w-full h-full object-cover" />
+                </button>
+              );
+            })}
+          </div>
+        )}
         {!isGuide && (
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -444,12 +490,23 @@ export default function StandardFicheView({ standard, onStandardChange, onCreate
               disabled={photoLoading}
               className="btn-secondary text-sm disabled:opacity-50"
             >
-              {photoLoading ? 'Mise à jour…' : '↻ Photo depuis le site'}
+              {photoLoading ? 'Mise à jour…' : '↻ Photos depuis le site'}
             </button>
             {meta.photos_synced_at && (
               <span className="text-xs text-neya-muted">
                 Sync : {new Date(meta.photos_synced_at).toLocaleString('fr-CA')}
+                {meta.image_gallery?.length ? ` · ${meta.image_gallery.length} photo${meta.image_gallery.length > 1 ? 's' : ''}` : ''}
               </span>
+            )}
+            {meta.web_permalink && (
+              <a
+                href={meta.web_permalink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-neya-orange hover:underline"
+              >
+                Fiche site ↗
+              </a>
             )}
           </div>
         )}

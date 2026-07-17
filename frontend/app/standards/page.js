@@ -105,7 +105,11 @@ export default function StandardsPage() {
     try {
       const result = await api('/wordpress/sync-photos', { method: 'POST' });
       await loadStandards();
-      setSyncMsg(`${result.photos_downloaded ?? 0} photo(s) mises à jour`);
+      const linked = result.matched ?? result.details?.length ?? 0;
+      setSyncMsg(
+        `${linked} fiche(s) liée(s) · ${result.photos_downloaded ?? 0} photo(s) téléchargée(s)`
+        + (result.source === 'store' ? ' (site public)' : '')
+      );
       window.dispatchEvent(new CustomEvent('neya:assistant-action'));
     } catch (e) {
       setSyncMsg(e.message);
