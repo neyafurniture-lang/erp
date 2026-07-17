@@ -71,6 +71,11 @@ export default function SheetCanvasEditor({
   function startMove(rect, e) {
     e.preventDefault();
     e.stopPropagation();
+    try {
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+    } catch {
+      /* ignore */
+    }
     onSelect?.(rect.id);
     const start = clientToIn(e.clientX, e.clientY);
     dragRef.current = {
@@ -80,6 +85,8 @@ export default function SheetCanvasEditor({
       oy: start.y - Number(rect.y),
       w: Number(rect.w),
       h: Number(rect.h),
+      target: e.currentTarget,
+      pointerId: e.pointerId,
     };
     bindDrag();
   }
@@ -87,12 +94,19 @@ export default function SheetCanvasEditor({
   function startResize(rect, e) {
     e.preventDefault();
     e.stopPropagation();
+    try {
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+    } catch {
+      /* ignore */
+    }
     onSelect?.(rect.id);
     dragRef.current = {
       mode: 'resize',
       id: rect.id,
       x0: Number(rect.x),
       y0: Number(rect.y),
+      target: e.currentTarget,
+      pointerId: e.pointerId,
     };
     bindDrag();
   }
@@ -125,7 +139,13 @@ export default function SheetCanvasEditor({
         }),
       );
     }
-    function onUp() {
+    function onUp(ev) {
+      const d = dragRef.current;
+      try {
+        d?.target?.releasePointerCapture?.(ev.pointerId ?? d.pointerId);
+      } catch {
+        /* ignore */
+      }
       dragRef.current = null;
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);

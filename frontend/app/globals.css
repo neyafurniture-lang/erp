@@ -1642,7 +1642,7 @@ body {
   @apply absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/40 text-[10px] leading-4 text-center cursor-pointer;
 }
 .cut-board__divider {
-  @apply absolute top-0 right-0 w-2 h-full -mr-1 z-20 cursor-col-resize;
+  @apply absolute top-0 right-0 w-2 h-full -mr-1 z-20 cursor-col-resize touch-none;
 }
 .cut-board__divider::after {
   content: '';
@@ -1670,7 +1670,7 @@ body {
   @apply absolute inset-0 w-full h-full pointer-events-none;
 }
 .cut-sheet__rect {
-  @apply absolute rounded-sm border border-black/25 text-white shadow-sm cursor-grab active:cursor-grabbing select-none;
+  @apply absolute rounded-sm border border-black/25 text-white shadow-sm cursor-grab active:cursor-grabbing select-none touch-none;
 }
 .cut-sheet__rect--selected {
   @apply ring-2 ring-neya-orange z-10;

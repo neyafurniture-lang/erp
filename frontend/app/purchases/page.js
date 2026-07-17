@@ -254,16 +254,18 @@ export default function PurchasesPage({ title = 'Liste de courses', subtitle = '
   const [catFilter, setCatFilter] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [creatingPo, setCreatingPo] = useState(false);
+  const [poMsg, setPoMsg] = useState('');
   const [form, setForm] = useState({ title: '', category: 'consommable', quantity: 1, unit: 'unité', notes: '' });
 
   const load = () => {
     const params = new URLSearchParams();
     if (filter !== 'all') params.set('status', filter);
     if (catFilter) params.set('category', catFilter);
-    api(`/purchases/needs?${params}`).then(setNeeds);
-    api('/purchases/needs/summary').then(setSummary);
-    api('/purchases/suggestions').then(setSuggestions);
-    api('/purchases').then(setOrders);
+    api(`/purchases/needs?${params}`).then(setNeeds).catch(() => setNeeds([]));
+    api('/purchases/needs/summary').then(setSummary).catch(() => {});
+    api('/purchases/suggestions').then(setSuggestions).catch(() => {});
+    api('/purchases').then(setOrders).catch(() => setOrders([]));
   };
 
   useEffect(() => { load(); }, [filter, catFilter]);
@@ -333,6 +335,73 @@ export default function PurchasesPage({ title = 'Liste de courses', subtitle = '
     load();
   }
 
+  /** Crée un BC par fournisseur à partir des besoins « needed » sélectionnés (tous avec fournisseur). */
+  async function createOrdersFromNeeds() {
+    const eligible = needs.filter(n => n.status === 'needed' && n.supplier_id);
+    if (!eligible.length) {
+      setPoMsg('Ajoute un fournisseur sur au moins un besoin « À acheter », puis réessaie.');
+      setTimeout(() => setPoMsg(''), 4000);
+      return;
+    }
+    setCreatingPo(true);
+    setPoMsg('');
+    try {
+      const bySupplier = new Map();
+      for (const n of eligible) {
+        const key = String(n.supplier_id);
+        if (!bySupplier.has(key)) bySupplier.set(key, []);
+        bySupplier.get(key).push(n);
+      }
+      let created = 0;
+      for (const [supplierId, items] of bySupplier) {
+        const supplierName = suppliers.find(s => String(s.id) === supplierId)?.name || 'Fournisseur';
+        await api('/purchases', {
+          method: 'POST',
+          body: JSON.stringify({
+            supplier_id: Number(supplierId),
+            project_id: items.find(i => i.project_id)?.project_id || null,
+            status: 'planned',
+            title: `BC ${supplierName} — ${new Date().toLocaleDateString('fr-CA')}`,
+            notes: `${items.length} ligne(s) depuis la liste d'achats`,
+            items: items.map(i => ({
+              inventory_item_id: i.inventory_item_id || null,
+              description: `${i.title}${i.unit ? ` (${i.quantity} ${i.unit})` : ''}`,
+              quantity: Number(i.quantity) || 1,
+              unit_cost: 0,
+            })),
+          }),
+        });
+        for (const i of items) {
+          await api(`/purchases/needs/${i.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ status: 'ordered' }),
+          });
+        }
+        created += 1;
+      }
+      setView('orders');
+      setPoMsg(`${created} bon(s) de commande créé(s).`);
+      setTimeout(() => setPoMsg(''), 4000);
+      load();
+    } catch (err) {
+      setPoMsg(err.message || 'Création BC impossible');
+    } finally {
+      setCreatingPo(false);
+    }
+  }
+
+  async function updateOrderStatus(id, status) {
+    try {
+      await api(`/purchases/${id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      });
+      load();
+    } catch (err) {
+      setPoMsg(err.message || 'Mise à jour impossible');
+    }
+  }
+
   const filteredNeeds = needs;
 
   return (
@@ -370,8 +439,24 @@ export default function PurchasesPage({ title = 'Liste de courses', subtitle = '
           <button type="button" onClick={() => setView('orders')} className={`px-4 py-2 text-sm rounded-lg border font-medium ${view === 'orders' ? 'bg-neya-orange text-white border-neya-orange' : 'border-neya-border'}`}>
             Bons de commande
           </button>
+          {view === 'needs' && (
+            <button
+              type="button"
+              onClick={createOrdersFromNeeds}
+              disabled={creatingPo}
+              className="btn-secondary text-sm disabled:opacity-50"
+            >
+              {creatingPo ? 'Création…' : 'Créer BC depuis besoins'}
+            </button>
+          )}
           <Link href="/inventory" className="btn-secondary text-sm ml-auto">Voir le stock →</Link>
         </div>
+
+        {poMsg && (
+          <div className="mb-4 rounded-lg border border-neya-border bg-neya-surface px-3 py-2 text-sm text-neya-ink">
+            {poMsg}
+          </div>
+        )}
 
         {view === 'needs' && (
           <>
@@ -481,17 +566,39 @@ export default function PurchasesPage({ title = 'Liste de courses', subtitle = '
         {view === 'orders' && (
           <div className="space-y-2">
             {orders.length === 0 ? (
-              <p className="text-sm text-neya-muted card-flat py-8 text-center">Aucun bon de commande</p>
+              <div className="card-flat py-8 text-center space-y-3">
+                <p className="text-sm text-neya-muted">Aucun bon de commande</p>
+                <p className="text-xs text-neya-muted max-w-md mx-auto">
+                  Assigne un fournisseur sur les besoins « À acheter », puis clique « Créer BC depuis besoins ».
+                </p>
+                <button type="button" className="btn-secondary text-sm" onClick={() => setView('needs')}>
+                  Voir les besoins
+                </button>
+              </div>
             ) : (
               orders.map(o => (
-                <div key={o.id} className="card flex flex-wrap justify-between gap-2">
+                <div key={o.id} className="card flex flex-wrap justify-between gap-3">
                   <div>
                     <p className="font-medium text-sm">{o.title || `Commande #${o.id}`}</p>
                     <p className="text-xs text-neya-muted">{o.supplier_name} · {o.project_name || 'Stock général'}</p>
                   </div>
-                  <div className="text-right">
-                    <span className="badge border-neya-border">{ORDER_STATUS[o.status] || o.status}</span>
-                    <p className="text-sm font-medium mt-1">{formatMoney(o.total)}</p>
+                  <div className="text-right space-y-2">
+                    <div>
+                      <span className="badge border-neya-border">{ORDER_STATUS[o.status] || o.status}</span>
+                      <p className="text-sm font-medium mt-1">{formatMoney(o.total)}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-1 justify-end">
+                      {o.status !== 'ordered' && o.status !== 'received' && (
+                        <button type="button" className="btn-ghost text-xs !min-h-[36px]" onClick={() => updateOrderStatus(o.id, 'ordered')}>
+                          Marquer commandé
+                        </button>
+                      )}
+                      {o.status !== 'received' && (
+                        <button type="button" className="btn-ghost text-xs !min-h-[36px]" onClick={() => updateOrderStatus(o.id, 'received')}>
+                          Marquer reçu
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))

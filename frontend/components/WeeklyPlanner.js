@@ -506,7 +506,10 @@ export default function WeeklyPlanner({ showTasks = true, showShifts = true, tit
     if (showTasks) {
       setTaskEvents(results[i++] || []);
       const tasks = results[i++] || [];
-      setUnscheduledTasks(tasks.filter(t => !t.start_time && t.project_standard_id));
+      // Inclure aussi les tâches sur mesure / sauna (sans standard_id)
+      setUnscheduledTasks(
+        tasks.filter(t => !t.start_time && t.status !== 'done' && t.project_id)
+      );
     }
   }, [showTasks, showShifts, canAddTimeOff]);
 

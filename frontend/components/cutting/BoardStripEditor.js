@@ -40,6 +40,11 @@ export default function BoardStripEditor({
   function startDividerDrag(index, e) {
     e.preventDefault();
     e.stopPropagation();
+    try {
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+    } catch {
+      /* ignore */
+    }
     const startX = e.clientX;
     const left = segments[index];
     const right = segments[index + 1];
@@ -79,8 +84,13 @@ export default function BoardStripEditor({
       patchSegments(next);
     }
 
-    function onUp() {
+    function onUp(ev) {
       dragRef.current = null;
+      try {
+        e.currentTarget.releasePointerCapture?.(ev.pointerId);
+      } catch {
+        /* ignore */
+      }
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
     }

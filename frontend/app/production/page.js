@@ -25,10 +25,15 @@ function StageBadge({ stage }) {
   );
 }
 
-function ProductionCard({ item, onAdvance, advancing }) {
+function ProductionCard({ item, onAdvance, onSeedSteps, advancing, seeding }) {
+  let projectMeta = {};
+  try {
+    projectMeta = typeof item.meta === 'string' ? JSON.parse(item.meta || '{}') : (item.meta || {});
+  } catch {
+    projectMeta = {};
+  }
   const { done, total, pct } = productionProgress(item.tasks);
   const meta = item.standard_meta ? parseMeta(item.standard_meta) : {};
-  const projectMeta = typeof item.meta === 'string' ? JSON.parse(item.meta || '{}') : (item.meta || {});
   const image = item.catalog ? productImageUrl(meta) : null;
   const qty = item.quantity > 1 ? ` ×${item.quantity}` : '';
   const stage = item.stage || computeProductionStage(item.tasks);
@@ -65,6 +70,11 @@ function ProductionCard({ item, onAdvance, advancing }) {
             <span className="font-medium">{nextTask.title}</span>
           </p>
         )}
+        {total === 0 && (
+          <p className="text-xs text-amber-800 mt-2 bg-amber-50 border border-amber-100 rounded px-2 py-1">
+            Checklist vide — génère les étapes atelier pour avancer.
+          </p>
+        )}
         {item.deadline && (
           <p className={`text-xs mt-1 ${new Date(item.deadline) < new Date() ? 'text-neya-error font-medium' : 'text-neya-muted'}`}>
             Deadline {formatDate(item.deadline)}
@@ -84,7 +94,17 @@ function ProductionCard({ item, onAdvance, advancing }) {
         )}
 
         <div className="flex flex-wrap gap-2 mt-4 mt-auto pt-3">
-          {item.status === 'active' && stage !== 'done' && (
+          {item.status === 'active' && total === 0 && (
+            <button
+              type="button"
+              disabled={seeding}
+              onClick={() => onSeedSteps(item.id)}
+              className="btn-primary text-xs sm:text-sm flex-1 min-h-[44px]"
+            >
+              {seeding ? '…' : 'Générer étapes'}
+            </button>
+          )}
+          {item.status === 'active' && total > 0 && stage !== 'done' && (
             <button
               type="button"
               disabled={advancing}
@@ -111,6 +131,10 @@ export default function ProductionPage() {
   const [clients, setClients] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [advancingId, setAdvancingId] = useState(null);
+  const [seedingId, setSeedingId] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [toast, setToast] = useState('');
   const [form, setForm] = useState({
     kind: 'catalog',
     standard_id: '',
@@ -122,45 +146,81 @@ export default function ProductionPage() {
     priority: 0,
   });
 
+  function showToast(msg) {
+    setToast(msg);
+    setTimeout(() => setToast(''), 3200);
+  }
+
   const load = () => {
-    api(`/production?kind=${tab}&status=${statusFilter}`).then(setData);
+    setLoading(true);
+    setError('');
+    api(`/production?kind=${tab}&status=${statusFilter}`)
+      .then(setData)
+      .catch((err) => {
+        setError(err.message || 'Impossible de charger la production');
+        setData({ summary: null, items: [] });
+      })
+      .finally(() => setLoading(false));
   };
 
   useEffect(() => {
     load();
-    api('/standards').then(rows => setStandards(rows.filter(isCatalogProduct)));
-    api('/clients').then(setClients);
+    api('/standards').then(rows => setStandards(rows.filter(isCatalogProduct))).catch(() => {});
+    api('/clients').then(setClients).catch(() => {});
     window.addEventListener('neya:assistant-action', load);
     return () => window.removeEventListener('neya:assistant-action', load);
   }, [tab, statusFilter]);
 
   async function create(e) {
     e.preventDefault();
-    await api('/production', {
-      method: 'POST',
-      body: JSON.stringify({
-        kind: form.kind,
-        standard_id: form.kind === 'catalog' ? Number(form.standard_id) : undefined,
-        name: form.kind === 'custom' ? form.name : form.name || undefined,
-        client_id: form.client_id || null,
-        quantity: Number(form.quantity) || 1,
-        deadline: form.deadline || null,
-        notes: form.notes || null,
-        priority: Number(form.priority) || 0,
-      }),
-    });
-    setShowForm(false);
-    setForm({ kind: 'catalog', standard_id: '', name: '', client_id: '', quantity: 1, deadline: '', notes: '', priority: 0 });
-    load();
+    setError('');
+    try {
+      await api('/production', {
+        method: 'POST',
+        body: JSON.stringify({
+          kind: form.kind,
+          standard_id: form.kind === 'catalog' ? Number(form.standard_id) : undefined,
+          name: form.kind === 'custom' ? form.name : form.name || undefined,
+          client_id: form.client_id || null,
+          quantity: Number(form.quantity) || 1,
+          deadline: form.deadline || null,
+          notes: form.notes || null,
+          priority: Number(form.priority) || 0,
+        }),
+      });
+      setShowForm(false);
+      setForm({ kind: 'catalog', standard_id: '', name: '', client_id: '', quantity: 1, deadline: '', notes: '', priority: 0 });
+      showToast(form.kind === 'custom' ? 'Sur mesure créé avec 5 étapes' : 'Production créée');
+      load();
+    } catch (err) {
+      setError(err.message || 'Création impossible');
+    }
   }
 
   async function advance(id) {
     setAdvancingId(id);
+    setError('');
     try {
       await api(`/production/${id}/advance`, { method: 'POST' });
       load();
+    } catch (err) {
+      showToast(err.message || 'Impossible d’avancer');
     } finally {
       setAdvancingId(null);
+    }
+  }
+
+  async function seedSteps(id) {
+    setSeedingId(id);
+    setError('');
+    try {
+      await api(`/production/${id}/seed-steps`, { method: 'POST' });
+      showToast('Étapes atelier générées');
+      load();
+    } catch (err) {
+      showToast(err.message || 'Impossible de générer les étapes');
+    } finally {
+      setSeedingId(null);
     }
   }
 
@@ -169,9 +229,20 @@ export default function ProductionPage() {
   return (
     <AuthGuard>
       <AppShell title="Production">
+        {toast && (
+          <div className="fixed bottom-20 lg:bottom-6 left-1/2 -translate-x-1/2 z-50 rounded-xl bg-neya-ink text-white text-sm px-4 py-2.5 shadow-lg max-w-[90vw]">
+            {toast}
+          </div>
+        )}
         <p className="text-sm text-neya-muted mb-6">
           Suivez la fabrication des bancs catalogue et de vos meubles sur mesure — étape par étape.
         </p>
+
+        {error && (
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+            {error}
+          </div>
+        )}
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
           <div className="card py-3">
@@ -327,7 +398,9 @@ export default function ProductionPage() {
           </form>
         )}
 
-        {data.items?.length === 0 ? (
+        {loading ? (
+          <div className="card text-center py-12 text-sm text-neya-muted">Chargement de la production…</div>
+        ) : data.items?.length === 0 ? (
           <div className="card text-center py-12">
             <p className="text-neya-muted mb-4">Aucune production {statusFilter === 'active' ? 'en cours' : ''}.</p>
             <button type="button" onClick={() => setShowForm(true)} className="btn-primary">
@@ -341,7 +414,9 @@ export default function ProductionPage() {
                 key={item.id}
                 item={item}
                 onAdvance={advance}
+                onSeedSteps={seedSteps}
                 advancing={advancingId === item.id}
+                seeding={seedingId === item.id}
               />
             ))}
           </div>

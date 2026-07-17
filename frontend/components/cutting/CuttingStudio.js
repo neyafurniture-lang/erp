@@ -43,7 +43,10 @@ export default function CuttingStudio() {
   const [placePartId, setPlacePartId] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [planId, setPlanId] = useState(null);
+  const [projectId, setProjectId] = useState('');
+  const [projects, setProjects] = useState([]);
   const [savedList, setSavedList] = useState([]);
   const [showSaved, setShowSaved] = useState(false);
   const [mobilePane, setMobilePane] = useState('canvas'); // input | canvas
@@ -56,6 +59,9 @@ export default function CuttingStudio() {
 
   useEffect(() => {
     api('/cutting-plans').then(setSavedList).catch(() => {});
+    api('/projects')
+      .then((list) => setProjects((list || []).filter((p) => p.status === 'active' || !p.status)))
+      .catch(() => setProjects([]));
   }, []);
 
   function patch(partial) {
@@ -73,6 +79,7 @@ export default function CuttingStudio() {
   async function runOptimize() {
     setBusy(true);
     setError('');
+    setNotice('');
     try {
       // Prefer server/Python; fall back to local packer
       const payload = {
@@ -101,12 +108,19 @@ export default function CuttingStudio() {
         } else {
           throw new Error('Réponse vide');
         }
+        if (res.engine === 'js' || res.engine === 'local') {
+          setNotice('Optimiseur local (JS) — qualité réduite vs Python.');
+        } else if (res.engine === 'python') {
+          setNotice('Optimisé avec Python.');
+          setTimeout(() => setNotice(''), 2500);
+        }
       } catch {
         if (mode === '1d') {
           patch({ boards: packLinearLocal(doc.linearParts, { boardLength: doc.boardLength, kerf: doc.kerf }) });
         } else {
           patch({ sheets: packPanelsLocal(doc.panelParts, { sheetW: doc.sheetW, sheetH: doc.sheetH, kerf: doc.kerf }) });
         }
+        setNotice('Serveur indisponible — optimiseur local (qualité réduite).');
       }
       setSelectedId(null);
       setPlacePartId(null);
@@ -140,6 +154,7 @@ export default function CuttingStudio() {
         title: doc.title,
         project_label: doc.project_label,
         notes: doc.notes,
+        project_id: projectId ? Number(projectId) : null,
         plan_input,
       };
       let saved;
@@ -149,7 +164,10 @@ export default function CuttingStudio() {
         saved = await api('/cutting-plans', { method: 'POST', body: JSON.stringify(body) });
         setPlanId(saved.id);
       }
+      if (saved?.project_id != null) setProjectId(String(saved.project_id));
       setSavedList(await api('/cutting-plans'));
+      setNotice('Plan enregistré.');
+      setTimeout(() => setNotice(''), 2000);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -203,6 +221,7 @@ export default function CuttingStudio() {
       const row = await api(`/cutting-plans/${id}`);
       const layout = row.plan_input?.layout;
       setPlanId(row.id);
+      setProjectId(row.project_id ? String(row.project_id) : '');
       if (layout?.boards || layout?.sheets) {
         setDoc((d) => ({
           ...d,
@@ -227,6 +246,7 @@ export default function CuttingStudio() {
   function loadDemo() {
     const d = demoLayout();
     setPlanId(null);
+    setProjectId('');
     setDoc(d);
     setMode('1d');
     setSelectedId(null);
@@ -295,6 +315,11 @@ export default function CuttingStudio() {
           {error}
         </div>
       )}
+      {notice && !error && (
+        <div className="mx-3 mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {notice}
+        </div>
+      )}
 
       {/* Mobile pane switch */}
       <div className="cut-studio__mobile-tabs sm:hidden">
@@ -353,6 +378,24 @@ export default function CuttingStudio() {
                 </label>
               </div>
             )}
+            <label className="cut-field">
+              <span>Lier à un projet ERP</span>
+              <select
+                className="input !min-h-[36px] !py-1.5 text-sm"
+                value={projectId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  setProjectId(id);
+                  const p = projects.find((x) => String(x.id) === id);
+                  if (p && !doc.project_label) patch({ project_label: p.name });
+                }}
+              >
+                <option value="">— Aucun —</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </label>
             <label className="cut-field">
               <span>Projet / note</span>
               <input
