@@ -781,12 +781,16 @@ export default function DriveExplorer({ projectId = null, initialFolderId = 'roo
                       key={root.folder_id}
                       type="button"
                       onClick={() => pickRoot(root)}
-                      className="drive-card border border-neya-border bg-white"
+                      className="drive-card"
                     >
-                      <span className="drive-file-icon bg-neya-surface text-neya-muted border border-neya-border">
-                        <IconFolder className="w-7 h-7" />
+                      <span className="drive-card-media">
+                        <span className="drive-file-icon bg-neya-surface text-neya-muted border border-neya-border">
+                          <IconFolder className="w-8 h-8" />
+                        </span>
                       </span>
-                      <span className="text-sm font-medium text-neya-ink line-clamp-2">{root.label}</span>
+                      <span className="drive-card-meta">
+                        <span className="text-xs font-medium text-neya-ink line-clamp-2">{root.label}</span>
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -795,8 +799,11 @@ export default function DriveExplorer({ projectId = null, initialFolderId = 'roo
               <div className="drive-grid">
                 {Array.from({ length: 8 }).map((_, i) => (
                   <div key={i} className="drive-card animate-pulse">
-                    <div className="w-14 h-14 rounded-xl bg-neya-surface mb-2" />
-                    <div className="h-3 w-20 bg-neya-surface rounded" />
+                    <div className="drive-card-media bg-neya-border/30" />
+                    <div className="drive-card-meta gap-1.5">
+                      <div className="h-3 w-4/5 bg-neya-surface rounded" />
+                      <div className="h-2 w-1/3 bg-neya-surface/80 rounded" />
+                    </div>
                   </div>
                 ))}
               </div>
@@ -821,15 +828,19 @@ export default function DriveExplorer({ projectId = null, initialFolderId = 'roo
                       onDoubleClick={() => openItem(f)}
                       className={`drive-card ${isSelected ? 'drive-card-selected' : ''}`}
                     >
-                      {thumb ? (
-                        <img src={f.thumbnailLink} alt="" className="drive-thumb" />
-                      ) : (
-                        <span className={`drive-file-icon ${meta.bg} ${meta.text}`}>
-                          {kind === 'folder' ? <IconFolder className="w-7 h-7" /> : <IconFile className="w-7 h-7" />}
-                        </span>
-                      )}
-                      <span className="text-sm font-medium text-neya-ink line-clamp-2 leading-snug">{f.name}</span>
-                      <span className="text-[11px] text-neya-muted mt-1">{formatDate(f.modifiedTime)}</span>
+                      <span className="drive-card-media">
+                        {thumb ? (
+                          <img src={f.thumbnailLink} alt="" className="drive-thumb" loading="lazy" />
+                        ) : (
+                          <span className={`drive-file-icon ${meta.bg} ${meta.text}`}>
+                            {kind === 'folder' ? <IconFolder className="w-8 h-8" /> : <IconFile className="w-8 h-8" />}
+                          </span>
+                        )}
+                      </span>
+                      <span className="drive-card-meta">
+                        <span className="text-xs font-medium text-neya-ink line-clamp-2 leading-snug">{f.name}</span>
+                        <span className="text-[10px] text-neya-muted mt-0.5">{formatDate(f.modifiedTime)}</span>
+                      </span>
                     </button>
                   );
                 })}

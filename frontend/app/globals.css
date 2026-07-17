@@ -975,19 +975,27 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .drive-grid {
-    @apply grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-1.5 sm:gap-2;
+    @apply grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-5 gap-2.5 sm:gap-3;
   }
 
   .drive-card {
-    @apply relative flex flex-col items-center p-3 border border-transparent hover:border-neya-border hover:bg-neya-surface/80 transition-colors cursor-pointer text-center;
+    @apply relative flex flex-col items-stretch overflow-hidden rounded-xl border border-neya-border/80 bg-white hover:border-neya-ink/25 hover:shadow-sm transition-all cursor-pointer text-left;
   }
 
   .drive-card-selected {
-    @apply border-neya-border bg-neya-surface;
+    @apply border-neya-orange ring-1 ring-neya-orange/40 bg-neya-orange/[0.03];
+  }
+
+  .drive-card-media {
+    @apply relative w-full aspect-[4/3] bg-neya-surface flex items-center justify-center overflow-hidden border-b border-neya-border/60;
+  }
+
+  .drive-card-meta {
+    @apply px-2.5 py-2 min-h-[3.25rem] flex flex-col justify-center;
   }
 
   .drive-file-icon {
-    @apply w-11 h-11 sm:w-12 sm:h-12 rounded flex items-center justify-center mb-2 border border-neya-border;
+    @apply w-14 h-14 sm:w-16 sm:h-16 rounded-lg flex items-center justify-center border border-neya-border;
   }
 
   .drive-list {
@@ -1034,7 +1042,7 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .drive-thumb {
-    @apply w-11 h-11 sm:w-12 sm:h-12 rounded object-cover mb-2 bg-neya-surface border border-neya-border;
+    @apply absolute inset-0 w-full h-full object-cover bg-neya-surface;
   }
 }
 

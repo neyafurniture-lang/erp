@@ -25,6 +25,11 @@ async function driveFetch(path, options = {}) {
 const FIELDS = 'files(id,name,mimeType,modifiedTime,size,webViewLink,webContentLink,iconLink,thumbnailLink,parents),nextPageToken';
 
 export function formatFile(f) {
+  // Google sert souvent =s220 ; on demande une preview plus nette pour la grille.
+  let thumbnailLink = f.thumbnailLink || null;
+  if (thumbnailLink) {
+    thumbnailLink = thumbnailLink.replace(/=s\d+/, '=s800');
+  }
   return {
     id: f.id,
     name: f.name,
@@ -35,7 +40,7 @@ export function formatFile(f) {
     webViewLink: f.webViewLink,
     webContentLink: f.webContentLink,
     iconLink: f.iconLink,
-    thumbnailLink: f.thumbnailLink,
+    thumbnailLink,
     parents: f.parents || [],
   };
 }
