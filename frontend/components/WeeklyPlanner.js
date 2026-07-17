@@ -696,8 +696,8 @@ export default function WeeklyPlanner({ showTasks = true, showShifts = true, tit
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         <div className="space-y-4">
           {canAddTimeOff && (
-            <div className="card">
-              <h3 className="text-sm font-semibold text-neya-ink mb-1">Congés</h3>
+            <div className="card rounded-2xl">
+              <h3 className="text-sm font-display font-semibold text-neya-ink mb-1">Congés</h3>
               <p className="text-[10px] text-neya-muted mb-3">
                 {myEmployeeId ? 'Ajoutez vos vacances ou absences' : 'Planifiez les congés de l\'équipe'}
               </p>
@@ -711,8 +711,8 @@ export default function WeeklyPlanner({ showTasks = true, showShifts = true, tit
           )}
 
           {showShifts && (
-            <div className="card">
-              <h3 className="text-sm font-semibold text-neya-ink mb-1">Équipe</h3>
+            <div className="card rounded-2xl">
+              <h3 className="text-sm font-display font-semibold text-neya-ink mb-1">Équipe</h3>
               <p className="text-[10px] text-neya-muted mb-3">Cliquez pour sélectionner · glissez sur le calendrier</p>
               <div id="planner-employees" className="space-y-2">
                 {employees.map(e => {
@@ -765,8 +765,8 @@ export default function WeeklyPlanner({ showTasks = true, showShifts = true, tit
           )}
 
           {showTasks && (
-            <div className="card">
-              <h3 className="text-sm font-semibold text-neya-ink mb-1">Tâches atelier</h3>
+            <div className="card rounded-2xl">
+              <h3 className="text-sm font-display font-semibold text-neya-ink mb-1">Tâches atelier</h3>
               <p className="text-[10px] text-neya-muted mb-3">Glissez sur le calendrier →</p>
               <div id="planner-tasks" className="space-y-2 max-h-48 overflow-y-auto">
                 {unscheduledTasks.map(t => (
@@ -786,7 +786,7 @@ export default function WeeklyPlanner({ showTasks = true, showShifts = true, tit
           )}
         </div>
 
-        <div className="card lg:col-span-3 p-2 overflow-hidden planner-calendar">
+        <div className="card rounded-2xl lg:col-span-3 p-2 overflow-hidden planner-calendar">
           <FullCalendar
             ref={calendarRef}
             plugins={[timeGridPlugin, dayGridPlugin, interactionPlugin]}

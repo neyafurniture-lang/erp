@@ -7,7 +7,7 @@ import ErpManualContent from '../../components/ErpManualContent';
 export default function ManualPage() {
   return (
     <AuthGuard>
-      <AppShell title="Manuel ERP">
+      <AppShell title="Manuel ERP" subtitle="Guide d'utilisation de l'atelier numérique">
         <ErpManualContent />
       </AppShell>
     </AuthGuard>

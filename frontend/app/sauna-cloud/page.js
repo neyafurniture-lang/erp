@@ -52,7 +52,7 @@ function FrameRow({ frame, onToggle, onNotes, onRename, onDelete }) {
   }
 
   return (
-    <div className={`card space-y-2 ${done ? 'bg-neya-surface/40 border-green-200' : ''}`}>
+    <div className={`card rounded-2xl space-y-2 shadow-sm hover:shadow-md transition-shadow ${done ? 'bg-neya-surface/40 border-green-200' : ''}`}>
       <div className="flex items-start gap-3">
         <button
           type="button"
@@ -219,7 +219,7 @@ export default function SaunaCloudPage() {
   if (!board && !error) {
     return (
       <AuthGuard>
-        <AppShell title="Sauna Cloud">
+        <AppShell title="Sauna Cloud" subtitle="Frames à fabriquer — suivi de progression">
           <p className="text-neya-muted py-12">Chargement…</p>
         </AppShell>
       </AuthGuard>
@@ -232,7 +232,7 @@ export default function SaunaCloudPage() {
 
   return (
     <AuthGuard>
-      <AppShell title="Sauna Cloud" wide>
+      <AppShell title="Sauna Cloud" subtitle="Frames à fabriquer — suivi de progression" wide>
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
             <p className="text-sm text-neya-muted">
@@ -245,18 +245,18 @@ export default function SaunaCloudPage() {
             )}
           </div>
           <div className="text-right">
-            <p className="text-2xl font-heading text-neya-orange">{prog.pct}%</p>
+            <p className="text-2xl font-display font-semibold text-neya-orange tabular-nums">{prog.pct}%</p>
             <p className="text-xs text-neya-muted">{prog.done} / {prog.total} frames</p>
           </div>
         </div>
 
         {error && (
-          <div className="mb-4 text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2">
+          <div className="mb-4 text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">
             {error}
           </div>
         )}
 
-        <div className="h-2.5 bg-neya-cream rounded-full overflow-hidden mb-8">
+        <div className="h-2.5 bg-neya-surface rounded-full overflow-hidden mb-8">
           <div className="h-full bg-neya-orange transition-all" style={{ width: `${prog.pct}%` }} />
         </div>
 
@@ -264,7 +264,7 @@ export default function SaunaCloudPage() {
           <div className="lg:col-span-2 space-y-6">
             <section>
               <div className="flex items-center justify-between mb-3">
-                <h2 className="font-heading text-lg">À faire ({todo.length})</h2>
+                <h2 className="font-display font-semibold text-lg">À faire ({todo.length})</h2>
               </div>
               <form onSubmit={addFrame} className="flex gap-2 mb-4">
                 <input
@@ -279,7 +279,7 @@ export default function SaunaCloudPage() {
               </form>
               <div className="space-y-2">
                 {todo.length === 0 ? (
-                  <p className="text-sm text-neya-muted card-flat py-8 text-center">
+                  <p className="text-sm text-neya-muted card rounded-2xl py-8 text-center">
                     Aucune frame restante — projet à jour.
                   </p>
                 ) : (
@@ -299,7 +299,7 @@ export default function SaunaCloudPage() {
 
             {done.length > 0 && (
               <section>
-                <h2 className="font-heading text-lg mb-3">Complétées ({done.length})</h2>
+                <h2 className="font-display font-semibold text-lg mb-3">Complétées ({done.length})</h2>
                 <div className="space-y-2">
                   {done.map(f => (
                     <FrameRow
@@ -317,8 +317,8 @@ export default function SaunaCloudPage() {
           </div>
 
           <aside className="space-y-4">
-            <div className="card">
-              <h2 className="font-heading text-base mb-2">Notes projet</h2>
+            <div className="card rounded-2xl">
+              <h2 className="font-display font-semibold text-base mb-2">Notes projet</h2>
               <p className="text-xs text-neya-muted mb-2">
                 Notes générales Sauna Cloud (sauvegarde auto).
               </p>
@@ -329,7 +329,7 @@ export default function SaunaCloudPage() {
                 onChange={e => scheduleProjectNotes(e.target.value)}
               />
             </div>
-            <div className="card-flat text-sm text-neya-muted space-y-1">
+            <div className="rounded-2xl border border-neya-border bg-neya-surface p-4 text-sm text-neya-muted space-y-1">
               <p className="font-medium text-neya-ink">Astuce</p>
               <p>Cochez une frame pour marquer l’avancement.</p>
               <p>Cliquez le titre pour renommer. Ouvrez « + Note » pour les détails.</p>

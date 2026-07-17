@@ -7,7 +7,7 @@ import CuttingStudio from '../../components/cutting/CuttingStudio';
 export default function CuttingPlansPage() {
   return (
     <AuthGuard>
-      <AppShell>
+      <AppShell title="Plans de coupe" subtitle="Studio CutList — planches 8 pi & panneaux 4×8">
         <CuttingStudio />
       </AppShell>
     </AuthGuard>

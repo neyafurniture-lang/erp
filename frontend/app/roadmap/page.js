@@ -7,7 +7,7 @@ import ErpRoadmapContent from '../../components/ErpRoadmapContent';
 export default function RoadmapPage() {
   return (
     <AuthGuard>
-      <AppShell title="Roadmap ERP">
+      <AppShell title="Roadmap ERP" subtitle="Priorités produit et backlog">
         <ErpRoadmapContent />
       </AppShell>
     </AuthGuard>

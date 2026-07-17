@@ -20,10 +20,10 @@ function ProductCard({ standard }) {
   return (
     <Link
       href={`/standards/${standard.id}`}
-      className="card block hover:border-neya-orange hover:shadow-md transition-all group cursor-pointer overflow-hidden p-0"
+      className="block rounded-2xl border border-neya-border bg-white shadow-sm hover:shadow-md transition-all group cursor-pointer overflow-hidden"
     >
       {image && (
-        <div className="relative h-36 bg-neya-cream border-b border-neya-border">
+        <div className="relative h-36 bg-neya-surface border-b border-neya-border">
           <Image
             src={image}
             alt={displayName}
@@ -35,14 +35,14 @@ function ProductCard({ standard }) {
       )}
       <div className="p-4">
       <div className="flex items-start justify-between gap-3">
-        <span className="text-xs font-bold bg-neya-orange text-white px-2.5 py-1 rounded-full shrink-0">
+        <span className="text-xs font-bold bg-neya-orange text-white px-2.5 py-1 rounded-full shrink-0 shadow-orange">
           {sku}
         </span>
         <span className="text-xs text-neya-muted group-hover:text-neya-orange transition-colors">
           Ouvrir →
         </span>
       </div>
-      <h3 className="font-heading text-lg text-neya-ink mt-3 group-hover:text-neya-orange transition-colors">
+      <h3 className="font-display font-semibold text-lg text-neya-ink mt-3 group-hover:text-neya-orange transition-colors">
         {displayName}
       </h3>
       {meta.web_permalink && (
@@ -68,10 +68,10 @@ function GuideCard({ standard }) {
   return (
     <Link
       href={`/standards/${standard.id}`}
-      className="card block border-neya-orange/30 bg-neya-cream/40 hover:border-neya-orange hover:shadow-md transition-all group"
+      className="block rounded-2xl border border-neya-orange/30 bg-neya-cream/40 p-4 shadow-sm hover:border-neya-orange hover:shadow-md transition-all group"
     >
       <div className="flex items-center justify-between">
-        <h3 className="font-heading text-base text-neya-ink group-hover:text-neya-orange transition-colors">
+        <h3 className="font-display font-semibold text-base text-neya-ink group-hover:text-neya-orange transition-colors">
           {standard.name}
         </h3>
         <span className="text-xs text-neya-muted group-hover:text-neya-orange">Ouvrir →</span>
@@ -119,7 +119,7 @@ export default function StandardsPage() {
 
   return (
     <AuthGuard>
-      <AppShell title="Standards de fabrication">
+      <AppShell title="Standards de fabrication" subtitle="Catalogue atelier — fiches produit et guides">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <p className="text-neya-muted text-sm">
             Cliquez sur une fiche pour voir le détail complet — catalogue atelier v1.1
@@ -141,13 +141,13 @@ export default function StandardsPage() {
 
         {guides.length > 0 && (
           <section className="mb-10">
-            <h2 className="font-heading text-base text-neya-ink mb-3">Guides atelier</h2>
+            <h2 className="font-display font-semibold text-base text-neya-ink mb-3">Guides atelier</h2>
             <div className="grid gap-3">{guides.map(s => <GuideCard key={s.id} standard={s} />)}</div>
           </section>
         )}
 
         <section>
-          <h2 className="font-heading text-base text-neya-ink mb-3">
+          <h2 className="font-display font-semibold text-base text-neya-ink mb-3">
             Fiches produit ({products.length})
           </h2>
           {products.length === 0 ? (

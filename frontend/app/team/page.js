@@ -7,7 +7,7 @@ import WeeklyPlanner from '../../components/WeeklyPlanner';
 export default function TeamPage() {
   return (
     <AuthGuard>
-      <AppShell title="Équipe & planning" wide>
+      <AppShell title="Équipe & planning" subtitle="Shifts atelier et disponibilités" wide>
         <WeeklyPlanner showTasks={false} showShifts title="Planning des shifts" />
       </AppShell>
     </AuthGuard>

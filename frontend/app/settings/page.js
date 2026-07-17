@@ -278,15 +278,13 @@ function SettingsContent() {
 
   return (
     <div className="max-w-4xl">
-      <div className="flex flex-wrap gap-2 mb-8 border-b border-neya-border pb-4">
+      <div className="flex flex-wrap gap-1.5 mb-8 pb-4 border-b border-neya-border">
         {TABS.filter(t => !t.adminOnly || isAdmin(user)).map(t => (
           <button
             key={t.id}
             type="button"
             onClick={() => setTab(t.id)}
-            className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
-              tab === t.id ? 'bg-neya-orange text-white' : 'bg-neya-cream text-neya-muted hover:text-neya-ink'
-            }`}
+            className={`cf-chip ${tab === t.id ? 'cf-chip-active' : ''}`}
           >
             {t.icon} {t.label}
           </button>
@@ -298,8 +296,8 @@ function SettingsContent() {
 
       {tab === 'general' && (
         <div className="space-y-6">
-          <section className="card">
-            <h2 className="font-heading text-lg mb-4">Entreprise</h2>
+          <section className="card rounded-2xl">
+            <h2 className="font-display font-semibold text-lg mb-4">Entreprise</h2>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label className="label">Nom</label>
@@ -336,8 +334,8 @@ function SettingsContent() {
 
       {tab === 'web' && (
         <div className="space-y-6">
-          <section className="card">
-            <h2 className="font-heading text-lg mb-2">Site web WooCommerce</h2>
+          <section className="card rounded-2xl">
+            <h2 className="font-display font-semibold text-lg mb-2">Site web WooCommerce</h2>
             <p className="text-sm text-neya-muted mb-4">
               Connexion à neyafurniture.ca — produits, photos et commandes vers l&apos;ERP.
               <Link href="/web" className="text-neya-orange hover:underline ml-1">Ouvrir le hub site web →</Link>
@@ -415,8 +413,8 @@ function SettingsContent() {
 
       {tab === 'email' && (
         <div className="space-y-6">
-          <section className="card">
-            <h2 className="font-heading text-lg mb-2">Courriel (SMTP)</h2>
+          <section className="card rounded-2xl">
+            <h2 className="font-display font-semibold text-lg mb-2">Courriel (SMTP)</h2>
             <p className="text-sm text-neya-muted mb-4">
               Configuration pour l&apos;envoi des devis et factures par courriel.
             </p>
@@ -463,8 +461,8 @@ function SettingsContent() {
 
       {tab === 'integrations' && (
         <div className="space-y-6">
-          <section className="card">
-            <h2 className="font-heading text-lg mb-2">Gmail (priorité)</h2>
+          <section className="card rounded-2xl">
+            <h2 className="font-display font-semibold text-lg mb-2">Gmail (priorité)</h2>
             <p className="text-sm text-neya-muted mb-4">
               Lisez, répondez et liez les courriels aux projets depuis l&apos;ERP.
               <Link href="/mail" className="text-neya-orange hover:underline ml-1">Ouvrir la boîte Gmail →</Link>
@@ -574,8 +572,8 @@ function SettingsContent() {
 
       {tab === 'security' && (
         <div className="space-y-6">
-          <section className="card bg-neya-cream/40">
-            <h2 className="font-heading text-lg mb-3">État de la sécurité</h2>
+          <section className="card rounded-2xl bg-neya-cream/40">
+            <h2 className="font-display font-semibold text-lg mb-3">État de la sécurité</h2>
             {securityInfo ? (
               <ul className="text-sm space-y-2 text-neya-ink">
                 <li>✓ Session JWT — {securityInfo.session_days} jours</li>
@@ -592,8 +590,8 @@ function SettingsContent() {
             </button>
           </section>
 
-          <section className="card">
-            <h2 className="font-heading text-lg mb-4">Changer le mot de passe</h2>
+          <section className="card rounded-2xl">
+            <h2 className="font-display font-semibold text-lg mb-4">Changer le mot de passe</h2>
             <form onSubmit={changePassword} className="grid gap-4 max-w-md">
               <div>
                 <label className="label">Mot de passe actuel</label>
@@ -626,8 +624,8 @@ function SettingsContent() {
 
       {tab === 'assistant' && (
         <div className="space-y-6">
-          <section className="card">
-            <h2 className="font-heading text-lg mb-2">Assistant IA — Claude / OpenAI</h2>
+          <section className="card rounded-2xl">
+            <h2 className="font-display font-semibold text-lg mb-2">Assistant IA — Claude / OpenAI</h2>
             <p className="text-sm text-neya-muted mb-4">
               Clé API pour commandes en langage naturel. Sans clé, le chat utilise les skills par mots-clés.
             </p>
@@ -727,8 +725,8 @@ function SettingsContent() {
 
       {tab === 'api' && (
         <div className="space-y-6">
-          <section className="card">
-            <h2 className="font-heading text-lg mb-4">Connexion API</h2>
+          <section className="card rounded-2xl">
+            <h2 className="font-display font-semibold text-lg mb-4">Connexion API</h2>
             <div className="grid gap-4">
               <div>
                 <label className="label">URL du serveur backend</label>
@@ -754,8 +752,8 @@ function SettingsContent() {
             </div>
           </section>
 
-          <section className="card">
-            <h2 className="font-heading text-lg mb-4">Routes API principales</h2>
+          <section className="card rounded-2xl">
+            <h2 className="font-display font-semibold text-lg mb-4">Routes API principales</h2>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -780,8 +778,8 @@ function SettingsContent() {
             </div>
           </section>
 
-          <section className="card bg-neya-cream/40">
-            <h2 className="font-heading text-lg mb-2">Types d&apos;actions skills</h2>
+          <section className="card rounded-2xl bg-neya-cream/40">
+            <h2 className="font-display font-semibold text-lg mb-2">Types d&apos;actions skills</h2>
             <p className="text-sm text-neya-muted mb-3">Actions disponibles pour les skills du chat :</p>
             <div className="flex flex-wrap gap-2">
               {ACTION_TYPES.map(t => (
@@ -798,7 +796,7 @@ function SettingsContent() {
 export default function SettingsPage() {
   return (
     <AuthGuard>
-      <AppShell title="Paramètres">
+      <AppShell title="Paramètres" subtitle="Entreprise, intégrations et sécurité">
         <Suspense fallback={<p className="text-neya-muted">Chargement…</p>}>
           <SettingsContent />
         </Suspense>

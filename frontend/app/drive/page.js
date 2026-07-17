@@ -7,7 +7,7 @@ import DriveExplorer from '../../components/DriveExplorer';
 export default function DrivePage() {
   return (
     <AuthGuard>
-      <AppShell title="Drive" wide>
+      <AppShell title="Drive" subtitle="Fichiers Google Drive de l'atelier" wide>
         <DriveExplorer />
       </AppShell>
     </AuthGuard>

@@ -7,7 +7,7 @@ import WeeklyPlanner from '../../components/WeeklyPlanner';
 export default function CalendarPage() {
   return (
     <AuthGuard>
-      <AppShell title="Calendrier" wide>
+      <AppShell title="Calendrier" subtitle="Production, tâches et équipe" wide>
         <WeeklyPlanner showTasks showShifts title="Production & équipe" />
       </AppShell>
     </AuthGuard>

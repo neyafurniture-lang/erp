@@ -199,8 +199,8 @@ export default function ProductionPage() {
                 key={t.id}
                 type="button"
                 onClick={() => setTab(t.id)}
-                className={`px-3 sm:px-4 py-2 rounded-xl text-sm font-medium transition-colors min-h-[44px] ${
-                  tab === t.id ? 'bg-neya-orange text-white' : 'bg-neya-cream text-neya-muted hover:text-neya-ink'
+                className={`cf-chip min-h-[36px] ${
+                  tab === t.id ? 'cf-chip-active' : ''
                 }`}
               >
                 {t.label}

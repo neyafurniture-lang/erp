@@ -136,7 +136,10 @@ export default function InvoicesPage() {
 
   return (
     <AuthGuard>
-      <AppShell title="Facturation">
+      <AppShell
+        title="Facturation"
+        subtitle={`${quotes.length} devis · ${invoices.length} factures`}
+      >
         {toast && (
           <div className="fixed top-4 right-4 z-50 bg-neya-ink text-white px-4 py-2 rounded-lg shadow-lg text-sm">
             {toast}
@@ -144,7 +147,7 @@ export default function InvoicesPage() {
         )}
 
         {/* Workflow guide */}
-        <div className="card mb-6 bg-neya-cream/50 border-neya-orange/30">
+        <div className="card rounded-2xl mb-6 bg-neya-cream/50 border-neya-orange/30">
           <p className="text-sm text-neya-muted">
             <span className="font-medium text-neya-orange">1. Devis</span> → créer et envoyer au client
             <span className="mx-2">→</span>
@@ -154,24 +157,32 @@ export default function InvoicesPage() {
           </p>
         </div>
 
-        <div className="flex gap-4 mb-6">
-          <button onClick={() => { setTab('quotes'); setShowForm(false); }}
-            className={`px-4 py-2 rounded-lg text-sm ${tab === 'quotes' ? 'bg-neya-orange text-white' : 'bg-white border'}`}>
-            Devis ({quotes.length})
-          </button>
-          <button onClick={() => { setTab('invoices'); setShowForm(false); }}
-            className={`px-4 py-2 rounded-lg text-sm ${tab === 'invoices' ? 'bg-neya-orange text-white' : 'bg-white border'}`}>
-            Factures ({invoices.length})
-          </button>
+        <div className="flex flex-wrap items-center gap-3 mb-6">
+          <div className="flex items-center gap-1.5 overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => { setTab('quotes'); setShowForm(false); }}
+              className={`cf-chip ${tab === 'quotes' ? 'cf-chip-active' : ''}`}
+            >
+              Devis ({quotes.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => { setTab('invoices'); setShowForm(false); }}
+              className={`cf-chip ${tab === 'invoices' ? 'cf-chip-active' : ''}`}
+            >
+              Factures ({invoices.length})
+            </button>
+          </div>
           <div className="flex-1" />
-          <button onClick={openCreateForm} className="btn-primary">
+          <button type="button" onClick={openCreateForm} className="btn-primary">
             + {tab === 'quotes' ? 'Nouveau devis' : 'Nouvelle facture'}
           </button>
         </div>
 
         {showForm && (
-          <form onSubmit={createDoc} className="card mb-6 space-y-4">
-            <h3 className="font-heading text-lg">{tab === 'quotes' ? 'Nouveau devis' : 'Nouvelle facture'}</h3>
+          <form onSubmit={createDoc} className="card rounded-2xl mb-6 space-y-4">
+            <h3 className="font-display font-semibold text-lg">{tab === 'quotes' ? 'Nouveau devis' : 'Nouvelle facture'}</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="label">Client *</label>
@@ -216,7 +227,7 @@ export default function InvoicesPage() {
               <div><span className="text-neya-muted">Sous-total</span><p className="font-medium">{formatMoney(preview.subtotal)}</p></div>
               <div><span className="text-neya-muted">TPS 5%</span><p className="font-medium">{formatMoney(preview.gst)}</p></div>
               <div><span className="text-neya-muted">TVQ 9,975%</span><p className="font-medium">{formatMoney(preview.qst)}</p></div>
-              <div><span className="text-neya-muted">Total</span><p className="font-heading text-lg text-neya-orange">{formatMoney(preview.total)}</p></div>
+              <div><span className="text-neya-muted">Total</span><p className="font-display font-semibold text-lg text-neya-orange">{formatMoney(preview.total)}</p></div>
             </div>
 
             <div className="flex gap-2">
@@ -226,23 +237,23 @@ export default function InvoicesPage() {
           </form>
         )}
 
-        <div className="card overflow-x-auto">
+        <div className="cf-table-wrap overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-neya-border text-left text-neya-muted">
-                <th className="pb-3 pr-4">Numéro</th>
-                <th className="pb-3 pr-4">Projet / Client</th>
-                <th className="pb-3 pr-4">Date</th>
-                <th className="pb-3 pr-4">Total TTC</th>
+              <tr>
+                <th className="px-4 py-3">Numéro</th>
+                <th className="px-4 py-3">Projet / Client</th>
+                <th className="px-4 py-3">Date</th>
+                <th className="px-4 py-3">Total TTC</th>
                 {tab === 'invoices' && (
                   <>
-                    <th className="pb-3 pr-4">Déjà payé</th>
-                    <th className="pb-3 pr-4">Reste</th>
+                    <th className="px-4 py-3">Déjà payé</th>
+                    <th className="px-4 py-3">Reste</th>
                   </>
                 )}
-                <th className="pb-3 pr-4">Statut</th>
-                <th className="pb-3 pr-2">Actions</th>
-                <th className="pb-3 w-10" />
+                <th className="px-4 py-3">Statut</th>
+                <th className="px-4 py-3">Actions</th>
+                <th className="px-4 py-3 w-10" />
               </tr>
             </thead>
             <tbody>
@@ -290,32 +301,32 @@ export default function InvoicesPage() {
                 return (
                   <tr
                     key={item.id}
-                    className="border-b border-neya-border hover:bg-neya-surface cursor-pointer"
+                    className="cursor-pointer"
                     onClick={(e) => {
                       if (e.target.closest('button, select, a')) return;
                       window.location.href = detailHref;
                     }}
                   >
-                    <td className="py-3 pr-4 font-medium">
+                    <td className="px-4 py-3 font-medium">
                       <Link href={detailHref} className="text-neya-orange hover:underline">{num}</Link>
                     </td>
-                    <td className="py-3 pr-4">
+                    <td className="px-4 py-3">
                       <Link href={detailHref} className="hover:text-neya-orange">
                         <p className="font-medium">{item.title || item.project_name || '—'}</p>
                       </Link>
                       <p className="text-xs text-neya-muted">{item.client_name}</p>
                     </td>
-                    <td className="py-3 pr-4 text-neya-muted">{formatDate(item.created_at)}</td>
-                    <td className="py-3 pr-4 font-medium">{formatMoney(item.total)}</td>
+                    <td className="px-4 py-3 text-neya-muted tabular-nums">{formatDate(item.created_at)}</td>
+                    <td className="px-4 py-3 font-display font-semibold tabular-nums">{formatMoney(item.total)}</td>
                     {tab === 'invoices' && (
                       <>
-                        <td className="py-3 pr-4 text-neya-success">{formatMoney(paid)}</td>
-                        <td className={`py-3 pr-4 font-medium ${balance > 0 ? 'text-neya-error' : 'text-neya-success'}`}>
+                        <td className="px-4 py-3 text-neya-success tabular-nums">{formatMoney(paid)}</td>
+                        <td className={`px-4 py-3 font-medium tabular-nums ${balance > 0 ? 'text-neya-error' : 'text-neya-success'}`}>
                           {formatMoney(balance)}
                         </td>
                       </>
                     )}
-                    <td className="py-3 pr-4">
+                    <td className="px-4 py-3">
                       {tab === 'quotes' ? (
                         <select value={item.status} onChange={e => updateQuoteStatus(item.id, e.target.value)}
                           className={`text-xs px-2 py-1 rounded-full border-0 ${st.color}`}>
@@ -328,7 +339,7 @@ export default function InvoicesPage() {
                         <span className={`text-xs px-2 py-1 rounded-full ${st.color}`}>{st.label}</span>
                       )}
                     </td>
-                    <td className="py-3 pr-2">
+                    <td className="px-4 py-3">
                       <div className="flex gap-2 flex-wrap items-center">
                         <button
                           type="button"
@@ -336,12 +347,12 @@ export default function InvoicesPage() {
                             type: tab === 'quotes' ? 'quote' : 'invoice',
                             id: item.id,
                           })}
-                          className="text-xs btn-primary py-1 px-2"
+                          className="text-xs btn-primary py-1 px-2 min-h-0"
                         >
                           Envoyer
                         </button>
                         <button onClick={() => openPdf(item.id, tab === 'quotes' ? 'quote' : 'invoice')}
-                          className="text-xs bg-neya-cream hover:bg-neya-cream-dark px-2 py-1 rounded text-neya-orange">
+                          className="text-xs bg-neya-cream hover:bg-neya-cream-dark px-2 py-1 rounded-lg text-neya-orange">
                           PDF
                         </button>
                         {tab === 'quotes' && (
@@ -360,7 +371,7 @@ export default function InvoicesPage() {
                                 deposit_percent: 100,
                                 subtitle: '',
                               })}
-                              className="text-xs btn-primary py-1 px-2">
+                              className="text-xs btn-primary py-1 px-2 min-h-0">
                               → Facture
                             </button>
                           )
@@ -376,7 +387,7 @@ export default function InvoicesPage() {
                         )}
                       </div>
                     </td>
-                    <td className="py-3 pl-1 text-right align-middle">
+                    <td className="px-4 py-3 text-right align-middle">
                       <DocRowMenu items={menuItems} />
                     </td>
                   </tr>
@@ -389,8 +400,8 @@ export default function InvoicesPage() {
         {/* Modal conversion devis → facture */}
         {convertForm && (
           <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-            <form onSubmit={confirmConvert} className="bg-white rounded-xl p-6 w-full max-w-md shadow-xl">
-              <h3 className="font-heading text-lg mb-1">Convertir en facture</h3>
+            <form onSubmit={confirmConvert} className="bg-white rounded-2xl border border-neya-border p-6 w-full max-w-md shadow-xl">
+              <h3 className="font-display font-semibold text-lg mb-1">Convertir en facture</h3>
               <p className="text-sm text-neya-muted mb-4">
                 Devis {convertForm.quote_number} — {convertForm.title}
               </p>
@@ -431,7 +442,7 @@ export default function InvoicesPage() {
 
                 <div className="bg-neya-cream rounded-lg p-3 text-sm">
                   <p className="text-neya-muted">Montant facture estimé (TTC)</p>
-                  <p className="font-heading text-xl text-neya-orange">
+                  <p className="font-display font-semibold text-xl text-neya-orange">
                     {formatMoney(calcTaxes((convertForm.subtotal || 0) * (convertForm.deposit_percent / 100)).total)}
                   </p>
                   <p className="text-xs text-neya-muted mt-1">

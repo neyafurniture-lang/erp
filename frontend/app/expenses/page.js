@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Plus } from 'lucide-react';
 import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
 import { api, formatMoney, formatDate, EXPENSE_CATEGORIES, resolveUploadUrl } from '../../lib/api';
@@ -42,16 +43,20 @@ export default function ExpensesPage() {
 
   return (
     <AuthGuard>
-      <AppShell title="Dépenses">
+      <AppShell title="Dépenses" subtitle={`${expenses.length} entrée${expenses.length > 1 ? 's' : ''} · total ${formatMoney(total)}`}>
         <ReceiptScanner onChange={load} />
 
-        <div className="flex justify-between items-center mb-6">
-          <p className="text-neya-muted">Total : <span className="font-heading text-xl text-neya-ink">{formatMoney(total)}</span></p>
-          <button onClick={() => setShowForm(!showForm)} className="btn-primary">+ Dépense</button>
+        <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
+          <p className="text-neya-muted text-sm">
+            Total : <span className="font-display text-xl font-semibold text-neya-ink tabular-nums">{formatMoney(total)}</span>
+          </p>
+          <button type="button" onClick={() => setShowForm(!showForm)} className="btn-primary gap-1.5">
+            <Plus className="h-4 w-4" /> Dépense
+          </button>
         </div>
 
         {showForm && (
-          <form onSubmit={create} className="card mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <form onSubmit={create} className="card rounded-2xl mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="label">Montant ($)</label>
               <input type="number" className="input" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} required />
@@ -79,33 +84,42 @@ export default function ExpensesPage() {
           </form>
         )}
 
-        <div className="card">
+        <div className="cf-table-wrap overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-neya-border text-left text-neya-muted">
-                <th className="pb-3">Date</th>
-                <th className="pb-3">Description</th>
-                <th className="pb-3">Catégorie</th>
-                <th className="pb-3">Projet</th>
-                <th className="pb-3">Reçu</th>
-                <th className="pb-3 text-right">Montant</th>
+              <tr>
+                <th className="px-4 py-3">Date</th>
+                <th className="px-4 py-3">Description</th>
+                <th className="px-4 py-3">Catégorie</th>
+                <th className="px-4 py-3">Projet</th>
+                <th className="px-4 py-3">Reçu</th>
+                <th className="px-4 py-3 text-right">Montant</th>
               </tr>
             </thead>
             <tbody>
               {expenses.map(e => (
-                <tr key={e.id} className="border-b border-neya-border">
-                  <td className="py-3">{formatDate(e.date)}</td>
-                  <td className="py-3">{e.description || '—'}</td>
-                  <td className="py-3">{CATEGORY_LABELS[e.category] || e.category}</td>
-                  <td className="py-3">{e.project_name || '—'}</td>
-                  <td className="py-3">
+                <tr key={e.id}>
+                  <td className="px-4 py-3 tabular-nums">{formatDate(e.date)}</td>
+                  <td className="px-4 py-3">{e.description || '—'}</td>
+                  <td className="px-4 py-3">
+                    <span className="rounded-full bg-neya-surface px-2.5 py-0.5 text-[11px] font-medium text-neya-ink-light">
+                      {CATEGORY_LABELS[e.category] || e.category}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-neya-muted">{e.project_name || '—'}</td>
+                  <td className="px-4 py-3">
                     {e.receipt_url ? (
                       <a href={resolveUploadUrl(e.receipt_url)} target="_blank" rel="noopener noreferrer" className="text-neya-orange text-xs hover:underline">Voir</a>
                     ) : '—'}
                   </td>
-                  <td className="py-3 text-right font-medium">{formatMoney(e.amount)}</td>
+                  <td className="px-4 py-3 text-right font-display font-semibold tabular-nums">{formatMoney(e.amount)}</td>
                 </tr>
               ))}
+              {expenses.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-10 text-center text-neya-muted">Aucune dépense</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

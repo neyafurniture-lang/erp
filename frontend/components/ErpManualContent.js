@@ -62,7 +62,7 @@ export default function ErpManualContent() {
   return (
     <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
       <aside className="lg:w-56 shrink-0">
-        <div className="lg:sticky lg:top-4 card p-4">
+        <div className="lg:sticky lg:top-4 card rounded-2xl p-4">
           <p className="section-title mb-3">Sommaire</p>
           <nav className="space-y-1 max-h-[70vh] overflow-y-auto">
             {manual.sections.map(s => (
@@ -88,8 +88,8 @@ export default function ErpManualContent() {
       </aside>
 
       <div className="flex-1 min-w-0 space-y-6">
-        <header className="card p-6 bg-gradient-to-br from-neya-orange/5 to-transparent border-neya-orange/20">
-          <h2 className="text-xl font-semibold text-neya-ink mb-2">{manual.title}</h2>
+        <header className="card rounded-2xl p-6 bg-gradient-to-br from-neya-orange/5 to-transparent border-neya-orange/20">
+          <h2 className="text-xl font-display font-semibold text-neya-ink mb-2">{manual.title}</h2>
           <p className="text-neya-muted text-sm leading-relaxed">
             Guide complet pour faire fonctionner NEYA ERP : navigation, subtilités, dépannage et liens directs vers chaque module.
             L&apos;assistant vocal connaît ce manuel — posez vos questions ou ouvrez une section ci-dessous.
@@ -100,7 +100,7 @@ export default function ErpManualContent() {
           <section
             key={section.id}
             id={section.id}
-            className="card p-6 scroll-mt-24"
+            className="card rounded-2xl p-6 scroll-mt-24"
           >
             <div className="flex items-start gap-3 mb-4">
               <span className="text-2xl" aria-hidden>{section.icon}</span>

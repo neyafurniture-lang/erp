@@ -501,18 +501,12 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .mail-shell {
-    @apply flex flex-col overflow-hidden;
+    @apply flex flex-col overflow-hidden bg-white;
     min-height: min(78vh, 820px);
-    border-radius: 1.25rem;
-    border: 1px solid rgba(10, 10, 10, 0.06);
-    background:
-      linear-gradient(180deg, rgba(255,255,255,0.92) 0%, rgba(250,250,250,0.98) 100%);
-    box-shadow:
-      0 1px 0 rgba(255,255,255,0.8) inset,
-      0 20px 50px -24px rgba(10, 10, 10, 0.18),
-      0 8px 16px -12px rgba(216, 107, 48, 0.12);
-    backdrop-filter: blur(12px);
-    animation: mail-shell-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+    border-radius: 1rem;
+    border: 1px solid var(--border, #e6e4e2);
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.04), 0 1px 3px 0 rgb(0 0 0 / 0.06);
+    animation: mail-shell-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
   @keyframes mail-shell-in {
@@ -568,24 +562,21 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .mail-sidebar {
-    @apply hidden md:flex flex-col w-48 lg:w-56 shrink-0 py-3;
-    border-right: 1px solid rgba(10, 10, 10, 0.06);
-    background: linear-gradient(180deg, rgba(250,249,247,0.9), rgba(255,255,255,0.4));
+    @apply hidden md:flex flex-col w-48 lg:w-56 shrink-0 py-3 bg-[var(--surface)];
+    border-right: 1px solid var(--border, #e6e4e2);
   }
 
   .mail-folder {
-    @apply flex items-center gap-2.5 mx-2.5 px-3 py-2.5 text-sm text-neya-ink/70;
-    border-radius: 0.75rem;
-    transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+    @apply flex items-center gap-2.5 mx-2.5 px-2.5 py-2 text-[12.5px] font-medium text-neya-ink-light;
+    border-radius: 0.5rem;
+    transition: background 0.15s ease, color 0.15s ease;
   }
   .mail-folder:hover {
-    @apply text-neya-ink;
-    background: rgba(10, 10, 10, 0.04);
+    @apply text-neya-ink bg-neya-surface;
   }
   .mail-folder-active {
-    @apply text-neya-ink font-semibold;
-    background: #fff;
-    box-shadow: 0 1px 2px rgba(10,10,10,0.04), 0 0 0 1px rgba(10,10,10,0.06);
+    @apply font-semibold text-neya-orange bg-neya-orange-soft;
+    box-shadow: none;
   }
   .mail-folder-active svg {
     color: #D86B30;
@@ -638,7 +629,7 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .mail-row-active {
-    background: linear-gradient(90deg, rgba(216, 107, 48, 0.08), rgba(216, 107, 48, 0.02));
+    background: color-mix(in srgb, #ffeee3 65%, white);
     box-shadow: inset 3px 0 0 #D86B30;
   }
 
@@ -1770,5 +1761,25 @@ h1, h2, h3, h4, h5, h6 {
 }
 .cut-drawer__panel {
 @apply relative z-10 w-full max-w-sm bg-white h-full p-4 shadow-xl overflow-y-auto;
+}
+
+/* ── Craft Flow list-page utilities ── */
+.cf-chip {
+  @apply shrink-0 rounded-full border border-neya-border bg-white px-3 py-1.5 text-[12px] font-medium text-neya-ink-light transition-colors hover:bg-neya-surface;
+}
+.cf-chip-active {
+  @apply border-neya-ink bg-neya-ink text-white hover:bg-neya-ink hover:text-white;
+}
+.cf-table-wrap {
+  @apply overflow-hidden rounded-2xl border border-neya-border bg-white shadow-sm;
+}
+.cf-table-wrap thead tr {
+  @apply border-b border-neya-border bg-neya-surface text-left text-[11px] font-semibold uppercase tracking-wider text-neya-muted;
+}
+.cf-table-wrap tbody tr {
+  @apply border-b border-neya-border last:border-0 transition-colors hover:bg-neya-surface/60;
+}
+.cf-page-search {
+  @apply h-10 w-full rounded-lg border border-neya-border bg-neya-surface pl-9 pr-3 text-[13px] outline-none placeholder:text-neya-muted focus:border-neya-orange/40 focus:bg-white focus:ring-2 focus:ring-neya-orange/15;
 }
 

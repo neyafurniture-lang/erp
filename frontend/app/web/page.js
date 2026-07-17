@@ -76,15 +76,15 @@ export default function WebHubPage() {
 
   return (
     <AuthGuard>
-      <AppShell title="Site web">
+      <AppShell title="Site web" subtitle="Boutique WooCommerce liée à l'ERP">
         <div className="max-w-5xl space-y-6">
           {msg && <p className="text-sm text-green-700 bg-green-50 px-4 py-2 rounded-lg">{msg}</p>}
           {err && <p className="text-sm text-neya-error bg-red-50 px-4 py-2 rounded-lg">{err}</p>}
 
-          <div className="card flex flex-wrap items-start justify-between gap-4">
+          <div className="card rounded-2xl flex flex-wrap items-start justify-between gap-4 shadow-sm hover:shadow-md transition-shadow">
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="font-heading text-xl">neyafurniture.ca</h2>
+                <h2 className="font-display font-semibold text-xl">neyafurniture.ca</h2>
                 <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
                   status?.configured ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'
                 }`}>
@@ -109,30 +109,30 @@ export default function WebHubPage() {
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <div className="card text-center">
-              <p className="text-2xl font-heading text-neya-orange">{status?.linked_products ?? 0}</p>
+            <div className="card rounded-2xl text-center shadow-sm">
+              <p className="text-2xl font-display font-semibold text-neya-orange tabular-nums">{status?.linked_products ?? 0}</p>
               <p className="text-xs text-neya-muted mt-1">Fiches liées</p>
             </div>
-            <div className="card text-center">
-              <p className="text-2xl font-heading text-neya-orange">{status?.photos_downloaded ?? 0}</p>
+            <div className="card rounded-2xl text-center shadow-sm">
+              <p className="text-2xl font-display font-semibold text-neya-orange tabular-nums">{status?.photos_downloaded ?? 0}</p>
               <p className="text-xs text-neya-muted mt-1">Photos locales</p>
             </div>
-            <div className="card text-center">
-              <p className="text-2xl font-heading">{status?.web_orders_total ?? 0}</p>
+            <div className="card rounded-2xl text-center shadow-sm">
+              <p className="text-2xl font-display font-semibold tabular-nums">{status?.web_orders_total ?? 0}</p>
               <p className="text-xs text-neya-muted mt-1">Commandes sync</p>
             </div>
-            <div className="card text-center">
-              <p className="text-2xl font-heading">{status?.web_orders_active ?? 0}</p>
+            <div className="card rounded-2xl text-center shadow-sm">
+              <p className="text-2xl font-display font-semibold tabular-nums">{status?.web_orders_active ?? 0}</p>
               <p className="text-xs text-neya-muted mt-1">En cours</p>
             </div>
-            <div className="card text-center">
-              <p className="text-2xl font-heading">{status?.web_projects ?? 0}</p>
+            <div className="card rounded-2xl text-center shadow-sm">
+              <p className="text-2xl font-display font-semibold tabular-nums">{status?.web_projects ?? 0}</p>
               <p className="text-xs text-neya-muted mt-1">Projets web</p>
             </div>
           </div>
 
-          <div className="card">
-            <h3 className="font-heading text-lg mb-3">Synchronisation</h3>
+          <div className="card rounded-2xl">
+            <h3 className="font-display font-semibold text-lg mb-3">Synchronisation</h3>
             <div className="flex flex-wrap gap-2">
               <button type="button" onClick={() => runSync('photos')} disabled={!!syncing || !status?.configured}
                 className="btn-primary text-sm disabled:opacity-40">
@@ -159,8 +159,8 @@ export default function WebHubPage() {
           </div>
 
           <div className="grid lg:grid-cols-2 gap-6">
-            <div className="card">
-              <h3 className="font-heading text-lg mb-4">Commandes web récentes</h3>
+            <div className="card rounded-2xl">
+              <h3 className="font-display font-semibold text-lg mb-4">Commandes web récentes</h3>
               {orders.length === 0 ? (
                 <p className="text-sm text-neya-muted">Aucune commande importée. Cliquez « Commandes → projets ».</p>
               ) : (
@@ -185,8 +185,8 @@ export default function WebHubPage() {
               )}
             </div>
 
-            <div className="card">
-              <h3 className="font-heading text-lg mb-4">Produits liés au site</h3>
+            <div className="card rounded-2xl">
+              <h3 className="font-display font-semibold text-lg mb-4">Produits liés au site</h3>
               {products.length === 0 ? (
                 <p className="text-sm text-neya-muted">Sync produits pour voir les liens.</p>
               ) : (
