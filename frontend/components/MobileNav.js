@@ -10,14 +10,14 @@ const TABS = [
   { href: '/', label: 'Accueil', permission: 'dashboard', icon: 'home' },
   { href: '/production', label: 'Prod', permission: 'production', icon: 'prod' },
   { href: '/projects', label: 'Projets', permission: 'projects', icon: 'projects' },
-  { href: '/mail', label: 'Mail', permission: 'mail', icon: 'mail' },
+  { href: '/mail', label: 'Courriel', permission: 'mail', icon: 'mail' },
 ];
 
 const MENU_GROUPS = [
   {
     title: 'Atelier',
     items: [
-      { href: '/', label: 'Dashboard', permission: 'dashboard' },
+      { href: '/', label: 'Tableau de bord', permission: 'dashboard' },
       { href: '/production', label: 'Production', permission: 'production' },
       { href: '/sauna-cloud', label: 'Sauna Cloud', permission: 'production' },
       { href: '/cutting-plans', label: 'Plans de coupe', permission: 'production' },

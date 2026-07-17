@@ -1,18 +1,46 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Urbanist:wght@400;500;600;700;800&family=Epilogue:wght@400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/**
+ * Design system — aligné NEYA Craft Flow (Lovable)
+ * Preview : https://neya-craft-flow.lovable.app
+ */
 :root {
-  --font-geist: 'Inter', system-ui, sans-serif;
+  --font-display: 'Urbanist', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Epilogue', ui-sans-serif, system-ui, sans-serif;
+  --font-geist: var(--font-sans);
   --mobile-nav-h: 4rem;
   --chat-bar-h: 3.6rem;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
-  --sidebar-w: 17.5rem;
+  --sidebar-w: 16rem;
   --dock-clearance: calc(var(--mobile-nav-h) + var(--safe-bottom) + 0.75rem);
-  /* +12% taille de base (surtout mobile) */
-  --ui-scale: 1.12;
+  --ui-scale: 1.08;
+  --radius: 0.75rem;
+
+  /* Tokens Craft Flow (oklch + hex fallbacks) */
+  --background: #ffffff;
+  --surface: #fbfaf9;
+  --surface-elevated: #ffffff;
+  --foreground: #0d0b09;
+  --ink: #0d0b09;
+  --ink-light: #353230;
+  --primary: #d86b30;
+  --primary-foreground: #fffdfb;
+  --primary-dark: #b85a28;
+  --primary-soft: #ffeee3;
+  --muted: #f5f3f1;
+  --muted-foreground: #666260;
+  --accent: #ffeee3;
+  --accent-foreground: #8e2e00;
+  --border: #e6e4e2;
+  --border-strong: #d0cdcb;
+  --sidebar: #fbfaf9;
+  --sidebar-accent: #ffeee3;
+  --sidebar-accent-foreground: #8e2e00;
+  --ring: #d86b30;
 }
 
 @media (min-width: 1024px) {
@@ -34,11 +62,10 @@ html {
 }
 
 body {
-  @apply bg-white text-neya-ink font-body antialiased;
+  @apply bg-[var(--surface)] text-neya-ink font-body antialiased;
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
-  letter-spacing: -0.01em;
-  /* Cibles tactiles un peu plus grandes sur mobile */
+  letter-spacing: -0.015em;
   -webkit-text-size-adjust: 100%;
 }
 
@@ -68,7 +95,7 @@ body {
   }
 
   .mobile-dock-item-active {
-    @apply text-neya-ink font-semibold;
+    @apply text-neya-orange font-semibold;
   }
 
   .mobile-menu-sheet {
@@ -311,64 +338,64 @@ body {
   .voice-dots span:nth-child(3) { animation-delay: 0.3s; }
 
   .btn-primary {
-    @apply bg-neya-orange hover:bg-neya-orange-dark text-white px-4 py-2.5 rounded font-medium text-sm transition-colors min-h-[48px] sm:min-h-[44px] inline-flex items-center justify-center border border-transparent;
+    @apply bg-neya-orange hover:bg-neya-orange-dark text-white px-4 py-2.5 rounded-lg font-semibold text-sm transition-all min-h-[48px] sm:min-h-[44px] inline-flex items-center justify-center border border-transparent shadow-sm hover:shadow-orange;
   }
 
   .btn-secondary {
-    @apply bg-white border border-neya-border hover:bg-neya-surface text-neya-ink px-4 py-2.5 rounded font-medium text-sm transition-colors min-h-[48px] sm:min-h-[44px] inline-flex items-center justify-center;
+    @apply bg-white border border-neya-border hover:bg-neya-surface text-neya-ink px-4 py-2.5 rounded-lg font-semibold text-sm transition-colors min-h-[48px] sm:min-h-[44px] inline-flex items-center justify-center;
   }
 
   .btn-ghost {
-    @apply text-neya-muted hover:text-neya-ink hover:bg-neya-surface px-3 py-1.5 rounded text-sm transition-colors;
+    @apply text-neya-muted hover:text-neya-ink hover:bg-neya-orange-soft/60 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors;
   }
 
   .card {
-    @apply bg-white rounded border border-neya-border p-4 sm:p-5;
+    @apply bg-white rounded-xl border border-neya-border p-4 sm:p-5 shadow-sm;
   }
 
   .card-flat {
-    @apply bg-neya-surface rounded border border-neya-border p-4;
+    @apply bg-neya-surface rounded-xl border border-neya-border p-4;
   }
 
   .input {
-    @apply w-full border border-neya-border rounded px-3.5 py-3 sm:py-2.5 text-base sm:text-sm bg-white focus:outline-none focus:border-neya-ink focus:ring-1 focus:ring-neya-ink/10 min-h-[48px] sm:min-h-[44px];
+    @apply w-full border border-neya-border rounded-lg px-3.5 py-3 sm:py-2.5 text-base sm:text-sm bg-white focus:outline-none focus:border-neya-orange focus:ring-2 focus:ring-neya-orange/15 min-h-[48px] sm:min-h-[44px];
   }
 
   .label {
-    @apply block text-xs font-medium text-neya-muted uppercase tracking-wide mb-1.5;
+    @apply block text-[10px] font-semibold text-neya-muted uppercase tracking-[0.14em] mb-1.5;
   }
 
   .touch-target {
     @apply min-h-[40px] min-w-[40px];
   }
 
-  /* ── Sidebar navigation ── */
+  /* ── Sidebar — style Craft Flow ── */
   .neya-sidebar {
-    @apply bg-neya-surface border-r border-neya-border text-neya-ink;
+    @apply bg-[var(--sidebar)] border-r border-neya-border text-neya-ink;
   }
 
   .neya-sidebar-brand {
-    @apply px-5 pt-6 pb-5;
+    @apply flex h-16 items-center gap-3 px-5;
   }
 
   .neya-sidebar-tagline {
-    @apply mt-2.5 text-[13px] text-neya-muted font-medium;
+    @apply truncate text-[11px] uppercase tracking-[0.14em] text-neya-muted font-medium;
   }
 
   .neya-sidebar-nav {
-    @apply flex-1 overflow-y-auto px-3 pb-4 space-y-5;
+    @apply flex-1 overflow-y-auto px-3 pb-6 space-y-5;
   }
 
   .nav-group-title {
-    @apply px-3 mb-2 text-[13px] font-semibold text-neya-orange;
+    @apply mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-neya-muted;
   }
 
   .nav-group-list {
-    @apply space-y-0.5;
+    @apply flex flex-col gap-0.5;
   }
 
   .nav-item {
-    @apply flex w-full items-center gap-2.5 px-3 py-2 rounded-md text-[14px] transition-colors duration-150;
+    @apply relative flex w-full items-center gap-2.5 h-9 px-3 rounded-lg text-[13.5px] font-medium transition-all duration-150;
   }
 
   .nav-item-dot {
@@ -376,7 +403,7 @@ body {
   }
 
   .nav-item-idle {
-    @apply text-neya-ink/80 font-medium hover:bg-white hover:text-neya-ink;
+    @apply text-neya-ink-light hover:bg-white/80 hover:text-neya-ink;
   }
 
   .nav-item-idle .nav-item-dot {
@@ -384,7 +411,12 @@ body {
   }
 
   .nav-item-active {
-    @apply bg-white text-neya-ink font-semibold shadow-sm ring-1 ring-neya-border;
+    @apply bg-neya-orange-soft text-[var(--sidebar-accent-foreground)] font-semibold;
+  }
+
+  .nav-item-active::before {
+    content: '';
+    @apply absolute left-0 top-1.5 h-6 w-[3px] rounded-r-full bg-neya-orange;
   }
 
   .nav-item-active .nav-item-dot {
@@ -408,7 +440,7 @@ body {
   }
 
   .nav-section-label {
-    @apply text-[13px] font-semibold text-neya-orange mb-1.5;
+    @apply text-[10px] font-semibold uppercase tracking-[0.16em] text-neya-muted mb-1.5;
   }
 
   /* FullCalendar — planning hebdomadaire */
@@ -432,7 +464,7 @@ body {
   }
 
   .badge {
-    @apply text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded border;
+    @apply text-[10px] font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full border;
   }
 
   .section-title {
@@ -1044,9 +1076,9 @@ body {
   animation: voice-card-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
 
-/* ── Dashboard (Notion-like) ── */
+/* ── Dashboard — Craft Flow ── */
 .dash-hero {
-  @apply flex flex-wrap items-end justify-between gap-4 mb-8 pb-6 border-b border-neya-border;
+  @apply flex flex-wrap items-end justify-between gap-4 mb-8;
 }
 
 .dash-hero-kicker {
@@ -1054,7 +1086,7 @@ body {
 }
 
 .dash-hero-title {
-  @apply text-2xl sm:text-3xl font-medium tracking-tight text-neya-ink;
+  @apply text-2xl sm:text-3xl font-display font-semibold tracking-tight text-neya-ink;
 }
 
 .dash-hero-sub {
@@ -1094,7 +1126,7 @@ body {
 }
 
 .dash-metrics {
-  @apply grid grid-cols-2 lg:grid-cols-4 divide-x divide-y lg:divide-y-0 divide-neya-border border border-neya-border;
+  @apply grid grid-cols-2 lg:grid-cols-4 gap-3;
 }
 
 .dash-metrics-compact {
@@ -1102,15 +1134,15 @@ body {
 }
 
 .dash-metric {
-  @apply px-4 py-3.5 min-h-[88px];
+  @apply px-4 py-4 min-h-[96px] rounded-xl border border-neya-border bg-white shadow-sm;
 }
 
 .dash-metric-label {
-  @apply text-[11px] text-neya-muted mb-1;
+  @apply text-[10px] font-semibold uppercase tracking-[0.12em] text-neya-muted mb-1.5;
 }
 
 .dash-metric-value {
-  @apply text-xl sm:text-2xl font-medium tracking-tight text-neya-ink tabular-nums;
+  @apply text-xl sm:text-2xl font-display font-semibold tracking-tight text-neya-ink tabular-nums;
 }
 
 .dash-metric-hint {

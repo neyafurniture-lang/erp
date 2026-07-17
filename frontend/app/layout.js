@@ -44,10 +44,12 @@ export default function RootLayout({ children }) {
   return (
     <html lang="fr">
       <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
         <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png" />
         <link rel="manifest" href="/site.webmanifest" />
       </head>
-      <body className="overscroll-none">
+      <body className="overscroll-none font-body">
         <Providers>{children}</Providers>
       </body>
     </html>

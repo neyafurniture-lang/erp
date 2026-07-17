@@ -85,28 +85,33 @@ export default function LoginPage() {
 
   return (
     <div
-      className="min-h-screen min-h-[100dvh] flex items-center justify-center bg-neya-cream px-4 py-8"
+      className="min-h-screen min-h-[100dvh] flex items-center justify-center bg-[var(--surface)] px-4 py-8"
       style={{ paddingBottom: 'max(2rem, env(safe-area-inset-bottom))' }}
     >
       <div className="w-full max-w-md px-4">
         <div className="text-center mb-8">
-          <Image
-            src="/brand/logo-orange.png"
-            alt="Neya"
-            width={140}
-            height={56}
-            className="mx-auto h-14 w-auto mb-3"
-            priority
-          />
-          <p className="text-[10px] tracking-[0.25em] text-neya-muted uppercase">
-            Furnitures & More
+          <div className="mx-auto mb-4 h-12 w-12 overflow-hidden rounded-[12px] shadow-md">
+            <Image
+              src="/brand/picto-orange.png"
+              alt="Neya"
+              width={48}
+              height={48}
+              className="h-12 w-12 object-cover"
+              priority
+            />
+          </div>
+          <p className="font-display text-xl font-semibold text-neya-ink">
+            NEYA <span className="text-neya-orange">ERP</span>
           </p>
-          <p className="text-neya-muted mt-2 text-sm">ERP Atelier — Connexion</p>
+          <p className="text-[10px] tracking-[0.2em] text-neya-muted uppercase mt-1.5">
+            Atelier Furniture
+          </p>
+          <p className="text-neya-muted mt-2 text-sm">Connexion à l&apos;espace atelier</p>
         </div>
 
         <form
           onSubmit={handleSubmit}
-          className="bg-white rounded-2xl p-6 sm:p-8 shadow-xl border border-neya-border"
+          className="bg-white rounded-2xl p-6 sm:p-8 shadow-md border border-neya-border"
         >
           {error && (
             <div
@@ -168,7 +173,7 @@ export default function LoginPage() {
             disabled={loading}
             className="btn-primary w-full py-3.5 text-base disabled:opacity-60"
           >
-            {loading ? 'Connexion…' : 'Se connecter'}
+            {loading ? 'Connexion…' : 'Entrer'}
           </button>
         </form>
       </div>

@@ -9,7 +9,7 @@ import { useAuth } from '../lib/auth-context';
 import { hasPermission } from '../lib/permissions';
 
 const NAV = [
-  { href: '/', label: 'Dashboard', section: 'principal', permission: 'dashboard' },
+  { href: '/', label: 'Tableau de bord', section: 'principal', permission: 'dashboard' },
   { href: '/production', label: 'Production', section: 'principal', permission: 'production' },
   { href: '/sauna-cloud', label: 'Sauna Cloud', section: 'principal', permission: 'production' },
   { href: '/cutting-plans', label: 'Plans de coupe', section: 'principal', permission: 'production' },
@@ -65,8 +65,15 @@ export default function Sidebar() {
   return (
     <aside className="neya-sidebar hidden lg:flex fixed left-0 top-0 h-full w-[var(--sidebar-w)] flex-col z-40">
       <div className="neya-sidebar-brand">
-        <Image src="/brand/logo-orange.png" alt="Neya" width={96} height={36} className="h-9 w-auto" priority />
-        <p className="neya-sidebar-tagline">Espace atelier</p>
+        <div className="relative h-8 w-8 shrink-0 overflow-hidden rounded-[10px] shadow-sm">
+          <Image src="/brand/picto-orange.png" alt="Neya" width={32} height={32} className="h-8 w-8 object-cover" priority />
+        </div>
+        <div className="min-w-0">
+          <p className="truncate font-display text-[15px] font-semibold leading-tight text-neya-ink">
+            NEYA <span className="text-neya-orange">ERP</span>
+          </p>
+          <p className="neya-sidebar-tagline">Atelier Furniture</p>
+        </div>
       </div>
 
       <nav className="neya-sidebar-nav" aria-label="Navigation principale">
