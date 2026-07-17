@@ -13,7 +13,8 @@ router.post('/unlock', async (req, res) => {
   try {
     const code = String(req.body?.code ?? '').trim();
     if (!code || code !== ADMIN_SESSION_PIN) {
-      return res.status(401).json({ error: 'Code incorrect' });
+      // 403 (pas 401) : sinon le client api() déconnecte toute la session ERP
+      return res.status(403).json({ error: 'Code incorrect' });
     }
     res.json({ ok: true });
   } catch (err) {
