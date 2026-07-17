@@ -15,6 +15,7 @@ const QUICK_ACTIONS = [
   { href: '/sauna-cloud', label: 'Sauna Cloud' },
   { href: '/projects', label: 'Projets' },
   { href: '/invoices', label: 'Devis / factures' },
+  { href: '/finance', label: 'Finance' },
   { href: '/mail', label: 'Courriel' },
   { href: '/liste-courses', label: 'Liste de courses' },
   { href: '/clients', label: 'Clients' },
