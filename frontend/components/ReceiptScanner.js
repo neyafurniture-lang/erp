@@ -166,12 +166,12 @@ export default function ReceiptScanner({ compact = false, onChange }) {
   }
 
   return (
-    <div className={compact ? '' : 'card mb-6'}>
+    <div className={compact ? '' : 'rounded-2xl border border-neya-border bg-white shadow-sm mb-6 p-4 sm:p-5'}>
       <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
         <div>
-          <h2 className="font-heading text-lg">Tickets de caisse</h2>
-          <p className="text-sm text-neya-muted">
-            Photo → transcription automatique (OpenAI Vision) → dépense + Drive
+          <h2 className="font-display text-lg font-semibold text-neya-ink">Tickets de caisse</h2>
+          <p className="text-sm text-neya-muted mt-0.5">
+            Photo du reçu → lecture IA (Claude / OpenAI) → création de la dépense
           </p>
         </div>
         <div>
@@ -187,18 +187,22 @@ export default function ReceiptScanner({ compact = false, onChange }) {
             type="button"
             onClick={() => fileRef.current?.click()}
             disabled={scanning}
-            className="btn-primary"
+            className="btn-primary min-h-[44px]"
           >
-            {scanning ? 'Analyse…' : '📷 Scanner un ticket'}
+            {scanning ? 'Analyse…' : 'Scanner un ticket'}
           </button>
         </div>
       </div>
 
-      {err && <p className="text-sm text-neya-error bg-red-50 px-3 py-2 rounded-lg mb-3">{err}</p>}
+      {err && (
+        <p className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-lg mb-3">
+          {err}
+        </p>
+      )}
 
       {pending.length === 0 ? (
         <p className="text-sm text-neya-muted">
-          Aucun ticket en attente. Prenez une photo du reçu avec votre téléphone.
+          Aucun ticket en attente. Sur téléphone : appuyez sur « Scanner un ticket » pour prendre une photo du reçu.
         </p>
       ) : (
         <div className="space-y-2">

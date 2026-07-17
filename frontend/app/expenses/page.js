@@ -18,8 +18,15 @@ export default function ExpensesPage() {
   const [form, setForm] = useState({ amount: '', category: 'materiaux', description: '', project_id: '' });
 
   const load = () => {
-    api('/expenses').then(setExpenses);
-    api('/projects').then(setProjects);
+    api('/expenses')
+      .then(setExpenses)
+      .catch(err => {
+        console.warn('expenses load:', err.message);
+        setExpenses([]);
+      });
+    api('/projects')
+      .then(setProjects)
+      .catch(() => setProjects([]));
   };
 
   useEffect(() => {
