@@ -1,32 +1,54 @@
 'use client';
 
 import Link from 'next/link';
-import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import {
+  LayoutDashboard,
+  Hammer,
+  Cloud,
+  Scissors,
+  Shield,
+  FolderKanban,
+  ShoppingCart,
+  Package,
+  Users,
+  Calendar,
+  HardDrive,
+  Mail,
+  FileText,
+  Wallet,
+  BookOpen,
+  Settings,
+  Map,
+  Globe,
+  LogOut,
+  MoreHorizontal,
+} from 'lucide-react';
 import { api, logout } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
 import { hasPermission } from '../lib/permissions';
+import NeyaMark from './NeyaMark';
 
 const NAV = [
-  { href: '/', label: 'Tableau de bord', section: 'principal', permission: 'dashboard' },
-  { href: '/production', label: 'Production', section: 'principal', permission: 'production' },
-  { href: '/sauna-cloud', label: 'Sauna Cloud', section: 'principal', permission: 'production' },
-  { href: '/cutting-plans', label: 'Plans de coupe', section: 'principal', permission: 'production' },
-  { href: '/admin', label: 'Session admin', section: 'principal', permission: 'admin' },
-  { href: '/projects', label: 'Projets', section: 'principal', permission: 'projects' },
-  { href: '/liste-courses', label: 'Liste de courses', section: 'ops', permission: 'purchases' },
-  { href: '/purchases', label: 'Achats atelier', section: 'ops', permission: 'purchases' },
-  { href: '/inventory', label: 'Stock', section: 'ops', permission: 'inventory' },
-  { href: '/team', label: 'Équipe', section: 'ops', permission: 'team' },
-  { href: '/calendar', label: 'Calendrier', section: 'ops', permission: 'calendar' },
-  { href: '/drive', label: 'Drive', section: 'integrations', permission: 'drive' },
-  { href: '/mail', label: 'Courriel', section: 'integrations', permission: 'mail' },
-  { href: '/invoices', label: 'Devis & factures', section: 'facturation', permission: 'invoices' },
-  { href: '/expenses', label: 'Dépenses', section: 'ops', permission: 'expenses' },
-  { href: '/clients', label: 'Clients', section: 'crm', permission: 'clients' },
-  { href: '/standards', label: 'Standards', section: 'crm', permission: 'standards' },
-  { href: '/web', label: 'Site web', section: 'crm', permission: 'web' },
+  { href: '/', label: 'Tableau de bord', section: 'principal', permission: 'dashboard', icon: LayoutDashboard },
+  { href: '/production', label: 'Production', section: 'principal', permission: 'production', icon: Hammer },
+  { href: '/sauna-cloud', label: 'Sauna Cloud', section: 'principal', permission: 'production', icon: Cloud },
+  { href: '/cutting-plans', label: 'Plans de coupe', section: 'principal', permission: 'production', icon: Scissors },
+  { href: '/admin', label: 'Session admin', section: 'principal', permission: 'admin', icon: Shield },
+  { href: '/projects', label: 'Projets', section: 'principal', permission: 'projects', icon: FolderKanban },
+  { href: '/liste-courses', label: 'Liste de courses', section: 'ops', permission: 'purchases', icon: ShoppingCart },
+  { href: '/purchases', label: 'Achats atelier', section: 'ops', permission: 'purchases', icon: Package },
+  { href: '/inventory', label: 'Stock', section: 'ops', permission: 'inventory', icon: Package },
+  { href: '/team', label: 'Équipe', section: 'ops', permission: 'team', icon: Users },
+  { href: '/calendar', label: 'Calendrier', section: 'ops', permission: 'calendar', icon: Calendar },
+  { href: '/expenses', label: 'Dépenses', section: 'ops', permission: 'expenses', icon: Wallet },
+  { href: '/drive', label: 'Drive', section: 'integrations', permission: 'drive', icon: HardDrive },
+  { href: '/mail', label: 'Courriel', section: 'integrations', permission: 'mail', icon: Mail },
+  { href: '/invoices', label: 'Devis & factures', section: 'facturation', permission: 'invoices', icon: FileText },
+  { href: '/clients', label: 'Clients', section: 'crm', permission: 'clients', icon: Users },
+  { href: '/standards', label: 'Standards', section: 'crm', permission: 'standards', icon: BookOpen },
+  { href: '/web', label: 'Site web', section: 'crm', permission: 'web', icon: Globe },
 ];
 
 const SECTIONS = [
@@ -37,13 +59,13 @@ const SECTIONS = [
   { id: 'crm', label: 'Commercial' },
 ];
 
-function NavLink({ href, label, active }) {
+function NavLink({ href, label, active, Icon, danger }) {
   return (
     <Link
       href={href}
-      className={`nav-item ${active ? 'nav-item-active' : 'nav-item-idle'}`}
+      className={`nav-item ${active ? 'nav-item-active' : 'nav-item-idle'} ${danger ? 'nav-item-danger' : ''}`}
     >
-      <span className="nav-item-dot" aria-hidden />
+      {Icon ? <Icon className="h-[17px] w-[17px] shrink-0" strokeWidth={active ? 2.2 : 1.8} aria-hidden /> : null}
       <span className="truncate">{label}</span>
     </Link>
   );
@@ -57,6 +79,12 @@ export default function Sidebar() {
   const visibleNav = NAV.filter(n => hasPermission(user, n.permission));
   const showSettings = hasPermission(user, 'settings');
   const shopHost = shopUrl.replace(/^https?:\/\//, '');
+  const initials = (user?.name || user?.email || 'N')
+    .split(/\s+/)
+    .map(p => p[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
 
   useEffect(() => {
     api('/wordpress/status').then(s => { if (s?.base) setShopUrl(s.base); }).catch(() => {});
@@ -65,9 +93,7 @@ export default function Sidebar() {
   return (
     <aside className="neya-sidebar hidden lg:flex fixed left-0 top-0 h-full w-[var(--sidebar-w)] flex-col z-40">
       <div className="neya-sidebar-brand">
-        <div className="relative h-8 w-8 shrink-0 overflow-hidden rounded-[10px] shadow-sm">
-          <Image src="/brand/picto-orange.png" alt="Neya" width={32} height={32} className="h-8 w-8 object-cover" priority />
-        </div>
+        <NeyaMark />
         <div className="min-w-0">
           <p className="truncate font-display text-[15px] font-semibold leading-tight text-neya-ink">
             NEYA <span className="text-neya-orange">ERP</span>
@@ -78,12 +104,12 @@ export default function Sidebar() {
 
       <nav className="neya-sidebar-nav" aria-label="Navigation principale">
         {SECTIONS.filter(sec => visibleNav.some(n => n.section === sec.id)).map(sec => (
-          <section key={sec.id} className="nav-group">
+          <section key={sec.id} className="nav-group mb-5">
             <h2 className="nav-group-title">{sec.label}</h2>
             <div className="nav-group-list">
-              {visibleNav.filter(n => n.section === sec.id).map(({ href, label }) => {
+              {visibleNav.filter(n => n.section === sec.id).map(({ href, label, icon: Icon }) => {
                 const active = href === '/' ? pathname === '/' : pathname.startsWith(href);
-                return <NavLink key={href} href={href} label={label} active={active} />;
+                return <NavLink key={href} href={href} label={label} active={active} Icon={Icon} />;
               })}
             </div>
           </section>
@@ -91,21 +117,33 @@ export default function Sidebar() {
       </nav>
 
       <div className="neya-sidebar-footer">
-        <div className="nav-group-list">
+        <div className="nav-group-list mb-2">
           {hasPermission(user, 'dashboard') && (
-            <NavLink href="/manual" label="Manuel" active={pathname.startsWith('/manual')} />
+            <NavLink href="/manual" label="Manuel" active={pathname.startsWith('/manual')} Icon={BookOpen} />
           )}
           {showSettings && (
             <>
-              <NavLink href="/settings" label="Paramètres" active={pathname.startsWith('/settings')} />
-              <NavLink href="/roadmap" label="Roadmap" active={pathname.startsWith('/roadmap')} />
+              <NavLink href="/settings" label="Paramètres" active={pathname.startsWith('/settings')} Icon={Settings} />
+              <NavLink href="/roadmap" label="Roadmap" active={pathname.startsWith('/roadmap')} Icon={Map} />
             </>
           )}
           <button type="button" onClick={logout} className="nav-item nav-item-idle nav-item-danger">
-            <span className="nav-item-dot" aria-hidden />
+            <LogOut className="h-[17px] w-[17px] shrink-0" strokeWidth={1.8} aria-hidden />
             <span>Déconnexion</span>
           </button>
         </div>
+
+        <div className="flex items-center gap-2.5 rounded-lg px-2 py-2 hover:bg-white/70">
+          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-neya-ink text-[12px] font-semibold text-white">
+            {initials}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[13px] font-semibold text-neya-ink">{user?.name || 'Atelier'}</p>
+            <p className="truncate text-[11px] text-neya-muted">{user?.role === 'admin' ? 'Propriétaire · Atelier' : 'Équipe atelier'}</p>
+          </div>
+          <MoreHorizontal className="h-4 w-4 text-neya-muted shrink-0" aria-hidden />
+        </div>
+
         <a
           href={shopUrl}
           target="_blank"

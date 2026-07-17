@@ -1,38 +1,27 @@
 # Design source — NEYA Craft Flow (Lovable)
 
-**Preview live :** https://neya-craft-flow.lovable.app  
-**Repo GitHub (privé) :** https://github.com/neyafurniture-lang/neya-craft-flow  
+**Preview :** https://neya-craft-flow.lovable.app  
+**Repo (public) :** https://github.com/neyafurniture-lang/neya-craft-flow  
 
-Ce projet Lovable est la **référence visuelle** pour l’ERP (`neyafurniture-lang/erp`).  
-Les tokens, typo et shell ont été portés dans `frontend/` pour coller à ce style.
+Référence visuelle officielle pour l’ERP (`neyafurniture-lang/erp`).
 
-## Tokens portés
+## Portage effectué
 
-| Élément | Valeur |
-|--------|--------|
-| Display | Urbanist |
-| Body | Epilogue |
-| Primary | `#D86B30` |
-| Soft accent | `#FFEEE3` |
-| Surface | `#FBFAF9` |
-| Ink | `#0D0B09` |
-| Radius | `0.75rem` (12px) |
-| Sidebar actif | fond soft + barre verticale orange |
+| Source Craft Flow | ERP |
+|-------------------|-----|
+| `src/styles.css` tokens | `frontend/app/globals.css` + `tailwind.config.js` |
+| `src/components/app-shell.tsx` | `AppShell.js`, `Sidebar.js`, `MobileNav.js`, `NeyaMark.js` |
+| `src/routes/login.tsx` | `frontend/app/login/page.js` (auth réelle conservée) |
+| Urbanist + Epilogue | Google Fonts + CSS vars |
+| Lucide icons | `lucide-react` |
 
-## Fichiers clés ERP
+## Suite (écran par écran)
 
-- `frontend/tailwind.config.js`
-- `frontend/app/globals.css`
-- `frontend/components/Sidebar.js`
-- `frontend/components/AppShell.js`
-- `frontend/app/login/page.js`
+Porter depuis Craft Flow en gardant les APIs ERP :
 
-## Suite
+1. Dashboard (`routes/index.tsx`)
+2. Courriel (`routes/mail.tsx`)
+3. Production (`routes/production.tsx`)
+4. Projets / Clients / Calendrier
 
-1. Continuer page par page selon `docs/cahier-pages-lovable-une-par-une.md`
-2. Quand Lovable livre un nouvel écran, le porter en gardant les APIs actuelles
-3. Pour donner accès au repo GitHub privé aux agents : le rendre public ou inviter le token CI
-
-## Accès
-
-Le clone GitHub a échoué (404 / privé). Le portage s’est basé sur le **preview Lovable public** + CSS compilé (`/assets/styles-*.css`).
+Fiches Lovable : `docs/cahier-pages-lovable-une-par-une.md`

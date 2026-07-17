@@ -3,14 +3,15 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { FolderKanban, Hammer, LayoutDashboard, Mail, MoreHorizontal } from 'lucide-react';
 import { useAuth } from '../lib/auth-context';
 import { hasPermission } from '../lib/permissions';
 
 const TABS = [
-  { href: '/', label: 'Accueil', permission: 'dashboard', icon: 'home' },
-  { href: '/production', label: 'Prod', permission: 'production', icon: 'prod' },
-  { href: '/projects', label: 'Projets', permission: 'projects', icon: 'projects' },
-  { href: '/mail', label: 'Courriel', permission: 'mail', icon: 'mail' },
+  { href: '/', label: 'Accueil', permission: 'dashboard', Icon: LayoutDashboard },
+  { href: '/production', label: 'Prod', permission: 'production', Icon: Hammer },
+  { href: '/projects', label: 'Projets', permission: 'projects', Icon: FolderKanban },
+  { href: '/mail', label: 'Courriel', permission: 'mail', Icon: Mail },
 ];
 
 const MENU_GROUPS = [
@@ -67,47 +68,6 @@ const MENU_GROUPS = [
   },
 ];
 
-function TabIcon({ name, active }) {
-  const stroke = active ? '#D86B30' : 'currentColor';
-  const common = { fill: 'none', stroke, strokeWidth: 1.75, strokeLinecap: 'round', strokeLinejoin: 'round' };
-  switch (name) {
-    case 'home':
-      return (
-        <svg viewBox="0 0 24 24" className="w-5 h-5" aria-hidden>
-          <path {...common} d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5z" />
-        </svg>
-      );
-    case 'prod':
-      return (
-        <svg viewBox="0 0 24 24" className="w-5 h-5" aria-hidden>
-          <path {...common} d="M4 7h16M4 12h10M4 17h14" />
-        </svg>
-      );
-    case 'projects':
-      return (
-        <svg viewBox="0 0 24 24" className="w-5 h-5" aria-hidden>
-          <rect {...common} x="4" y="5" width="16" height="14" rx="2" />
-          <path {...common} d="M8 5v14M4 10h16" />
-        </svg>
-      );
-    case 'mail':
-      return (
-        <svg viewBox="0 0 24 24" className="w-5 h-5" aria-hidden>
-          <rect {...common} x="3" y="5" width="18" height="14" rx="2" />
-          <path {...common} d="m3 7 9 7 9-7" />
-        </svg>
-      );
-    case 'menu':
-      return (
-        <svg viewBox="0 0 24 24" className="w-5 h-5" aria-hidden>
-          <path {...common} d="M5 7h14M5 12h14M5 17h14" />
-        </svg>
-      );
-    default:
-      return null;
-  }
-}
-
 function isActivePath(pathname, href) {
   if (href === '/') return pathname === '/';
   return pathname.startsWith(href);
@@ -147,7 +107,7 @@ export default function MobileNav() {
           <div className="mobile-menu-sheet relative mt-auto flex flex-col bg-white rounded-t-2xl shadow-lg max-h-[88dvh] animate-mobile-sheet-in">
             <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-neya-border shrink-0">
               <div>
-                <p className="text-base font-semibold text-neya-ink">Menu</p>
+                <p className="text-base font-display font-semibold text-neya-ink">Menu</p>
                 <p className="text-xs text-neya-muted mt-0.5">Tout l’ERP</p>
               </div>
               <button
@@ -163,7 +123,7 @@ export default function MobileNav() {
             <div className="overflow-y-auto overscroll-contain px-3 py-3 pb-[calc(1rem+env(safe-area-inset-bottom))]">
               {groups.map(g => (
                 <section key={g.title} className="mb-5">
-                  <h3 className="px-3 mb-1.5 text-[13px] font-semibold text-neya-orange">{g.title}</h3>
+                  <h3 className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-neya-muted">{g.title}</h3>
                   <ul className="rounded-xl bg-neya-surface overflow-hidden">
                     {g.items.map((item, idx) => {
                       const active = isActivePath(pathname, item.href);
@@ -197,13 +157,14 @@ export default function MobileNav() {
         <div className="mobile-dock-inner">
           {tabs.map(tab => {
             const active = isActivePath(pathname, tab.href);
+            const Icon = tab.Icon;
             return (
               <Link
                 key={tab.href}
                 href={tab.href}
                 className={`mobile-dock-item ${active ? 'mobile-dock-item-active' : ''}`}
               >
-                <TabIcon name={tab.icon} active={active} />
+                <Icon className="h-[21px] w-[21px]" strokeWidth={active ? 2.3 : 1.9} aria-hidden />
                 <span>{tab.label}</span>
               </Link>
             );
@@ -214,8 +175,8 @@ export default function MobileNav() {
             className={`mobile-dock-item ${menuActive || menuOpen ? 'mobile-dock-item-active' : ''}`}
             aria-expanded={menuOpen}
           >
-            <TabIcon name="menu" active={menuActive || menuOpen} />
-            <span>Menu</span>
+            <MoreHorizontal className="h-[21px] w-[21px]" strokeWidth={menuActive || menuOpen ? 2.3 : 1.9} aria-hidden />
+            <span>Plus</span>
           </button>
         </div>
       </nav>
