@@ -29,16 +29,17 @@ const ALL_FOLDER_LABELS = {
 };
 
 const CATEGORY_BADGE = {
-  a_repondre: { label: 'Répondre', className: 'bg-neya-surface text-neya-ink border border-neya-border' },
-  clients: { label: 'Client', className: 'bg-neya-surface text-neya-muted border border-neya-border' },
-  fournisseurs: { label: 'Fournisseur', className: 'bg-neya-surface text-neya-muted border border-neya-border' },
-  projets: { label: 'Projet', className: 'bg-neya-surface text-neya-muted border border-neya-border' },
-  promotions: { label: 'Promo', className: 'bg-neya-surface text-neya-muted border border-neya-border' },
-  autres: { label: 'Autre', className: 'bg-neya-surface text-neya-muted border border-neya-border' },
+  a_repondre: { label: 'Répondre', className: 'mail-badge mail-badge--reply' },
+  clients: { label: 'Client', className: 'mail-badge mail-badge--client' },
+  fournisseurs: { label: 'Fournisseur', className: 'mail-badge mail-badge--supplier' },
+  projets: { label: 'Projet', className: 'mail-badge mail-badge--project' },
+  promotions: { label: 'Promo', className: 'mail-badge mail-badge--promo' },
+  autres: { label: 'Autre', className: 'mail-badge mail-badge--other' },
 };
 
 const AVATAR_COLORS = [
-  '#525252', '#6B7280', '#64748B', '#78716C', '#71717A', '#55606A', '#5C6B73', '#4B5563',
+  '#D86B30', '#B85A28', '#0F766E', '#1D4ED8', '#BE185D',
+  '#C2410C', '#4338CA', '#047857', '#9A3412', '#334155',
 ];
 
 const UNDO_MS = 8000;
@@ -199,9 +200,10 @@ function IconFolder({ className = 'w-4 h-4' }) {
 
 function EmptyState({ title, children }) {
   return (
-    <div className="flex flex-col items-center justify-center h-full min-h-[240px] px-6 text-center">
-      <p className="text-sm font-medium text-neya-ink mb-1">{title}</p>
-      <div className="text-sm text-neya-muted max-w-xs">{children}</div>
+    <div className="mail-empty">
+      <div className="mail-empty__orb" aria-hidden />
+      <p className="mail-empty__title">{title}</p>
+      <div className="mail-empty__text">{children}</div>
     </div>
   );
 }
@@ -697,7 +699,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
             type="button"
             onClick={processInbox}
             disabled={inboxProcessing}
-            className="btn-secondary text-xs min-h-[36px] py-1.5 px-3 hidden sm:inline-flex"
+            className="mail-btn-sort hidden sm:inline-flex"
           >
             {inboxProcessing ? 'Tri…' : 'Trier la boîte'}
           </button>
@@ -735,13 +737,13 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                 {folder.id === 'sent' ? <IconSent /> : <IconInbox />}
                 <span className="flex-1 text-left truncate">{folder.label}</span>
                 {count > 0 && (
-                  <span className="text-[10px] font-medium tabular-nums text-neya-muted">{count}</span>
+                  <span className={`mail-count-pill ${folder.id === 'inbox' ? 'mail-count-pill--hot' : ''}`}>{count}</span>
                 )}
               </button>
             );
           })}
 
-          <p className="px-4 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-neya-muted">Tri NEYA</p>
+          <p className="px-4 pt-4 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-neya-muted/80">Tri NEYA</p>
           {ERP_FOLDERS.map(folder => {
             const count = sectionCounts[folder.id] ?? 0;
             const active = activeFolder === folder.id;
@@ -755,7 +757,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                 <IconFolder className="w-4 h-4 opacity-70" />
                 <span className="flex-1 text-left truncate">{folder.label}</span>
                 {count > 0 && (
-                  <span className={`text-[10px] font-medium tabular-nums ${folder.id === 'a_repondre' ? 'text-amber-700' : 'text-neya-muted'}`}>
+                  <span className={`mail-count-pill ${folder.id === 'a_repondre' ? 'mail-count-pill--hot' : ''}`}>
                     {count}
                   </span>
                 )}
@@ -771,7 +773,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
         </aside>
 
         <div className={`mail-list ${mobileDetail ? 'hidden md:flex' : 'flex'}`}>
-          <div className="px-3 py-1.5 border-b border-neya-border flex items-center justify-between gap-2">
+          <div className="mail-list-meta">
             <span className="text-xs font-medium text-neya-muted truncate">
               {loading ? 'Chargement…' : `${filteredMessages.length} message${filteredMessages.length !== 1 ? 's' : ''}`}
               {activeFolder !== 'inbox' && !search && (
@@ -798,7 +800,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                   type="button"
                   onClick={processInbox}
                   disabled={inboxProcessing}
-                  className="text-xs text-neya-muted font-medium sm:hidden"
+                  className="mail-btn-sort sm:hidden !min-h-[32px] !px-2.5 !text-[11px]"
                 >
                   {inboxProcessing ? '…' : 'Trier'}
                 </button>
@@ -855,7 +857,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                             {m.subject || '(sans objet)'}
                           </span>
                           {badge && activeFolder === 'inbox' && (
-                            <span className={`inline-block mt-0.5 text-[9px] font-semibold px-1.5 py-0.5 rounded ${badge.className}`}>
+                            <span className={`mt-1 ${badge.className}`}>
                               {badge.label}
                             </span>
                           )}
@@ -869,7 +871,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
           </div>
         </div>
 
-        <div className={`mail-reading ${!mobileDetail && !selected ? 'hidden md:flex' : 'flex'} ${mobileDetail ? 'flex' : ''}`}>
+        <div className={`mail-reading ${selected || mobileDetail ? 'is-open' : ''} ${!mobileDetail && !selected ? 'hidden md:flex' : 'flex'} ${mobileDetail ? 'flex' : ''}`}>
           {!selected ? (
             <EmptyState title="Sélectionnez un message">
               Choisissez un courriel dans la liste pour le lire{isSent ? '.' : ' et y répondre.'}
@@ -948,8 +950,9 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
 
                 {!isSent && (
                   <div className="mail-compose">
+                    <div className="mail-compose-card">
                     <div className="flex items-center justify-between gap-2 mb-2">
-                      <label className="text-xs font-medium text-neya-muted">Répondre</label>
+                      <label className="text-xs font-semibold tracking-wide uppercase text-neya-muted">Répondre</label>
                       <div className="flex items-center gap-1.5 flex-wrap justify-end">
                         {prevReply != null && (
                           <button
@@ -1019,6 +1022,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                       {!draftAiLoading && synthesis?.needs_response && (
                         <span className="text-xs text-neya-muted">Brouillon suggéré</span>
                       )}
+                    </div>
                     </div>
                   </div>
                 )}

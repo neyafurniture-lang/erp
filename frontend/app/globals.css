@@ -440,15 +440,39 @@ body {
   }
 
   /* Client courriel intégré */
+  /* ═══════════════════════════════════════════
+     Mail — produit premium (Lovable / Base44 vibe)
+     ═══════════════════════════════════════════ */
+  .mail-page-flush {
+    position: relative;
+  }
+
   .mail-shell {
-    @apply flex flex-col bg-white border border-neya-border overflow-hidden;
-    min-height: min(72vh, 720px);
+    @apply flex flex-col overflow-hidden;
+    min-height: min(78vh, 820px);
+    border-radius: 1.25rem;
+    border: 1px solid rgba(10, 10, 10, 0.06);
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.92) 0%, rgba(250,250,250,0.98) 100%);
+    box-shadow:
+      0 1px 0 rgba(255,255,255,0.8) inset,
+      0 20px 50px -24px rgba(10, 10, 10, 0.18),
+      0 8px 16px -12px rgba(216, 107, 48, 0.12);
+    backdrop-filter: blur(12px);
+    animation: mail-shell-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  @keyframes mail-shell-in {
+    from { opacity: 0; transform: translateY(10px) scale(0.985); }
+    to { opacity: 1; transform: none; }
   }
 
   @media (max-width: 767px) {
     .mail-shell {
       border: 0;
       border-radius: 0;
+      box-shadow: none;
+      background: #faf9f7;
       min-height: calc(100dvh - 7.5rem);
       height: calc(100dvh - 7.5rem);
       max-height: calc(100dvh - 7.5rem);
@@ -464,15 +488,26 @@ body {
   }
 
   .mail-toolbar {
-    @apply flex flex-wrap items-center gap-2 px-3 sm:px-4 py-2.5 border-b border-neya-border bg-white shrink-0;
+    @apply flex flex-wrap items-center gap-2 px-3 sm:px-4 py-3 shrink-0;
+    border-bottom: 1px solid rgba(10, 10, 10, 0.06);
+    background: linear-gradient(180deg, #fff 0%, rgba(255,255,255,0.85) 100%);
   }
 
   .mail-search {
-    @apply flex items-center gap-2 flex-1 min-w-0 sm:min-w-[200px] max-w-xl bg-neya-surface sm:bg-white border border-neya-border rounded-full sm:rounded px-3.5 py-2 sm:py-1.5 focus-within:border-neya-ink/40 focus-within:ring-1 focus-within:ring-neya-ink/10;
+    @apply flex items-center gap-2.5 flex-1 min-w-0 sm:min-w-[220px] max-w-xl px-4 py-2.5;
+    border-radius: 999px;
+    background: rgba(10, 10, 10, 0.035);
+    border: 1px solid transparent;
+    transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+  .mail-search:focus-within {
+    background: #fff;
+    border-color: rgba(216, 107, 48, 0.35);
+    box-shadow: 0 0 0 4px rgba(216, 107, 48, 0.1);
   }
 
   .mail-search input {
-    @apply flex-1 border-0 bg-transparent text-base sm:text-sm focus:outline-none min-h-0 py-0.5;
+    @apply flex-1 border-0 bg-transparent text-base sm:text-sm focus:outline-none min-h-0 py-0.5 text-neya-ink placeholder:text-neya-muted/70;
   }
 
   .mail-layout {
@@ -480,23 +515,41 @@ body {
   }
 
   .mail-sidebar {
-    @apply hidden md:flex flex-col w-44 lg:w-52 shrink-0 border-r border-neya-border bg-neya-surface/50 py-1;
+    @apply hidden md:flex flex-col w-48 lg:w-56 shrink-0 py-3;
+    border-right: 1px solid rgba(10, 10, 10, 0.06);
+    background: linear-gradient(180deg, rgba(250,249,247,0.9), rgba(255,255,255,0.4));
   }
 
   .mail-folder {
-    @apply flex items-center gap-2 mx-2 px-2.5 py-2 rounded-sm text-sm text-neya-ink/75 hover:bg-white hover:text-neya-ink transition-colors;
+    @apply flex items-center gap-2.5 mx-2.5 px-3 py-2.5 text-sm text-neya-ink/70;
+    border-radius: 0.75rem;
+    transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
   }
-
+  .mail-folder:hover {
+    @apply text-neya-ink;
+    background: rgba(10, 10, 10, 0.04);
+  }
   .mail-folder-active {
-    @apply bg-white text-neya-ink font-semibold border border-neya-border;
+    @apply text-neya-ink font-semibold;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(10,10,10,0.04), 0 0 0 1px rgba(10,10,10,0.06);
+  }
+  .mail-folder-active svg {
+    color: #D86B30;
   }
 
   .mail-section-header {
-    @apply sticky top-0 z-[1] flex items-center justify-between px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-neya-ink/70 bg-neya-surface border-b border-neya-border;
+    @apply sticky top-0 z-[1] flex items-center justify-between px-4 py-2.5 text-[11px] font-semibold tracking-[0.08em] uppercase;
+    color: rgba(10, 10, 10, 0.45);
+    background: rgba(250, 249, 247, 0.92);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid rgba(10, 10, 10, 0.05);
   }
 
   .mail-list {
-    @apply flex flex-col w-full md:w-[min(380px,38vw)] shrink-0 border-r border-neya-border bg-white min-w-0;
+    @apply flex flex-col w-full md:w-[min(400px,40vw)] shrink-0 min-w-0;
+    border-right: 1px solid rgba(10, 10, 10, 0.06);
+    background: #fff;
   }
 
   .mail-list-scroll {
@@ -505,23 +558,79 @@ body {
   }
 
   .mail-row {
-    @apply relative flex gap-3 px-4 py-3 sm:px-3 sm:py-2 cursor-pointer border-b border-neya-border/80 hover:bg-neya-surface/80 active:bg-neya-surface transition-colors text-left w-full min-w-0;
+    @apply relative flex gap-3 px-4 py-3.5 sm:py-3 cursor-pointer text-left w-full min-w-0;
+    border-bottom: 1px solid rgba(10, 10, 10, 0.04);
+    transition: background 0.18s ease, transform 0.18s ease;
+    animation: mail-row-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .mail-row:nth-child(1) { animation-delay: 0.02s; }
+  .mail-row:nth-child(2) { animation-delay: 0.04s; }
+  .mail-row:nth-child(3) { animation-delay: 0.06s; }
+  .mail-row:nth-child(4) { animation-delay: 0.08s; }
+  .mail-row:nth-child(5) { animation-delay: 0.1s; }
+  .mail-row:nth-child(6) { animation-delay: 0.12s; }
+  .mail-row:nth-child(7) { animation-delay: 0.14s; }
+  .mail-row:nth-child(8) { animation-delay: 0.16s; }
+
+  @keyframes mail-row-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+  }
+
+  .mail-row:hover {
+    background: rgba(216, 107, 48, 0.04);
+  }
+  .mail-row:active {
+    transform: scale(0.995);
   }
 
   .mail-row-active {
-    @apply bg-neya-surface border-l-2 border-l-neya-ink pl-[14px] sm:pl-[10px];
+    background: linear-gradient(90deg, rgba(216, 107, 48, 0.08), rgba(216, 107, 48, 0.02));
+    box-shadow: inset 3px 0 0 #D86B30;
   }
 
   .mail-row-unread .mail-row-subject {
     @apply font-semibold text-neya-ink;
   }
+  .mail-row-unread::before {
+    content: '';
+    position: absolute;
+    left: 0.55rem;
+    top: 50%;
+    width: 7px;
+    height: 7px;
+    margin-top: -3.5px;
+    border-radius: 999px;
+    background: #D86B30;
+    box-shadow: 0 0 0 3px rgba(216, 107, 48, 0.18);
+  }
 
   .mail-avatar {
-    @apply shrink-0 w-10 h-10 sm:w-7 sm:h-7 rounded-full sm:rounded flex items-center justify-center text-xs sm:text-[10px] font-medium text-white;
+    @apply shrink-0 w-11 h-11 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-xs font-semibold text-white;
+    box-shadow: 0 2px 8px rgba(10, 10, 10, 0.12);
   }
 
   .mail-reading {
-    @apply flex-1 flex flex-col min-w-0 w-full bg-white overflow-hidden;
+    @apply flex-1 flex flex-col min-w-0 w-full overflow-hidden;
+    background: #fff;
+  }
+
+  .mail-reading.is-open {
+    animation: mail-pane-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  @keyframes mail-pane-in {
+    from { opacity: 0; transform: translateX(12px); }
+    to { opacity: 1; transform: none; }
+  }
+  @media (max-width: 767px) {
+    .mail-reading.is-open {
+      animation-name: mail-pane-up;
+    }
+    @keyframes mail-pane-up {
+      from { opacity: 0; transform: translateX(18px); }
+      to { opacity: 1; transform: none; }
+    }
   }
 
   .mail-reading-stack {
@@ -533,35 +642,48 @@ body {
   }
 
   .mail-reading-header {
-    @apply px-3 sm:px-5 py-3 border-b border-neya-border shrink-0;
+    @apply px-4 sm:px-6 py-4 shrink-0;
+    border-bottom: 1px solid rgba(10, 10, 10, 0.06);
+    background: linear-gradient(180deg, #fff, rgba(250,249,247,0.5));
   }
 
   .mail-reading-subject {
-    @apply text-base sm:text-lg font-semibold text-neya-ink leading-snug break-words;
+    @apply text-lg sm:text-xl font-semibold text-neya-ink leading-snug break-words tracking-tight;
   }
 
   .mail-body {
-    @apply flex-1 overflow-y-auto px-4 sm:px-5 py-4 text-[15px] sm:text-sm leading-relaxed text-neya-ink whitespace-pre-wrap break-words min-w-0 w-full;
+    @apply flex-1 overflow-y-auto px-4 sm:px-8 py-5 sm:py-6 text-[15px] sm:text-[15px] leading-[1.7] text-neya-ink whitespace-pre-wrap break-words min-w-0 w-full;
     -webkit-overflow-scrolling: touch;
     overflow-wrap: anywhere;
     word-break: break-word;
+    background:
+      radial-gradient(900px 280px at 10% -10%, rgba(216, 107, 48, 0.05), transparent 55%),
+      #fff;
   }
 
   .mail-compose {
-    @apply border-t border-neya-border bg-white sm:bg-neya-surface/40 px-3 sm:px-5 py-3 shrink-0;
+    @apply px-3 sm:px-5 py-3.5 shrink-0;
+    border-top: 1px solid rgba(10, 10, 10, 0.06);
+    background: linear-gradient(180deg, rgba(250,249,247,0.7), #fff);
+  }
+  .mail-compose-card {
+    @apply rounded-2xl p-3 sm:p-3.5;
+    background: #fff;
+    border: 1px solid rgba(10, 10, 10, 0.07);
+    box-shadow: 0 8px 24px -16px rgba(10, 10, 10, 0.2);
   }
 
-  /* Desktop: side panel. Mobile: hidden unless --open (fixed bottom sheet). Never row-squeeze. */
   .mail-erp-panel {
-    @apply bg-neya-surface/50 flex-col overflow-hidden;
+    @apply flex-col overflow-hidden;
     display: none;
+    background: linear-gradient(180deg, #faf9f7, #fff);
   }
   @media (min-width: 1024px) {
     .mail-erp-panel {
       display: flex;
-      width: 20rem;
+      width: 21rem;
       flex-shrink: 0;
-      border-left: 1px solid #E5E5E5;
+      border-left: 1px solid rgba(10, 10, 10, 0.06);
       position: relative;
       max-height: none;
       border-radius: 0;
@@ -574,11 +696,16 @@ body {
     right: 0;
     bottom: 0;
     z-index: 56;
-    max-height: min(85dvh, 640px);
-    border-radius: 1rem 1rem 0 0;
+    max-height: min(86dvh, 680px);
+    border-radius: 1.35rem 1.35rem 0 0;
     background: #fff;
-    box-shadow: 0 -8px 30px rgb(0 0 0 / 18%);
+    box-shadow: 0 -20px 60px rgba(10, 10, 10, 0.22);
     padding-bottom: env(safe-area-inset-bottom, 0);
+    animation: mail-sheet-up 0.38s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @keyframes mail-sheet-up {
+    from { transform: translateY(100%); opacity: 0.6; }
+    to { transform: none; opacity: 1; }
   }
   @media (min-width: 1024px) {
     .mail-erp-panel--open {
@@ -591,33 +718,131 @@ body {
       border-radius: 0;
       box-shadow: none;
       padding-bottom: 0;
-      background: rgb(250 250 250 / 0.5);
+      animation: none;
+      background: linear-gradient(180deg, #faf9f7, #fff);
     }
   }
 
   .mail-erp-backdrop {
-    @apply fixed inset-0 z-[55] bg-black/40 lg:hidden;
+    @apply fixed inset-0 z-[55] lg:hidden;
+    background: rgba(10, 10, 10, 0.35);
+    backdrop-filter: blur(4px);
+    animation: mail-fade-in 0.22s ease both;
+  }
+  @keyframes mail-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
 
   .mail-erp-sheet__handle {
-    @apply mx-auto mt-2 mb-1 w-10 h-1 rounded-full bg-neya-border;
+    @apply mx-auto mt-2.5 mb-1 w-11 h-1.5 rounded-full;
+    background: rgba(10, 10, 10, 0.12);
   }
 
   .mail-icon-btn {
-    @apply inline-flex items-center justify-center w-10 h-10 sm:w-8 sm:h-8 rounded-full sm:rounded-sm text-neya-muted hover:text-neya-ink hover:bg-neya-surface transition-colors disabled:opacity-40 touch-manipulation;
+    @apply inline-flex items-center justify-center w-10 h-10 sm:w-9 sm:h-9 text-neya-muted touch-manipulation;
+    border-radius: 999px;
+    transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+  }
+  .mail-icon-btn:hover {
+    @apply text-neya-ink;
+    background: rgba(10, 10, 10, 0.05);
+  }
+  .mail-icon-btn:active {
+    transform: scale(0.94);
+  }
+  .mail-icon-btn:disabled {
+    opacity: 0.4;
   }
 
   .mail-undo-toast {
-    @apply fixed bottom-20 sm:bottom-4 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-1 max-w-[min(92vw,420px)] bg-neya-ink text-white px-3 py-2.5 shadow-lg border border-neya-ink;
+    @apply fixed bottom-20 sm:bottom-5 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-2 max-w-[min(92vw,420px)] text-white px-4 py-3;
+    background: rgba(10, 10, 10, 0.92);
+    border-radius: 999px;
+    box-shadow: 0 12px 40px rgba(10, 10, 10, 0.28);
+    backdrop-filter: blur(8px);
+    animation: mail-toast-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @keyframes mail-toast-in {
+    from { opacity: 0; transform: translate(-50%, 12px); }
+    to { opacity: 1; transform: translate(-50%, 0); }
   }
 
   .mail-supplier-subheader {
-    @apply px-4 sm:px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-neya-muted bg-neya-surface/70 border-b border-neya-border/60;
+    @apply px-4 sm:px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.08em];
+    color: rgba(10, 10, 10, 0.4);
+    background: rgba(250, 249, 247, 0.9);
+    border-bottom: 1px solid rgba(10, 10, 10, 0.04);
   }
 
   .mail-folder-select {
-    @apply text-sm border border-neya-border rounded-full px-3 py-1.5 bg-neya-surface font-medium text-neya-ink max-w-[55vw];
+    @apply text-sm font-medium text-neya-ink max-w-[55vw] px-3.5 py-2;
+    border-radius: 999px;
+    background: rgba(10, 10, 10, 0.04);
+    border: 1px solid rgba(10, 10, 10, 0.06);
   }
+
+  .mail-badge {
+    @apply inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full tracking-wide;
+  }
+  .mail-badge--reply { background: rgba(216,107,48,0.12); color: #B85A28; }
+  .mail-badge--client { background: rgba(37,99,235,0.1); color: #1d4ed8; }
+  .mail-badge--supplier { background: rgba(5,150,105,0.1); color: #047857; }
+  .mail-badge--project { background: rgba(124,58,237,0.1); color: #6d28d9; }
+  .mail-badge--promo { background: rgba(100,116,139,0.12); color: #475569; }
+  .mail-badge--other { background: rgba(10,10,10,0.05); color: #737373; }
+
+  .mail-empty {
+    @apply flex-1 flex flex-col items-center justify-center text-center px-8 py-16;
+  }
+  .mail-empty__orb {
+    width: 72px;
+    height: 72px;
+    border-radius: 1.5rem;
+    background:
+      radial-gradient(circle at 30% 30%, rgba(255,255,255,0.7), transparent 50%),
+      linear-gradient(145deg, #E8925A, #D86B30 55%, #B85A28);
+    box-shadow: 0 16px 40px -12px rgba(216, 107, 48, 0.55);
+    margin-bottom: 1.25rem;
+    animation: mail-orb-float 3.2s ease-in-out infinite;
+  }
+  @keyframes mail-orb-float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-6px); }
+  }
+  .mail-empty__title {
+    @apply text-lg font-semibold text-neya-ink tracking-tight mb-1.5;
+  }
+  .mail-empty__text {
+    @apply text-sm text-neya-muted max-w-xs leading-relaxed;
+  }
+
+  .mail-list-meta {
+    @apply px-4 py-2.5 flex items-center justify-between gap-2;
+    border-bottom: 1px solid rgba(10, 10, 10, 0.05);
+    background: rgba(255,255,255,0.8);
+  }
+
+  .mail-count-pill {
+    @apply inline-flex items-center justify-center min-w-[1.35rem] h-5 px-1.5 text-[10px] font-semibold tabular-nums rounded-full;
+    background: rgba(10, 10, 10, 0.06);
+    color: rgba(10, 10, 10, 0.55);
+  }
+  .mail-count-pill--hot {
+    background: rgba(216, 107, 48, 0.15);
+    color: #B85A28;
+  }
+
+  .mail-btn-sort {
+    @apply inline-flex items-center gap-1.5 text-xs font-semibold min-h-[36px] px-3.5 rounded-full;
+    background: linear-gradient(180deg, #E8925A, #D86B30);
+    color: #fff;
+    box-shadow: 0 6px 16px -8px rgba(216, 107, 48, 0.8);
+    transition: transform 0.18s ease, filter 0.18s ease;
+  }
+  .mail-btn-sort:hover { filter: brightness(1.05); }
+  .mail-btn-sort:active { transform: scale(0.97); }
+  .mail-btn-sort:disabled { opacity: 0.55; }
 
   /* Explorateur Drive */
   .drive-shell {
