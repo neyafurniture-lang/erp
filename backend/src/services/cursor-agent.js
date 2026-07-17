@@ -20,37 +20,37 @@ export const ROADMAP_ACTIONS = [
     id: 'drive-ai-sort',
     label: 'IA + tri Google Drive',
     prompt:
-      'Dans le repo NEYA ERP, implémente le module IA de tri Google Drive : session guidée pour décrire photos/3D/plans, tags, dossier cible, liaison projet, renommage NEYA, déplacement Drive avec confirmation. Suit le style du projet (Express backend + Next.js frontend). Commence par un plan court puis les fichiers concrets.',
-  },
-  {
-    id: 'social-posts',
-    label: 'Posts réseaux sociaux',
-    prompt:
-      'Dans le repo NEYA ERP, ajoute un module Posts réseaux (calendrier éditorial FB/IG, brouillons, planification, statut publié). Backend Express + UI Next.js, cohérent avec AdminTasks / roadmap existante.',
-  },
-  {
-    id: 'dev-space',
-    label: 'Espace Dev + tâches dev',
-    prompt:
-      'Dans le repo NEYA ERP, crée un espace Développement : liste de tâches/bugs/features ERP (CRUD), priorités, statut, puis structure prête pour IDE/Git intégré. Frontend Next.js + API Express.',
+      'Dans le repo NEYA ERP, implémente le module IA de tri Google Drive : session guidée pour décrire photos/3D/plans, tags, dossier cible, liaison projet, renommage NEYA, déplacement Drive avec confirmation. Suit le style du projet (Express backend + Next.js frontend). Commence par un plan court puis les fichiers concrets. Priorité atelier : ne pas casser DriveExplorer existant.',
   },
   {
     id: 'viewer-3d',
     label: 'Visualiseur 3D',
     prompt:
-      'Dans le repo NEYA ERP, ajoute un visualiseur 3D (GLB depuis Google Drive) dans le workspace projet. Preview basique plutôt qu\'un CAD complet. Next.js + API Drive existante.',
+      'Dans le repo NEYA ERP, ajoute un visualiseur 3D (GLB depuis Google Drive) dans le workspace projet (/projects/[id]). Preview basique (pas un CAD). Réutilise les APIs Drive existantes. Mobile + desktop. Plan court puis code.',
   },
   {
-    id: 'https-domain',
-    label: 'HTTPS production',
+    id: 'social-posts',
+    label: 'Posts réseaux sociaux',
     prompt:
-      'Finalise la config HTTPS production NEYA ERP (Caddy + erp.neyafurniture.ca + .env). Vérifie deploy/enable-https.sh et documente les étapes DNS restantes clairement.',
+      'Dans le repo NEYA ERP, ajoute un module Posts réseaux (calendrier éditorial FB/IG, brouillons, planification, statut publié). Backend Express + UI Next.js, cohérent avec AdminTasks / roadmap. Brancher si possible sur photos Drive / projets.',
+  },
+  {
+    id: 'dev-space',
+    label: 'Espace Dev + tâches dev',
+    prompt:
+      'Dans le repo NEYA ERP, crée un espace Développement : liste de tâches/bugs/features ERP (CRUD), priorités, statut, puis structure prête pour IDE/Git intégré. Frontend Next.js + API Express. Peut s’appuyer sur /roadmap existante.',
   },
   {
     id: 'agents-specialized',
     label: 'Agents spécialisés',
     prompt:
-      'Dans NEYA ERP, esquisse l\'architecture des agents spécialisés (compta, fab, marketing, commercial) branchés sur les skills/actions existantes, avec permissions et confirmations.',
+      'Dans NEYA ERP, esquisse l’architecture des agents spécialisés (compta, fab, marketing, commercial) branchés sur les skills/actions existantes, avec permissions et confirmations. Livrer un plan + premiers hooks UI/API sans tout réécrire.',
+  },
+  {
+    id: 'https-domain',
+    label: 'HTTPS / backups production',
+    prompt:
+      'Finalise / vérifie la config HTTPS production NEYA ERP (Caddy + erp.neyafurniture.ca + backups). Vérifie deploy/ et documente DNS + restore clairement. Ne casse pas le deploy one-click existant.',
   },
 ];
 

@@ -45,7 +45,13 @@ router.put('/config', async (req, res) => {
 });
 
 router.get('/roadmap', (_req, res) => {
-  res.json(ROADMAP_ACTIONS.map(({ id, label }) => ({ id, label })));
+  res.json(
+    ROADMAP_ACTIONS.map(({ id, label }) => ({
+      id,
+      label,
+      // Aligné avec frontend/lib/erp-roadmap.js (ids launchables)
+    }))
+  );
 });
 
 router.get('/runs', (_req, res) => {
