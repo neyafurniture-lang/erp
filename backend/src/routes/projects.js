@@ -142,10 +142,25 @@ router.put('/:id', async (req, res) => {
       : cur.budget_real;
     const notes = b.notes !== undefined ? b.notes : cur.notes;
 
+    let nextMeta = typeof cur.meta === 'string' ? JSON.parse(cur.meta || '{}') : (cur.meta || {});
+    if (b.meta && typeof b.meta === 'object') {
+      nextMeta = { ...nextMeta, ...b.meta };
+    }
+    if (b.hours_logbook && typeof b.hours_logbook === 'object') {
+      nextMeta = {
+        ...nextMeta,
+        hours_logbook: {
+          ...(nextMeta.hours_logbook || {}),
+          ...b.hours_logbook,
+          updated_at: new Date().toISOString(),
+        },
+      };
+    }
+
     const { rows } = await pool.query(
       `UPDATE projects SET name=$1, client_id=$2, status=$3, deadline=$4,
-       budget_estimated=$5, budget_real=$6, notes=$7 WHERE id=$8 RETURNING *`,
-      [name, clientId, status, deadline, budgetEstimated, budgetReal, notes, id]
+       budget_estimated=$5, budget_real=$6, notes=$7, meta=$8::jsonb WHERE id=$9 RETURNING *`,
+      [name, clientId, status, deadline, budgetEstimated, budgetReal, notes, JSON.stringify(nextMeta), id]
     );
 
     const { rows: full } = await pool.query(

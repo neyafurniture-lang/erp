@@ -21,8 +21,68 @@ const MODULES = [
   { id: 'plans', label: 'Plans 3D' },
   { id: 'drive', label: 'Drive' },
   { id: 'mail', label: 'Courriel' },
+  { id: 'hours', label: 'Heures' },
   { id: 'notes', label: 'Notes' },
 ];
+
+function parseMetaObj(project) {
+  return typeof project.meta === 'string' ? JSON.parse(project.meta || '{}') : (project.meta || {});
+}
+
+function parseHoursLogbook(project) {
+  return parseMetaObj(project).hours_logbook || null;
+}
+
+function normalizeHoursPeople(log) {
+  if (Array.isArray(log?.people) && log.people.length) return log.people.map(String);
+  return ['Mehdi'];
+}
+
+function normalizeHoursRows(rows = [], people = ['Mehdi']) {
+  return (rows || []).map(r => {
+    const hours = { ...(r.hours || {}) };
+    for (const p of people) {
+      if (hours[p] === undefined) {
+        if (r.actual_hours !== undefined && r.actual_hours !== '' && p === people[0]) {
+          hours[p] = r.actual_hours;
+        } else {
+          hours[p] = hours[p] ?? '';
+        }
+      }
+    }
+    return {
+      dateKey: r.dateKey || '',
+      label: r.label || '',
+      planned_hours: r.planned_hours ?? '',
+      start: r.start || '',
+      end: r.end || '',
+      notes: r.notes || '',
+      hours,
+    };
+  });
+}
+
+function emptyHoursRow(people) {
+  const hours = {};
+  for (const p of people) hours[p] = '';
+  return {
+    dateKey: new Date().toISOString().slice(0, 10),
+    label: '',
+    planned_hours: '',
+    start: '',
+    end: '',
+    notes: '',
+    hours,
+  };
+}
+
+function sumPersonHours(rows, person) {
+  return rows.reduce((s, r) => {
+    const v = r.hours?.[person];
+    if (v === '' || v == null) return s;
+    return s + Number(v);
+  }, 0);
+}
 
 export default function ProjectWorkspace({ project, costs, materials, quoteSource, purchases, onReload }) {
   const router = useRouter();
@@ -36,6 +96,10 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
   const [taskForm, setTaskForm] = useState({ title: '', type: 'assemblage', estimated_minutes: 60 });
   const [taskBusy, setTaskBusy] = useState(false);
   const [statusBusy, setStatusBusy] = useState(false);
+  const [hoursBusy, setHoursBusy] = useState(false);
+  const hoursLog = parseHoursLogbook(project);
+  const [hoursPeople, setHoursPeople] = useState(() => normalizeHoursPeople(hoursLog));
+  const [hoursRows, setHoursRows] = useState(() => normalizeHoursRows(hoursLog?.rows || [], normalizeHoursPeople(hoursLog)));
   const [clients, setClients] = useState([]);
   const [clientId, setClientId] = useState(project.client_id ? String(project.client_id) : '');
   const [clientBusy, setClientBusy] = useState(false);
@@ -58,6 +122,13 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
   useEffect(() => {
     setClientId(project.client_id ? String(project.client_id) : '');
   }, [project.id, project.client_id]);
+
+  useEffect(() => {
+    const log = parseHoursLogbook(project);
+    const people = normalizeHoursPeople(log);
+    setHoursPeople(people);
+    setHoursRows(normalizeHoursRows(log?.rows || [], people));
+  }, [project.id, project.meta]);
 
   useEffect(() => {
     const t = searchParams.get('tab');
@@ -150,6 +221,52 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
       window.alert(err.message || 'Impossible de mettre à jour le projet');
     } finally {
       setStatusBusy(false);
+    }
+  }
+
+  function updateHourRow(idx, field, value) {
+    setHoursRows(rows => rows.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
+  }
+
+  function updatePersonHours(idx, person, value) {
+    setHoursRows(rows => rows.map((r, i) => {
+      if (i !== idx) return r;
+      return { ...r, hours: { ...r.hours, [person]: value } };
+    }));
+  }
+
+  function addHoursRow() {
+    setHoursRows(rows => [...rows, emptyHoursRow(hoursPeople)]);
+  }
+
+  function removeHoursRow(idx) {
+    setHoursRows(rows => rows.filter((_, i) => i !== idx));
+  }
+
+  async function saveHoursLogbook(e) {
+    e?.preventDefault?.();
+    setHoursBusy(true);
+    try {
+      const totals = {};
+      for (const p of hoursPeople) totals[p] = sumPersonHours(hoursRows, p);
+      await api(`/projects/${project.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          hours_logbook: {
+            ...(hoursLog || {}),
+            source: hoursLog?.source || 'manuel',
+            people: hoursPeople,
+            rows: hoursRows,
+            totals,
+            updated_at: new Date().toISOString(),
+          },
+        }),
+      });
+      onReload();
+    } catch (err) {
+      window.alert(err.message || 'Impossible d’enregistrer le carnet');
+    } finally {
+      setHoursBusy(false);
     }
   }
 
@@ -285,6 +402,27 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
                   <p className="text-xs text-neya-muted mt-1">{done}/{total} étapes complétées</p>
                 </div>
               </div>
+
+              {hoursRows.some(r => hoursPeople.some(p => Number(r.hours?.[p]) > 0)) && (
+                <button
+                  type="button"
+                  onClick={() => changeTab('hours')}
+                  className="card-flat w-full text-left hover:border-neya-orange/40 transition-colors"
+                >
+                  <p className="text-xs font-medium uppercase tracking-wide text-neya-muted mb-2">Heures atelier</p>
+                  <div className="flex flex-wrap gap-3">
+                    {hoursPeople.map(p => (
+                      <div key={p}>
+                        <p className="text-[11px] text-neya-muted">{p}</p>
+                        <p className="font-display text-lg font-semibold text-neya-ink tabular-nums">
+                          {sumPersonHours(hoursRows, p).toFixed(2)} h
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-neya-orange mt-2">Ouvrir le carnet →</p>
+                </button>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="card-flat py-3">
@@ -512,6 +650,104 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
 
       {tab === 'mail' && (
         <GmailInbox projectId={project.id} linkProjectId={project.id} />
+      )}
+
+      {tab === 'hours' && (
+        <div className="card space-y-4 rounded-2xl">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="font-display text-lg font-semibold text-neya-ink">Comptage d’heures</h2>
+              <p className="text-sm text-neya-muted">
+                {hoursPeople.join(' · ')}
+                {hoursLog?.source ? ` · source ${hoursLog.source}` : ''}
+                {hoursLog?.updated_at ? ` · maj ${formatDate(hoursLog.updated_at)}` : ''}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className="btn-secondary" onClick={addHoursRow}>+ Ligne</button>
+              <button type="button" className="btn-primary" disabled={hoursBusy} onClick={saveHoursLogbook}>
+                {hoursBusy ? 'Enregistrement…' : 'Enregistrer'}
+              </button>
+            </div>
+          </div>
+
+          {!hoursRows.length ? (
+            <p className="text-sm text-neya-muted">
+              Aucune ligne — cliquez sur « + Ligne » pour commencer le comptage.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="text-left text-neya-muted border-b border-neya-border">
+                    <th className="py-2 pr-3 font-medium">Date</th>
+                    <th className="py-2 pr-3 font-medium">Travaux</th>
+                    {hoursPeople.map(p => (
+                      <th key={p} className="py-2 pr-3 font-medium">{p} (h)</th>
+                    ))}
+                    <th className="py-2 pr-3 font-medium">Notes</th>
+                    <th className="py-2 font-medium w-10" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {hoursRows.map((row, idx) => (
+                    <tr key={`${row.dateKey}-${idx}`} className="border-b border-neya-border/60 align-top">
+                      <td className="py-2 pr-3">
+                        <input
+                          type="date"
+                          className="input !py-1 !px-2 w-[9.5rem]"
+                          value={row.dateKey || ''}
+                          onChange={e => updateHourRow(idx, 'dateKey', e.target.value)}
+                        />
+                      </td>
+                      <td className="py-2 pr-3">
+                        <input
+                          className="input !py-1 !px-2 min-w-[9rem]"
+                          placeholder="ex. assemblage"
+                          value={row.label || ''}
+                          onChange={e => updateHourRow(idx, 'label', e.target.value)}
+                        />
+                      </td>
+                      {hoursPeople.map(p => (
+                        <td key={p} className="py-2 pr-3">
+                          <input
+                            className="input !py-1 !px-2 w-20"
+                            type="number"
+                            min="0"
+                            step="0.25"
+                            value={row.hours?.[p] ?? ''}
+                            onChange={e => updatePersonHours(idx, p, e.target.value)}
+                          />
+                        </td>
+                      ))}
+                      <td className="py-2 pr-3">
+                        <input
+                          className="input !py-1 !px-2 w-full min-w-[8rem]"
+                          value={row.notes || ''}
+                          onChange={e => updateHourRow(idx, 'notes', e.target.value)}
+                        />
+                      </td>
+                      <td className="py-2">
+                        <button type="button" className="text-xs text-neya-error hover:underline" onClick={() => removeHoursRow(idx)}>
+                          ×
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="font-semibold text-neya-ink">
+                    <td className="pt-3" colSpan={2}>Total</td>
+                    {hoursPeople.map(p => (
+                      <td key={p} className="pt-3 tabular-nums">{sumPersonHours(hoursRows, p).toFixed(2)}</td>
+                    ))}
+                    <td colSpan={2} />
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </div>
       )}
 
       {tab === 'notes' && (
