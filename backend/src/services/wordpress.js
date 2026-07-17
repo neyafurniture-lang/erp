@@ -73,7 +73,11 @@ async function downloadWebImage(url, baseName) {
     const m = url.match(/\.(jpe?g|png|webp)(\?|$)/i);
     if (m) ext = `.${m[1].toLowerCase()}`;
   }
-  const safeName = String(baseName).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 60);
+  const safeName = stripAccents(String(baseName))
+    .replace(/[^a-zA-Z0-9_-]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '')
+    .slice(0, 60) || 'product';
   const fileName = `${safeName}${ext}`;
   const filePath = path.join(WEB_IMG_DIR, fileName);
   const buf = Buffer.from(await res.arrayBuffer());
