@@ -21,6 +21,7 @@ import {
   BookOpen,
   Settings,
   Map,
+  Globe,
   TrendingUp,
   LogOut,
   MoreHorizontal,
