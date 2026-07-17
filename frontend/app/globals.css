@@ -1217,3 +1217,174 @@ body {
   }
 }
 
+/* ── Cutting Studio (CutList-style) ── */
+.cut-studio {
+  @apply flex flex-col bg-[#f4f2ef] -mx-4 sm:-mx-6 -mt-2 sm:-mt-4 min-h-[calc(100vh-5rem)];
+}
+.cut-studio__top {
+  @apply sticky top-0 z-20 flex flex-wrap items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 bg-white/95 backdrop-blur border-b border-neya-border;
+}
+.cut-studio__title {
+  @apply bg-transparent border-0 text-sm sm:text-base font-semibold text-neya-ink outline-none min-w-0 flex-1 max-w-[220px] sm:max-w-xs truncate;
+}
+.cut-studio__modes {
+  @apply inline-flex rounded-lg border border-neya-border bg-neya-surface p-0.5;
+}
+.cut-studio__modes button {
+  @apply px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm rounded-md text-neya-muted transition-colors;
+}
+.cut-studio__modes button.is-active {
+  @apply bg-white text-neya-ink shadow-sm font-medium;
+}
+.cut-studio__stats {
+  @apply hidden lg:flex items-center gap-3 text-xs text-neya-ink;
+}
+.cut-studio__stats b { @apply font-semibold; }
+.cut-studio__actions {
+  @apply flex items-center gap-1.5 ml-auto;
+}
+.cut-studio__mobile-tabs {
+  @apply flex border-b border-neya-border bg-white;
+}
+.cut-studio__mobile-tabs button {
+  @apply flex-1 py-2.5 text-sm text-neya-muted;
+}
+.cut-studio__mobile-tabs button.is-active {
+  @apply text-neya-ink font-medium border-b-2 border-neya-orange;
+}
+.cut-studio__body {
+  @apply flex flex-1 min-h-0;
+}
+.cut-studio__sidebar {
+  @apply hidden w-full sm:w-[300px] shrink-0 border-r border-neya-border bg-white p-3 sm:p-4 flex-col gap-3 overflow-y-auto max-h-[calc(100vh-8rem)];
+}
+.cut-studio__sidebar.is-open { @apply flex flex-col; }
+@media (min-width: 640px) {
+  .cut-studio__sidebar { @apply flex flex-col; }
+}
+.cut-studio__canvas {
+  @apply hidden flex-1 p-3 sm:p-5 overflow-y-auto max-h-[calc(100vh-8rem)];
+}
+.cut-studio__canvas.is-open { @apply block; }
+@media (min-width: 640px) {
+    .cut-studio__canvas { @apply block; }
+}
+
+.cut-side-block h3 {
+  @apply text-xs font-semibold uppercase tracking-wide text-neya-muted mb-2;
+}
+.cut-field {
+  @apply block text-xs space-y-1 mb-2;
+}
+.cut-field > span { @apply text-neya-muted; }
+
+.cut-part-row {
+  @apply flex items-center gap-1.5 rounded-md border border-neya-border bg-neya-surface/60 px-1.5 py-1;
+}
+.cut-part-row--btn { @apply w-full text-left cursor-pointer; }
+.cut-part-row--btn.is-active {
+  @apply border-neya-orange bg-orange-50 ring-1 ring-neya-orange/30;
+}
+.cut-part-input {
+  @apply bg-white border border-neya-border rounded px-1.5 py-1 text-xs min-h-[32px] outline-none focus:border-neya-ink;
+}
+.cut-swatch {
+  @apply w-3.5 h-3.5 rounded-sm shrink-0 border border-black/10;
+}
+
+.cut-icon-btn {
+  @apply inline-flex items-center justify-center w-8 h-8 rounded-md border border-neya-border bg-white text-neya-ink text-lg leading-none hover:bg-neya-surface;
+}
+.cut-icon-btn--danger { @apply text-neya-muted hover:text-red-600 hover:border-red-200; }
+
+.cut-board, .cut-sheet {
+  @apply bg-white rounded-xl border border-neya-border shadow-sm p-3 sm:p-4;
+}
+.cut-board--focus { @apply ring-1 ring-neya-orange/40; }
+.cut-board__head {
+  @apply flex items-start justify-between gap-2 mb-3;
+}
+.cut-board__title {
+  @apply w-full bg-transparent border-0 font-semibold text-sm text-neya-ink outline-none;
+}
+.cut-board__meta { @apply text-[11px] text-neya-muted mt-0.5; }
+.cut-board__track-wrap { @apply space-y-1; }
+.cut-board__track {
+  @apply relative flex h-14 sm:h-16 w-full overflow-hidden rounded-lg border border-[#c4b8a8] bg-[#ebe4d8];
+}
+.cut-board__cell-wrap {
+  @apply relative h-full flex shrink-0 min-w-0;
+}
+.cut-board__seg {
+  @apply relative h-full w-full border-r border-white/30 text-white transition-shadow;
+}
+.cut-board__seg--selected {
+  @apply ring-2 ring-inset ring-white z-10;
+}
+.cut-board__seg-label {
+  @apply absolute inset-0 flex items-center justify-center text-[11px] sm:text-xs font-semibold drop-shadow-sm px-0.5 truncate;
+}
+.cut-board__seg-input {
+  @apply w-[90%] mx-auto block bg-white/95 text-neya-ink text-xs text-center rounded px-1 py-0.5;
+}
+.cut-board__seg-del {
+  @apply absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/40 text-[10px] leading-4 text-center cursor-pointer;
+}
+.cut-board__divider {
+  @apply absolute top-0 right-0 w-2 h-full -mr-1 z-20 cursor-col-resize;
+}
+.cut-board__divider::after {
+  content: '';
+  @apply absolute left-1/2 top-2 bottom-2 w-0.5 -translate-x-1/2 rounded bg-white/80 shadow;
+}
+.cut-board__waste {
+  @apply h-full flex items-center justify-center text-[10px] text-neya-muted bg-[repeating-linear-gradient(45deg,#d9d3c8,#d9d3c8_4px,#e8e2d6_4px,#e8e2d6_8px)];
+}
+.cut-board__empty {
+  @apply w-full h-full text-xs text-neya-muted hover:text-neya-ink;
+}
+.cut-board__ruler {
+  @apply flex justify-between text-[10px] text-neya-muted px-0.5;
+}
+.cut-board__inspector {
+  @apply mt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 pt-3 border-t border-neya-border;
+}
+
+.cut-sheet__canvas {
+  @apply relative w-full max-w-full rounded-lg border border-[#8a9a8a] bg-[#f7faf7] overflow-hidden touch-none;
+  min-height: 160px;
+}
+.cut-sheet__canvas--place { @apply cursor-crosshair; }
+.cut-sheet__grid {
+  @apply absolute inset-0 w-full h-full pointer-events-none;
+}
+.cut-sheet__rect {
+  @apply absolute rounded-sm border border-black/25 text-white shadow-sm cursor-grab active:cursor-grabbing select-none;
+}
+.cut-sheet__rect--selected {
+  @apply ring-2 ring-neya-orange z-10;
+}
+.cut-sheet__rect-label {
+  @apply absolute inset-0 flex items-center justify-center text-[10px] sm:text-xs font-semibold px-1 text-center leading-tight pointer-events-none;
+}
+.cut-sheet__handle {
+  @apply absolute right-0 bottom-0 w-3.5 h-3.5 bg-white border-2 border-neya-orange rounded-sm cursor-nwse-resize translate-x-1/3 translate-y-1/3;
+}
+.cut-sheet__hint {
+  @apply absolute inset-0 flex items-center justify-center text-xs text-neya-muted px-4 text-center pointer-events-none;
+}
+
+.cut-empty {
+  @apply card flex flex-col items-center justify-center gap-3 py-12 text-sm text-neya-muted text-center;
+}
+
+.cut-drawer {
+  @apply fixed inset-0 z-50 flex;
+}
+.cut-drawer__backdrop {
+  @apply absolute inset-0 bg-black/30 border-0;
+}
+.cut-drawer__panel {
+@apply relative z-10 w-full max-w-sm bg-white h-full p-4 shadow-xl overflow-y-auto;
+}
+

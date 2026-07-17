@@ -96,12 +96,126 @@ function drawSheet(doc, sheet, x, y, boxW, boxH) {
   return { w, h };
 }
 
+function generateStudioPdf(planInput) {
+  const layout = planInput.layout || {};
+  const boards = layout.boards || [];
+  const sheets = layout.sheets || [];
+  const title = planInput.title || 'Plan de coupe';
+  const subtitle = [planInput.project_label, new Date().toISOString().slice(0, 10)].filter(Boolean).join(' · ');
+  const kerf = Number(planInput.kerf) || 0.125;
+
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'LETTER', margin: 40, autoFirstPage: false });
+    const chunks = [];
+    doc.on('data', (c) => chunks.push(c));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    let pageNum = 0;
+
+    doc.addPage();
+    pageNum++;
+    drawHeader(doc, title, subtitle || 'Studio visuel');
+    let y = 68;
+    doc.fontSize(11).font('Helvetica-Bold').fillColor(COLORS.accent)
+      .text('Résumé', 40, y);
+    y += 18;
+    doc.fontSize(9).font('Helvetica').fillColor('#334155');
+    doc.text(`Planches: ${boards.length}`, 40, y); y += 14;
+    doc.text(`Panneaux 4×8: ${sheets.length}`, 40, y); y += 14;
+    doc.text(`Kerf: ${kerf}"`, 40, y); y += 14;
+    if (planInput.notes) {
+      doc.text(`Notes: ${planInput.notes}`, 40, y, { width: 520 });
+      y += 20;
+    }
+    drawFooter(doc, pageNum);
+
+    if (boards.length) {
+      doc.addPage();
+      pageNum++;
+      drawHeader(doc, title, 'Planches 8 pi — patterns');
+      y = 68;
+      for (const board of boards) {
+        if (y > 700) {
+          drawFooter(doc, pageNum);
+          doc.addPage();
+          pageNum++;
+          drawHeader(doc, title, 'Planches (suite)');
+          y = 68;
+        }
+        const boardLen = Number(board.length) || 96;
+        const segs = board.segments || [];
+        const used = segs.reduce((s, seg, i) => s + Number(seg.length || 0) + (i ? kerf : 0), 0);
+        const waste = Math.max(0, boardLen - used);
+        doc.fontSize(10).font('Helvetica-Bold').fillColor(COLORS.header)
+          .text(`${board.label || 'Planche'} · ${board.material || ''} · rebut ${waste.toFixed(1)}"`, 40, y);
+        y += 14;
+        drawBoardPattern(doc, {
+          segments: segs.map((s) => ({
+            length: Number(s.length) || 0,
+            color: s.color || '#94a3b8',
+            label: s.label || String(s.length),
+          })),
+          wasteSegment: waste > 0.05 ? { length: waste } : null,
+        }, 40, y, 500, boardLen);
+        y += 32;
+      }
+      drawFooter(doc, pageNum);
+    }
+
+    if (sheets.length) {
+      doc.addPage();
+      pageNum++;
+      drawHeader(doc, title, 'Panneaux 4×8');
+      y = 68;
+      let col = 0;
+      for (const sheet of sheets) {
+        if (y > 620 && col === 0) {
+          drawFooter(doc, pageNum);
+          doc.addPage();
+          pageNum++;
+          drawHeader(doc, title, 'Panneaux (suite)');
+          y = 68;
+        }
+        const x = 40 + col * 270;
+        const sw = Number(sheet.width) || 96;
+        const sh = Number(sheet.height) || 48;
+        doc.fontSize(9).font('Helvetica-Bold').fillColor(COLORS.header)
+          .text(`${sheet.label || 'Panneau'} · ${sw}×${sh}`, x, y);
+        // adapt drawSheet to use rects
+        const boxW = 240;
+        const boxH = 120;
+        const scale = Math.min(boxW / sw, boxH / sh);
+        const dw = sw * scale;
+        const dh = sh * scale;
+        doc.rect(x, y + 14, dw, dh).fillAndStroke('#f1f5f9', '#64748b');
+        for (const r of sheet.rects || []) {
+          doc.rect(x + (r.x || 0) * scale, y + 14 + (r.y || 0) * scale, r.w * scale, r.h * scale)
+            .fillAndStroke(r.color || '#0ea5e9', '#0f172a');
+        }
+        col++;
+        if (col >= 2) {
+          col = 0;
+          y += 160;
+        }
+      }
+      drawFooter(doc, pageNum);
+    }
+
+    doc.end();
+  });
+}
+
 /**
  * @param {object} planInput
  * @param {object} [optimized]
  * @returns {Promise<Buffer>}
  */
 export async function generateCuttingPlanPdf(planInput, optimized = null) {
+  if (planInput?.studio && planInput?.layout) {
+    return generateStudioPdf(planInput);
+  }
+
   const result = optimized || optimizeCuttingPlan(planInput);
   const title = result.title || 'Cutting Plan';
   const subtitle = [result.project_label, result.date].filter(Boolean).join(' · ');

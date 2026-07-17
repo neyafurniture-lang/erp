@@ -5,6 +5,7 @@ import {
   sierraFramesExample,
 } from '../services/cutting-optimizer.js';
 import { generateCuttingPlanPdf } from '../services/cutting-plan-pdf.js';
+import { studioOptimize } from '../services/studio-optimize.js';
 
 const router = Router();
 
@@ -72,12 +73,25 @@ router.post('/optimize', async (req, res) => {
   }
 });
 
+/** Studio visuel — packing 1D/2D → layout éditable (Python si dispo). */
+router.post('/studio/optimize', async (req, res) => {
+  try {
+    const result = await studioOptimize(req.body || {});
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.post('/pdf', async (req, res) => {
   try {
     const planInput = req.body?.plan_input || req.body || {};
-    const result = req.body?.result || optimizeCuttingPlan(planInput);
+    let result = req.body?.result || null;
+    if (!planInput.studio && !result) {
+      result = optimizeCuttingPlan(planInput);
+    }
     const buf = await generateCuttingPlanPdf(planInput, result);
-    const safe = String(planInput.title || result.title || 'cutting-plan')
+    const safe = String(planInput.title || result?.title || 'cutting-plan')
       .replace(/[^a-zA-Z0-9._-]+/g, '_')
       .slice(0, 80);
     res.setHeader('Content-Type', 'application/pdf');
@@ -107,7 +121,10 @@ router.post('/', async (req, res) => {
     const project_label = req.body?.project_label || planInput.project_label || '';
     const notes = req.body?.notes || planInput.notes || '';
     const project_id = req.body?.project_id || null;
-    const result = optimizeCuttingPlan({ ...planInput, title, project_label, notes });
+    const merged = { ...planInput, title, project_label, notes };
+    const result = planInput.studio
+      ? { studio: true, layout: planInput.layout || {}, boards: planInput.layout?.boards?.length || 0, sheets: planInput.layout?.sheets?.length || 0 }
+      : optimizeCuttingPlan(merged);
     const { rows } = await pool.query(
       `INSERT INTO cutting_plans (title, project_label, notes, plan_input, result_cache, project_id, created_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -116,7 +133,7 @@ router.post('/', async (req, res) => {
         title,
         project_label,
         notes,
-        JSON.stringify({ ...planInput, title, project_label, notes }),
+        JSON.stringify(merged),
         JSON.stringify(result),
         project_id,
         req.user?.id || null,
@@ -140,7 +157,9 @@ router.put('/:id', async (req, res) => {
     const notes = req.body?.notes ?? planInput.notes ?? existing.rows[0].notes;
     const project_id = req.body?.project_id !== undefined ? req.body.project_id : existing.rows[0].project_id;
     const merged = { ...planInput, title, project_label, notes };
-    const result = optimizeCuttingPlan(merged);
+    const result = merged.studio
+      ? { studio: true, layout: merged.layout || {}, boards: merged.layout?.boards?.length || 0, sheets: merged.layout?.sheets?.length || 0 }
+      : optimizeCuttingPlan(merged);
 
     const { rows } = await pool.query(
       `UPDATE cutting_plans

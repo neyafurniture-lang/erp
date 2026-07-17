@@ -395,6 +395,119 @@ function round2(n) {
   return Math.round(Number(n) * 100) / 100;
 }
 
+/**
+ * Optimise pour le studio visuel → layout éditable (boards/sheets).
+ * mode: '1d' | '2d' | 'both'
+ */
+export function optimizeStudioLayout(input = {}) {
+  const kerf = input.kerf != null ? Number(input.kerf) : DEFAULT_KERF;
+  const boardLength = Number(input.board_length_in) || BOARD_LENGTH_IN;
+  const sheetW = Number(input.sheet_w_in) || SHEET_L_IN; // 96" long side
+  const sheetH = Number(input.sheet_h_in) || SHEET_W_IN; // 48"
+  const mode = input.mode || '1d';
+
+  const linearParts = input.linear_parts || [];
+  const panelParts = input.panel_parts || [];
+
+  let boards = [];
+  let sheets = [];
+
+  if (mode === '1d' || mode === 'both') {
+    const pieces = [];
+    for (const p of linearParts) {
+      const qty = Math.max(0, Math.floor(Number(p.qty) || 0));
+      const length = Number(p.length) || 0;
+      if (!qty || !length) continue;
+      for (let i = 0; i < qty; i++) {
+        pieces.push({
+          length,
+          stock: 'structural',
+          role: 'part',
+          sku: p.label || p.id || 'part',
+          color: p.color || colorForLength(length),
+          label: p.label || `${trimNum(length)}"`,
+          partId: p.id || null,
+        });
+      }
+    }
+    const packed = packBoards(pieces, { boardLength, kerf, ripYield: 1, stockKey: 'structural' });
+    boards = (packed.boards || []).map((bin, i) => ({
+      id: `board_${i + 1}_${Date.now().toString(36)}`,
+      label: `Planche ${i + 1}`,
+      length: boardLength,
+      material: '2×4',
+      segments: bin.cuts.map((len, j) => ({
+        id: `seg_${i}_${j}`,
+        length: len,
+        label: `${trimNum(len)}"`,
+        color: colorForLength(len),
+      })),
+    }));
+    if (!boards.length) {
+      boards = [{
+        id: `board_empty_${Date.now().toString(36)}`,
+        label: 'Planche 1',
+        length: boardLength,
+        material: '2×4',
+        segments: [],
+      }];
+    }
+  }
+
+  if (mode === '2d' || mode === 'both') {
+    const parts = panelParts.map((p) => ({
+      qty: p.qty,
+      w_in: p.w,
+      h_in: p.h,
+      label: p.label || `${p.w}×${p.h}`,
+      sku: p.id,
+      color: p.color,
+    }));
+    const packed = packSheets(parts, { sheetW, sheetL: sheetH, kerf });
+    // packSheets uses sheetL as length (vertical in our model = height)
+    // Our studio uses width×height with width=96 height=48
+    // Remap: packed sheets have width=sheetW, length=sheetL
+    sheets = (packed.sheets || []).map((s, i) => ({
+      id: s.id || `sheet_${i + 1}`,
+      label: `Panneau ${i + 1}`,
+      width: s.width,
+      height: s.length,
+      material: 'contreplaqué',
+      rects: (s.shelves || []).flatMap((shelf) => (shelf.parts || []).map((part, j) => ({
+        id: `rect_${i}_${shelf.y}_${j}`,
+        label: part.label,
+        w: part.w,
+        h: part.h,
+        x: part.x,
+        y: part.y,
+        color: part.color || colorForLength(Math.round(part.w + part.h)),
+        partId: part.sku || null,
+      }))),
+    }));
+    if (!sheets.length) {
+      sheets = [{
+        id: `sheet_empty_${Date.now().toString(36)}`,
+        label: 'Panneau 1',
+        width: sheetW,
+        height: sheetH,
+        material: 'contreplaqué',
+        rects: [],
+      }];
+    }
+  }
+
+  return {
+    engine: 'js',
+    mode,
+    boards,
+    sheets,
+    kerf,
+    board_length_in: boardLength,
+    sheet_w_in: sheetW,
+    sheet_h_in: sheetH,
+  };
+}
+
 /** Exemple Sierra Frames (plan type Cutting_Plan_Sierra). */
 export function sierraFramesExample() {
   return {

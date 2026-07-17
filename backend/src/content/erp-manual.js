@@ -63,7 +63,7 @@ export const ERP_MANUAL_SECTIONS = [
       'Depuis une fiche standard : « Créer projet depuis cette fiche ».',
       'Depuis Gmail : « Analyse les devis The NNS et crée les projets » (skill create_project_from_quote_email).',
       'Sauna Cloud (/sauna-cloud) : liste des frames à fabriquer, cocher pour l’avancement %, notes par frame et notes projet. Permission Production.',
-      'Plans de coupe (/cutting-plans) : nomenclature SKU (frames), stock atelier, optimisation planches 8 pi et feuilles 4×8, patterns colorés, export PDF type Cutting Plan Sierra. Charger l’exemple Sierra pour démarrer. Permission Production.',
+      'Plans de coupe (/cutting-plans) : studio visuel type CutList — pièces à gauche, planches 8 pi (segments redimensionnables comme colonnes Word) et panneaux 4×8 (rectangles glissables). Bouton + pour ajouter une coupe / une planche / un panneau. Optimiser (Python/JS) puis ajuster à la main, export PDF. Permission Production.',
     ],
   },
   {
