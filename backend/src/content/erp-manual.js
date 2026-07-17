@@ -98,6 +98,7 @@ export const ERP_MANUAL_SECTIONS = [
       'Brouillons IA et envois devis/facture utilisent la signature Mehdi (company.json → emailSignature).',
       '« Analyser (20) » : pré-traite les derniers fils (liaison auto + base conversation).',
       'Scan factures fournisseurs (Home Depot, Rona…) : file en haut de la page Courriel.',
+      'Mobile : liste pleine largeur → ouvrir un mail (← retour). Contexte ERP = feuille du bas (icône), jamais une colonne étroite à côté du texte.',
       'Erreur 404 ? Le backend VPS doit être à jour (Paramètres → Déploiement VPS).',
     ],
   },

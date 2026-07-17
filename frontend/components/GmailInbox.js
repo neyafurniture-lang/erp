@@ -244,7 +244,8 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
   const [linkClientId, setLinkClientId] = useState('');
   const [linkProjId, setLinkProjId] = useState('');
   const [mobileDetail, setMobileDetail] = useState(false);
-  const [erpOpen, setErpOpen] = useState(true);
+  /** Mobile: fermé (sheet). Desktop lg: panneau latéral toujours visible via CSS. */
+  const [erpOpen, setErpOpen] = useState(false);
   const [threadWarn, setThreadWarn] = useState('');
   const [activeFolder, setActiveFolder] = useState('inbox');
   const [sections, setSections] = useState(
@@ -376,7 +377,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
     setErr('');
     setThreadWarn('');
     setMobileDetail(true);
-    setErpOpen(true);
+    setErpOpen(false);
     setPrevReply(null);
     setShowDraftInstr(false);
 
@@ -779,7 +780,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
             </span>
             <div className="flex items-center gap-2 shrink-0">
               <select
-                className="md:hidden text-xs border border-neya-border rounded px-2 py-1 bg-white"
+                className="md:hidden mail-folder-select"
                 value={activeFolder}
                 onChange={e => selectFolder(e.target.value)}
               >
@@ -841,16 +842,16 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                         <span className="mail-avatar" style={{ backgroundColor: avatarColor(peer) }}>
                           {getInitials(peer)}
                         </span>
-                        <span className="flex-1 min-w-0">
-                          <span className="flex items-baseline justify-between gap-2">
-                            <span className={`text-[13px] truncate ${unread ? 'font-semibold' : 'font-medium text-neya-ink/90'}`}>
+                        <span className="flex-1 min-w-0 overflow-hidden">
+                          <span className="flex items-baseline justify-between gap-2 min-w-0">
+                            <span className={`text-[15px] sm:text-[13px] truncate min-w-0 ${unread ? 'font-semibold' : 'font-medium text-neya-ink/90'}`}>
                               {isSent ? `À : ${name}` : name}
                             </span>
-                            <span className="text-[10px] text-neya-muted shrink-0 tabular-nums">
+                            <span className="text-[11px] sm:text-[10px] text-neya-muted shrink-0 tabular-nums">
                               {formatMailDate(m.date)}
                             </span>
                           </span>
-                          <span className="mail-row-subject block text-[13px] truncate text-neya-ink/80">
+                          <span className="mail-row-subject block text-[14px] sm:text-[13px] truncate text-neya-ink/80">
                             {m.subject || '(sans objet)'}
                           </span>
                           {badge && activeFolder === 'inbox' && (
@@ -874,32 +875,32 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
               Choisissez un courriel dans la liste pour le lire{isSent ? '.' : ' et y répondre.'}
             </EmptyState>
           ) : (
-            <div className="flex flex-1 min-h-0">
-              <div className="flex-1 flex flex-col min-w-0">
+            <div className="mail-reading-stack">
+              <div className="mail-reading-main">
                 <header className="mail-reading-header">
-                  <div className="flex items-start gap-3">
+                  <div className="flex items-start gap-2 sm:gap-3">
                     <button
                       type="button"
                       className="mail-icon-btn md:hidden -ml-1 shrink-0"
-                      onClick={() => { setMobileDetail(false); setSelected(null); }}
+                      onClick={() => { setMobileDetail(false); setSelected(null); setErpOpen(false); }}
                       aria-label="Retour"
                     >
                       <IconBack />
                     </button>
                     <span
-                      className="mail-avatar w-10 h-10 text-sm shrink-0 hidden sm:flex"
+                      className="mail-avatar text-sm shrink-0 hidden sm:flex"
                       style={{ backgroundColor: avatarColor(selected.from || selected.from_email) }}
                     >
                       {getInitials(selected.from || selected.from_email)}
                     </span>
                     <div className="flex-1 min-w-0">
-                      <h2 className="text-lg font-semibold text-neya-ink leading-snug pr-2">
-                        {selected.subject}
+                      <h2 className="mail-reading-subject">
+                        {selected.subject || '(sans objet)'}
                       </h2>
-                      <p className="text-sm text-neya-muted mt-1">
+                      <p className="text-sm text-neya-muted mt-1 truncate">
                         <span className="font-medium text-neya-ink">{selectedSender.name}</span>
                         {selectedSender.email && (
-                          <span className="text-neya-muted"> &lt;{selectedSender.email}&gt;</span>
+                          <span className="text-neya-muted hidden sm:inline"> &lt;{selectedSender.email}&gt;</span>
                         )}
                       </p>
                       {isSent && selected.to && (
@@ -927,8 +928,9 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                       <button
                         type="button"
                         onClick={() => setErpOpen(v => !v)}
-                        className="mail-icon-btn lg:hidden"
-                        title="Panneau ERP"
+                        className={`mail-icon-btn lg:hidden ${erpOpen ? 'text-neya-orange bg-orange-50' : ''}`}
+                        title="Contexte ERP"
+                        aria-label="Contexte ERP"
                       >
                         <IconSparkles />
                       </button>
@@ -999,7 +1001,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                     )}
 
                     <textarea
-                      className="input mb-3 min-h-[88px] text-sm resize-y"
+                      className="input mb-3 min-h-[96px] text-base sm:text-sm resize-y"
                       placeholder="Rédigez votre réponse…"
                       value={reply}
                       onChange={e => { setReply(e.target.value); setPrevReply(null); }}
@@ -1009,7 +1011,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                         type="button"
                         onClick={sendReply}
                         disabled={!reply.trim()}
-                        className="btn-primary text-sm min-h-[40px]"
+                        className="btn-primary text-sm min-h-[44px] flex-1 sm:flex-none"
                       >
                         Envoyer
                       </button>
@@ -1022,8 +1024,17 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                 )}
               </div>
 
-              <aside className={`mail-erp-panel ${erpOpen ? 'flex' : 'hidden lg:flex'}`}>
-                <div className="px-4 py-3 border-b border-neya-border flex items-center justify-between">
+              {erpOpen && (
+                <button
+                  type="button"
+                  className="mail-erp-backdrop"
+                  aria-label="Fermer le contexte"
+                  onClick={() => setErpOpen(false)}
+                />
+              )}
+              <aside className={`mail-erp-panel ${erpOpen ? 'mail-erp-panel--open' : ''}`}>
+                <div className="mail-erp-sheet__handle lg:hidden" />
+                <div className="px-4 py-3 border-b border-neya-border flex items-center justify-between shrink-0">
                   <div>
                     <p className="text-sm font-semibold text-neya-ink">Contexte ERP</p>
                     <p className="text-[11px] text-neya-muted">Liens, synthèse et actions</p>

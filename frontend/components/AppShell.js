@@ -7,7 +7,7 @@ import MobileNav from './MobileNav';
 import ChatAssistant from './ChatAssistant';
 import NavigationBackSupport from './NavigationBackSupport';
 
-export default function AppShell({ children, title, wide = false }) {
+export default function AppShell({ children, title, wide = false, flushMobile = false }) {
   return (
     <div className="min-h-screen min-h-[100dvh] bg-white">
       <NavigationBackSupport />
@@ -26,7 +26,11 @@ export default function AppShell({ children, title, wide = false }) {
             <Link href="/settings" className="btn-ghost">Paramètres</Link>
           </header>
         )}
-        <div className={`p-4 sm:p-6 lg:px-8 lg:py-8 mx-auto w-full ${wide ? 'max-w-[1400px]' : 'max-w-6xl'}`}>
+        <div className={`mx-auto w-full ${wide ? 'max-w-[1400px]' : 'max-w-6xl'} ${
+          flushMobile
+            ? 'p-0 sm:p-6 lg:px-8 lg:py-8'
+            : 'p-4 sm:p-6 lg:px-8 lg:py-8'
+        }`}>
           {children}
         </div>
       </main>
