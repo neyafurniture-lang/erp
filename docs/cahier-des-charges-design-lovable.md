@@ -177,6 +177,10 @@ Réponds d’abord UNIQUEMENT par la liste de questions (section 8 du cahier), p
 - Pour chaque composant : variants listés
 - Export texte structuré (markdown) + captures
 
+### Génération page par page (recommandé)
+Après le design system, **ne pas demander tout l’ERP d’un coup**.  
+Utiliser le fichier compagnon **`docs/cahier-pages-lovable-une-par-une.md`** : une fiche = un prompt Lovable (zones, mocks, états, critères, checklist 00→28).
+
 ---
 
 ## 7. Contraintes techniques (pour un design implémentable)
