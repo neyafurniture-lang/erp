@@ -7,4 +7,5 @@
 - Frontend : `cd frontend && npm run dev` · Backend : `cd backend && npm run dev` (ou scripts documentés dans le README / docker-compose).
 - Auth locale typique : `admin@neya.local` / voir secrets ou seed DB.
 - **Finance P&L** : page `/finance` · API `GET /analytics/monthly-pnl?year=YYYY&me=Mehdi` — agrège factures (créées), dépenses (date), paiements, carnet d’heures projets (`meta.hours_logbook`) + `time_entries` × taux employés. Accès : permission `finance` **ou** `invoices`/`expenses`.
+- **Photos Standards** : bouton « Photos depuis le site » sur `/standards` (et par fiche). Sans clés Woo REST, utilise le Store API public `neyafurniture.ca` ; match SKU/slug/nom → `/uploads/web/` + galerie sur la fiche.
 - Porter les écrans Craft Flow **un par un** en gardant les APIs Express existantes (pas de remplacement TanStack Start).
