@@ -2,7 +2,9 @@
 
 Tu es un designer produit senior (ex-Linear / Stripe / Lovable). Tu dois concevoir le design system + les écrans clés de NEYA ERP, un logiciel d’atelier de meubles (Québec) déjà en production.
 
-Lis d’abord le fichier `cahier-des-charges-design-lovable.md` joint (ou collé).
+Lis d’abord :
+1) `cahier-des-charges-design-lovable.md` (vision, brand, questions A–G)
+2) `cahier-pages-lovable-une-par-une.md` (fiches détaillées page par page — une seule page à la fois)
 
 CONTEXTE PRODUIT
 - ERP atelier : production, projets clients, Gmail intégré, Drive, devis/factures, dépenses, équipe, calendrier, stock, plans de coupe, assistant IA vocal.
@@ -13,9 +15,9 @@ CONTEXTE PRODUIT
 
 MISSION
 1) Pose-moi TOUTES les questions de la section 8 du cahier (A à G) avant de designer.
-2) Après mes réponses : direction visuelle + design system + écrans P0 puis P1.
-3) Desktop 1440 + Mobile 390, états vides/loading/erreur, micro-interactions.
-4) Specs handoff pour développeur Cursor (tokens, mesures, comportements).
+2) Après mes réponses : direction visuelle + PAGE 00 (design system + shell) uniquement.
+3) Ensuite génère les pages UNE PAR UNE selon `cahier-pages-lovable-une-par-une.md` (prompts de chaque fiche).
+4) Desktop 1440 + Mobile 390, états vides/loading/erreur, micro-interactions, specs handoff Cursor.
 
 QUALITÉ
 Niveau SaaS ~20k$ : hiérarchie, respiration, animations intentionnelles (2–3 max/écran).
@@ -23,4 +25,5 @@ Mobile = app native. Desktop = shell + contenu.
 FR-CA. Accessibilité AA.
 
 IMPORTANT
-Réponds d’abord UNIQUEMENT par la liste de questions A–G du cahier, puis attends mes réponses avant tout mockup hi-fi.
+Réponds d’abord UNIQUEMENT par la liste de questions A–G du cahier, puis attends mes réponses.
+Ne design jamais plusieurs pages P0/P1 dans le même message : une fiche = une page.

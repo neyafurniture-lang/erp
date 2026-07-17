@@ -245,7 +245,8 @@ Joins si possible :
 1. Captures actuelles de `/mail`, `/`, `/projects/[id]` (desktop + mobile)
 2. Logo + picto orange
 3. Ce fichier `docs/cahier-des-charges-design-lovable.md`
-4. URL prod : `https://erp.neyafurniture.ca` (compte démo si tu veux)
+4. Fiches pages : `docs/cahier-pages-lovable-une-par-une.md` (génération une par une)
+5. URL prod : `https://erp.neyafurniture.ca` (compte démo si tu veux)
 
 ### Réponses types (à compléter)
 
