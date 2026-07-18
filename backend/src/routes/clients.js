@@ -25,11 +25,16 @@ router.get('/', async (req, res) => {
       const active = Number(c.active_projects || 0);
       const projects = Number(c.project_count || 0);
       const openQuotes = Number(c.open_quotes || 0);
-      let tone = 'archived';
-      if (active > 0) tone = 'active';
-      else if (openQuotes > 0 && projects === 0) tone = 'prospect';
-      else if (projects >= 2) tone = 'fidele';
-      else if (projects > 0) tone = 'active';
+      const last = c.last_activity_at ? new Date(c.last_activity_at) : null;
+      const daysSince = last && !Number.isNaN(last.getTime())
+        ? (Date.now() - last.getTime()) / 86400000
+        : null;
+      // Aligné Craft Flow : Prospect par défaut, Archivé seulement si inactif > 90 j sans projets
+      let tone = 'prospect';
+      if (projects >= 2 && active > 0) tone = 'fidele';
+      else if (active > 0 || projects > 0) tone = 'active';
+      else if (openQuotes > 0) tone = 'prospect';
+      else if (daysSince != null && daysSince > 90) tone = 'archived';
       return { ...c, tone };
     }));
   } catch (err) {
