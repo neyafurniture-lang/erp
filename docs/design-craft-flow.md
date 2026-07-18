@@ -10,7 +10,7 @@ Référence visuelle officielle pour **toute** l’app ERP.
 | Zone | Statut |
 |------|--------|
 | Tokens / typo / shell / login | Fait |
-| Dashboard | Fait |
+| Dashboard | Fait (composition Craft Flow : KPIs + Production + Agenda + Courriel) |
 | Projets / Clients / Production | Fait |
 | Factures / Dépenses / Stock / Achats | Fait |
 | Settings / Admin / Sauna / Web / Drive / Roadmap / Manuel | Fait |

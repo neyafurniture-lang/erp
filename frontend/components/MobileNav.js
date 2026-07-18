@@ -20,41 +20,41 @@ const MENU_GROUPS = [
     items: [
       { href: '/', label: 'Tableau de bord', permission: 'dashboard' },
       { href: '/production', label: 'Production', permission: 'production' },
-      { href: '/sauna-cloud', label: 'Sauna Cloud', permission: 'production' },
-      { href: '/cutting-plans', label: 'Plans de coupe', permission: 'production' },
-      { href: '/admin', label: 'Session admin', permission: 'admin' },
       { href: '/projects', label: 'Projets', permission: 'projects' },
+      { href: '/cutting-plans', label: 'Plans de coupe', permission: 'production' },
+      { href: '/sauna-cloud', label: 'Sauna Cloud', permission: 'production' },
+      { href: '/admin', label: 'Session admin', permission: 'admin' },
     ],
   },
   {
     title: 'Opérations',
     items: [
+      { href: '/mail', label: 'Courriel', permission: 'mail' },
+      { href: '/clients', label: 'Clients', permission: 'clients' },
+      { href: '/calendar', label: 'Calendrier', permission: 'calendar' },
+      { href: '/inventory', label: 'Stock', permission: 'inventory' },
       { href: '/liste-courses', label: 'Liste de courses', permission: 'purchases' },
       { href: '/purchases', label: 'Achats atelier', permission: 'purchases' },
-      { href: '/inventory', label: 'Stock', permission: 'inventory' },
       { href: '/team', label: 'Équipe', permission: 'team' },
-      { href: '/calendar', label: 'Calendrier', permission: 'calendar' },
-      { href: '/expenses', label: 'Dépenses', permission: 'expenses' },
-    ],
-  },
-  {
-    title: 'Outils',
-    items: [
-      { href: '/drive', label: 'Drive', permission: 'drive' },
-      { href: '/mail', label: 'Courriel', permission: 'mail' },
     ],
   },
   {
     title: 'Facturation',
     items: [
       { href: '/invoices', label: 'Devis & factures', permission: 'invoices' },
+      { href: '/expenses', label: 'Dépenses', permission: 'expenses' },
       { href: '/finance', label: 'Finance', permission: 'finance' },
+    ],
+  },
+  {
+    title: 'Outils',
+    items: [
+      { href: '/drive', label: 'Drive', permission: 'drive' },
     ],
   },
   {
     title: 'Commercial',
     items: [
-      { href: '/clients', label: 'Clients', permission: 'clients' },
       { href: '/standards', label: 'Standards', permission: 'standards' },
       { href: '/web', label: 'Site web', permission: 'web' },
     ],

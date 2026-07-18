@@ -55,6 +55,9 @@ router.get('/', async (req, res) => {
       adminTasks,
       adminTasksSummary,
       supplierInvoicesPending,
+      revenueMonth,
+      quotesPendingTotal,
+      revenuePrevMonth,
     ] = await Promise.all([
       pool.query(`
         SELECT
@@ -132,7 +135,11 @@ router.get('/', async (req, res) => {
       pool.query(`
         SELECT p.*, c.name AS client_name,
           (SELECT COUNT(*)::int FROM tasks WHERE project_id = p.id AND status != 'done') AS tasks_open,
-          (SELECT COUNT(*)::int FROM tasks WHERE project_id = p.id AND status = 'done') AS tasks_done
+          (SELECT COUNT(*)::int FROM tasks WHERE project_id = p.id AND status = 'done') AS tasks_done,
+          (SELECT title FROM tasks WHERE project_id = p.id AND status != 'done' ORDER BY
+            CASE status WHEN 'doing' THEN 0 ELSE 1 END, sort_order NULLS LAST, id LIMIT 1) AS current_step,
+          (SELECT type FROM tasks WHERE project_id = p.id AND status != 'done' ORDER BY
+            CASE status WHEN 'doing' THEN 0 ELSE 1 END, sort_order NULLS LAST, id LIMIT 1) AS current_step_type
         FROM projects p
         LEFT JOIN clients c ON c.id = p.client_id
         WHERE p.status = 'active'
@@ -169,17 +176,46 @@ router.get('/', async (req, res) => {
       pool.query(`
         SELECT COUNT(*)::int AS count FROM supplier_invoice_emails WHERE status = 'pending'
       `).catch(() => ({ rows: [{ count: 0 }] })),
+      pool.query(`
+        SELECT COALESCE(SUM(amount_paid), 0)::float AS total
+        FROM invoices
+        WHERE amount_paid > 0
+          AND created_at >= date_trunc('month', CURRENT_DATE::timestamp)
+      `).catch(() => ({ rows: [{ total: 0 }] })),
+      pool.query(`
+        SELECT COALESCE(SUM(total), 0)::float AS total
+        FROM quotes
+        WHERE status IN ('draft', 'sent')
+      `).catch(() => ({ rows: [{ total: 0 }] })),
+      pool.query(`
+        SELECT COALESCE(SUM(amount_paid), 0)::float AS total
+        FROM invoices
+        WHERE amount_paid > 0
+          AND created_at >= date_trunc('month', CURRENT_DATE::timestamp) - INTERVAL '1 month'
+          AND created_at < date_trunc('month', CURRENT_DATE::timestamp)
+      `).catch(() => ({ rows: [{ total: 0 }] })),
     ]);
 
     const ps = projectStats.rows[0];
     const projectIds = activeProjectsList.rows.map(p => p.id);
     const costsMap = projectIds.length ? await computeProjectCostsBatch(projectIds) : {};
-    const projectCards = activeProjectsList.rows.map(p => ({
-      ...p,
-      costs: costsMap[p.id] || null,
-      progress_pct: costsMap[p.id]?.progress_pct ?? (p.tasks_done + p.tasks_open
-        ? Math.round((p.tasks_done / (p.tasks_done + p.tasks_open)) * 100) : 0),
-    }));
+    const TYPE_LABEL = {
+      debitage: 'Débitage', usinage: 'Usinage', assemblage: 'Assemblage',
+      finition: 'Finition', atelier: 'Atelier', admin: 'Admin', cnc: 'CNC',
+    };
+    const projectCards = activeProjectsList.rows.map(p => {
+      const progress = costsMap[p.id]?.progress_pct ?? (p.tasks_done + p.tasks_open
+        ? Math.round((p.tasks_done / (p.tasks_done + p.tasks_open)) * 100) : 0);
+      const step = p.current_step
+        || TYPE_LABEL[p.current_step_type]
+        || (progress >= 100 ? 'Terminé' : progress > 0 ? 'En cours' : 'À démarrer');
+      return {
+        ...p,
+        costs: costsMap[p.id] || null,
+        progress_pct: progress,
+        current_step: step,
+      };
+    });
     const alerts = [];
     if (ps.overdue > 0) alerts.push({ type: 'danger', text: `${ps.overdue} projet(s) en retard`, href: '/projects' });
     if (invoiceDue.rows[0].due > 0) alerts.push({ type: 'warning', text: `${Number(invoiceDue.rows[0].due).toFixed(0)} $ à recevoir`, href: '/invoices' });
@@ -191,6 +227,12 @@ router.get('/', async (req, res) => {
     else if (adminOpen > 0) alerts.push({ type: 'info', text: `${adminOpen} tâche(s) admin à faire`, href: '/admin' });
     const supplierPending = supplierInvoicesPending.rows[0]?.count || 0;
     if (supplierPending > 0) alerts.push({ type: 'warning', text: `${supplierPending} facture(s) fournisseur à classer`, href: '/mail' });
+
+    const rev = Number(revenueMonth.rows[0]?.total || 0);
+    const revPrev = Number(revenuePrevMonth.rows[0]?.total || 0);
+    let revenueDeltaPct = null;
+    if (revPrev > 0) revenueDeltaPct = Math.round(((rev - revPrev) / revPrev) * 1000) / 10;
+    else if (rev > 0) revenueDeltaPct = 100;
 
     syncAdminTasksFromModules().catch(() => {});
     scanInboxForSupplierInvoices().catch(() => {});
@@ -209,6 +251,10 @@ router.get('/', async (req, res) => {
         todosPending: todos.filter(t => !t.done).length,
         adminTasksOpen: adminOpen,
         adminTasksOverdue: adminOverdue,
+        revenueMonth: rev,
+        revenueDeltaPct,
+        quotesPending: pendingQuotes.rows.length,
+        quotesPendingTotal: Number(quotesPendingTotal.rows[0]?.total || 0),
       },
       alerts,
       tasksToday: tasksToday.rows,

@@ -1233,6 +1233,83 @@ h1, h2, h3, h4, h5, h6 {
   @apply text-neya-error;
 }
 
+/* Craft Flow dashboard composition */
+.cf-kpi {
+  @apply rounded-2xl border border-neya-border bg-white shadow-sm px-4 py-4 min-h-[110px];
+}
+.cf-kpi-label {
+  @apply text-[10px] font-semibold uppercase tracking-[0.12em] text-neya-muted mb-1.5;
+}
+.cf-kpi-value {
+  @apply text-xl sm:text-2xl font-display font-semibold tracking-tight text-neya-ink tabular-nums;
+}
+.cf-kpi-delta {
+  @apply text-[12px] mt-1.5 font-medium;
+}
+.cf-kpi-icon {
+  @apply grid h-10 w-10 place-items-center rounded-xl shrink-0;
+}
+.cf-kpi-icon-success { @apply bg-emerald-50 text-emerald-700; }
+.cf-kpi-icon-primary { @apply bg-neya-orange-soft text-neya-orange; }
+.cf-kpi-icon-warning { @apply bg-amber-50 text-amber-700; }
+.cf-kpi-icon-neutral { @apply bg-neya-surface text-neya-ink; }
+
+.cf-panel {
+  @apply rounded-2xl border border-neya-border bg-white shadow-sm p-4 sm:p-5;
+}
+.cf-panel-head {
+  @apply flex items-start justify-between gap-3 mb-4;
+}
+.cf-panel-title {
+  @apply font-display text-[16px] font-semibold text-neya-ink tracking-tight;
+}
+.cf-panel-sub {
+  @apply text-[12px] text-neya-muted mt-0.5;
+}
+
+.cf-prod-row {
+  @apply flex items-start gap-3 py-3.5 hover:bg-neya-surface/60 -mx-1 px-1 rounded-lg transition-colors;
+}
+.cf-prod-bar {
+  @apply h-1.5 rounded-full bg-neya-surface overflow-hidden;
+}
+.cf-prod-bar-fill {
+  @apply h-full rounded-full bg-neya-orange transition-all;
+}
+
+.cf-agenda-row {
+  @apply flex items-start gap-3 rounded-xl border border-neya-border/70 bg-neya-surface/40 px-3 py-2.5 hover:bg-neya-surface transition-colors;
+}
+.cf-agenda-time {
+  @apply text-sm font-semibold tabular-nums text-neya-ink shrink-0 w-[3.25rem];
+}
+.cf-agenda-type {
+  @apply inline-block mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-neya-muted;
+}
+.cf-agenda-free {
+  @apply flex items-center gap-2 rounded-xl bg-neya-orange-soft/60 px-3 py-2 text-[12.5px] text-neya-ink;
+}
+
+.cf-mail-row {
+  @apply flex items-center gap-3 py-3 hover:bg-neya-surface/60 -mx-1 px-1 rounded-lg transition-colors;
+}
+.cf-mail-avatar {
+  @apply grid h-10 w-10 place-items-center rounded-full bg-neya-surface text-[12px] font-semibold text-neya-ink shrink-0 border border-neya-border;
+}
+.cf-badge-urgent {
+  @apply text-[10px] font-bold uppercase tracking-wide text-white bg-neya-orange px-1.5 py-0.5 rounded;
+}
+
+.cf-status {
+  @apply flex flex-wrap items-center gap-4 rounded-2xl border px-5 py-4;
+}
+.cf-status-ok {
+  @apply border-neya-orange/25 bg-neya-orange-soft/50;
+}
+.cf-status-warn {
+  @apply border-amber-200 bg-amber-50;
+}
+
 .dash-split {
   @apply grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-10;
 }
