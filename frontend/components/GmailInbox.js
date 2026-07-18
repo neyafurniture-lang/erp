@@ -14,12 +14,21 @@ const SYSTEM_FOLDERS = [
 
 /** Tri ERP (labels NEYA/). */
 const ERP_FOLDERS = [
+  { id: 'a_repondre', label: 'À répondre', color: '#D86B30' },
+  { id: 'clients', label: 'Clients', color: '#2563eb' },
+  { id: 'fournisseurs', label: 'Fournisseurs', color: '#0F766E' },
+  { id: 'projets', label: 'Projets liés', color: '#7c3aed' },
+  { id: 'promotions', label: 'Promotions', color: '#64748b' },
+  { id: 'autres', label: 'Non classés', color: '#a3a3a3' },
+];
+
+/** Chips filtre liste (Craft Flow). */
+const LIST_FILTERS = [
+  { id: 'tous', label: 'Tous' },
+  { id: 'unread', label: 'Non-lus' },
   { id: 'a_repondre', label: 'À répondre' },
   { id: 'clients', label: 'Clients' },
   { id: 'fournisseurs', label: 'Fournisseurs' },
-  { id: 'projets', label: 'Projets liés' },
-  { id: 'promotions', label: 'Promotions' },
-  { id: 'autres', label: 'Non classés' },
 ];
 
 const ALL_FOLDER_LABELS = {
@@ -329,6 +338,10 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
   const [erpOpen, setErpOpen] = useState(false);
   const [threadWarn, setThreadWarn] = useState('');
   const [activeFolder, setActiveFolder] = useState('inbox');
+  const [listFilter, setListFilter] = useState('tous');
+  const [showComposeNew, setShowComposeNew] = useState(false);
+  const [composeNew, setComposeNew] = useState({ to: '', subject: '', body: '' });
+  const [composeSending, setComposeSending] = useState(false);
   const [sections, setSections] = useState(
     [{ id: 'inbox', count: 0 }, ...ERP_FOLDERS.map(s => ({ ...s, count: 0 }))]
   );
@@ -692,8 +705,16 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
     let list;
     if (activeFolder === 'inbox' || activeFolder === 'sent' || search) list = messages;
     else list = messages.filter(m => (m.mailCategory || 'autres') === activeFolder);
+
+    if (activeFolder === 'inbox' && !search && listFilter !== 'tous') {
+      if (listFilter === 'unread') {
+        list = list.filter(m => m.isUnread || m.unread);
+      } else {
+        list = list.filter(m => (m.mailCategory || 'autres') === listFilter);
+      }
+    }
     return sortMailItems(list);
-  }, [messages, activeFolder, search]);
+  }, [messages, activeFolder, search, listFilter]);
 
   const groupedMessages = useMemo(() => {
     if (activeFolder === 'fournisseurs' && !search) {
@@ -704,13 +725,15 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
         supplierGroup: true,
       }));
     }
-    if (activeFolder !== 'inbox' || search) {
+    // Craft Flow : liste plate (pas de sections sticky) quand filtre ou hors inbox
+    if (activeFolder !== 'inbox' || search || listFilter !== 'tous') {
       return [{
         id: activeFolder,
         label: ALL_FOLDER_LABELS[activeFolder] || 'Messages',
         items: filteredMessages,
       }];
     }
+    // Inbox « Tous » : groupes par catégorie NEYA (ops)
     const order = ERP_FOLDERS.map(f => f.id);
     return order
       .map(id => ({
@@ -719,7 +742,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
         items: sortMailItems(messages.filter(m => (m.mailCategory || 'autres') === id)),
       }))
       .filter(g => g.items.length > 0);
-  }, [messages, filteredMessages, activeFolder, search]);
+  }, [messages, filteredMessages, activeFolder, search, listFilter]);
 
   const sectionCounts = useMemo(
     () => Object.fromEntries(sections.map(s => [s.id, s.count])),
@@ -753,115 +776,167 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
 
   const isSent = activeFolder === 'sent';
 
+  async function sendComposeNew(e) {
+    e?.preventDefault?.();
+    const to = composeNew.to.trim();
+    const subject = composeNew.subject.trim();
+    const body = composeNew.body.trim();
+    if (!to || !subject || !body) return;
+    setComposeSending(true);
+    setErr('');
+    try {
+      await api('/gmail/send', {
+        method: 'POST',
+        body: JSON.stringify({ to, subject, body, confirm: true }),
+      });
+      setShowComposeNew(false);
+      setComposeNew({ to: '', subject: '', body: '' });
+      showUndo('Message envoyé', null);
+      if (activeFolder === 'sent') load('', 'sent');
+    } catch (ex) {
+      setErr(ex.message || 'Échec envoi');
+    } finally {
+      setComposeSending(false);
+    }
+  }
+
   return (
     <div className="mail-shell">
-      <div className="mail-toolbar">
-        <div className="mail-search">
-          <IconSearch />
-          <input
-            placeholder="Rechercher dans Gmail…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && load(search, activeFolder)}
-          />
-          {search && (
-            <button type="button" className="text-xs text-neya-muted hover:text-neya-ink px-1" onClick={() => { setSearch(''); load('', activeFolder); }}>
-              Effacer
-            </button>
-          )}
-        </div>
-        <button type="button" onClick={() => load(search, activeFolder)} className="mail-icon-btn" title="Actualiser">
-          <IconRefresh spin={loading} />
-        </button>
-        {!isSent && (
-          <button
-            type="button"
-            onClick={processInbox}
-            disabled={inboxProcessing}
-            className="mail-btn-sort hidden sm:inline-flex"
-          >
-            {inboxProcessing ? 'Tri…' : 'Trier la boîte'}
-          </button>
-        )}
-      </div>
-
       {err && (
-        <div className="px-4 py-2 text-sm text-red-700 bg-red-50 border-b border-red-100 flex items-center justify-between gap-2">
+        <div className="px-4 py-2 text-sm text-red-700 bg-red-50 border-b border-red-100 flex items-center justify-between gap-2 shrink-0">
           <span>{err}</span>
           <button type="button" className="text-xs font-medium underline shrink-0" onClick={() => setErr('')}>Fermer</button>
         </div>
       )}
 
       {threadWarn && (
-        <div className="px-4 py-2 text-sm text-amber-800 bg-amber-50 border-b border-amber-100">
+        <div className="px-4 py-2 text-sm text-amber-800 bg-amber-50 border-b border-amber-100 shrink-0">
           {threadWarn}
         </div>
       )}
 
       <div className="mail-layout min-h-0">
         <aside className="mail-sidebar">
-          <p className="px-4 py-1 text-[10px] font-semibold uppercase tracking-widest text-neya-muted">Gmail</p>
-          {SYSTEM_FOLDERS.map(folder => {
-            const count = folder.id === 'inbox'
-              ? (sectionCounts.inbox ?? (activeFolder === 'inbox' ? messages.length : null))
-              : (activeFolder === 'sent' ? messages.length : null);
-            const active = activeFolder === folder.id;
-            return (
-              <button
-                key={folder.id}
-                type="button"
-                onClick={() => selectFolder(folder.id)}
-                className={`mail-folder ${active ? 'mail-folder-active' : ''}`}
-              >
-                {folder.id === 'sent' ? <IconSent /> : <IconInbox />}
-                <span className="flex-1 text-left truncate">{folder.label}</span>
-                {count > 0 && (
-                  <span className={`mail-count-pill ${folder.id === 'inbox' ? 'mail-count-pill--hot' : ''}`}>{count}</span>
-                )}
-              </button>
-            );
-          })}
+          <div className="p-3">
+            <button
+              type="button"
+              className="mail-compose-new"
+              onClick={() => setShowComposeNew(true)}
+            >
+              <IconSent /> Nouveau message
+            </button>
+          </div>
+          <div className="px-2 pb-2">
+            {SYSTEM_FOLDERS.map(folder => {
+              const count = folder.id === 'inbox'
+                ? (sectionCounts.inbox ?? (activeFolder === 'inbox' ? messages.length : null))
+                : (activeFolder === 'sent' ? messages.length : null);
+              const active = activeFolder === folder.id;
+              return (
+                <button
+                  key={folder.id}
+                  type="button"
+                  onClick={() => { setListFilter('tous'); selectFolder(folder.id); }}
+                  className={`mail-folder ${active ? 'mail-folder-active' : ''}`}
+                >
+                  {folder.id === 'sent' ? <IconSent /> : <IconInbox />}
+                  <span className="flex-1 text-left truncate">{folder.label}</span>
+                  {count > 0 && (
+                    <span className={`text-[10.5px] font-semibold tabular-nums ${folder.id === 'inbox' ? 'text-neya-orange' : 'text-neya-muted'}`}>
+                      {count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
 
-          <p className="px-4 pt-4 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-neya-muted/80">Tri NEYA</p>
-          {ERP_FOLDERS.map(folder => {
-            const count = sectionCounts[folder.id] ?? 0;
-            const active = activeFolder === folder.id;
-            return (
-              <button
-                key={folder.id}
-                type="button"
-                onClick={() => selectFolder(folder.id)}
-                className={`mail-folder ${active ? 'mail-folder-active' : ''}`}
-              >
-                <IconFolder className="w-4 h-4 opacity-70" />
-                <span className="flex-1 text-left truncate">{folder.label}</span>
-                {count > 0 && (
-                  <span className={`mail-count-pill ${folder.id === 'a_repondre' ? 'mail-count-pill--hot' : ''}`}>
-                    {count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+          <div className="border-t border-neya-border px-4 py-3">
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-neya-muted">Tri NEYA</p>
+            <ul className="flex flex-col gap-0.5">
+              {ERP_FOLDERS.map(folder => {
+                const count = sectionCounts[folder.id] ?? 0;
+                const active = activeFolder === folder.id;
+                return (
+                  <li key={folder.id}>
+                    <button
+                      type="button"
+                      onClick={() => { setListFilter('tous'); selectFolder(folder.id); }}
+                      className={`mail-folder ${active ? 'mail-folder-active' : ''}`}
+                    >
+                      <span className="mail-neya-dot" style={{ backgroundColor: folder.color }} />
+                      <span className="flex-1 text-left truncate">{folder.label}</span>
+                      {count > 0 && (
+                        <span className={`text-[10.5px] font-semibold tabular-nums ${folder.id === 'a_repondre' ? 'text-neya-orange' : 'text-neya-muted'}`}>
+                          {count}
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
           {projectId && (
-            <Link href={`/projects/${projectId}`} className="mail-folder">
-              <IconFolder className="w-4 h-4" />
-              <span>Projet lié</span>
-            </Link>
+            <div className="px-2 pt-1">
+              <Link href={`/projects/${projectId}`} className="mail-folder">
+                <IconFolder className="w-4 h-4" />
+                <span>Projet lié</span>
+              </Link>
+            </div>
+          )}
+          {!isSent && (
+            <div className="mt-auto p-3 border-t border-neya-border">
+              <button
+                type="button"
+                onClick={processInbox}
+                disabled={inboxProcessing}
+                className="mail-btn-sort w-full justify-center"
+              >
+                {inboxProcessing ? 'Tri…' : 'Trier la boîte'}
+              </button>
+            </div>
           )}
         </aside>
 
         <div className={`mail-list ${mobileDetail ? 'hidden md:flex' : 'flex'}`}>
-          <div className="mail-list-meta">
-            <span className="text-xs font-medium text-neya-muted truncate">
-              {loading ? 'Chargement…' : `${filteredMessages.length} message${filteredMessages.length !== 1 ? 's' : ''}`}
-              {activeFolder !== 'inbox' && !search && (
-                <span className="text-neya-ink"> · {ALL_FOLDER_LABELS[activeFolder]}</span>
-              )}
-            </span>
-            <div className="flex items-center gap-2 shrink-0">
+          <div className="border-b border-neya-border p-3 shrink-0">
+            <div className="flex items-center gap-2">
+              <div className="mail-search flex-1">
+                <IconSearch />
+                <input
+                  placeholder="Rechercher dans les mails"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && load(search, activeFolder)}
+                />
+                {search && (
+                  <button type="button" className="text-xs text-neya-muted hover:text-neya-ink px-1" onClick={() => { setSearch(''); load('', activeFolder); }}>
+                    Effacer
+                  </button>
+                )}
+              </div>
+              <button type="button" onClick={() => load(search, activeFolder)} className="mail-icon-btn shrink-0" title="Actualiser">
+                <IconRefresh spin={loading} />
+              </button>
+            </div>
+            {activeFolder === 'inbox' && !search && (
+              <div className="mail-filter-chips">
+                {LIST_FILTERS.map(f => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setListFilter(f.id)}
+                    className={`mail-filter-chip ${listFilter === f.id ? 'mail-filter-chip--active' : ''}`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="mt-2 flex items-center justify-between gap-2 lg:hidden">
               <select
-                className="md:hidden mail-folder-select"
+                className="mail-folder-select"
                 value={activeFolder}
                 onChange={e => selectFolder(e.target.value)}
               >
@@ -879,7 +954,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                   type="button"
                   onClick={processInbox}
                   disabled={inboxProcessing}
-                  className="mail-btn-sort sm:hidden !min-h-[32px] !px-2.5 !text-[11px]"
+                  className="mail-btn-sort !min-h-[32px] !px-2.5 !text-[11px]"
                 >
                   {inboxProcessing ? '…' : 'Trier'}
                 </button>
@@ -898,7 +973,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
             ) : (
               groupedMessages.map(group => (
                 <div key={group.id}>
-                  {((activeFolder === 'inbox' && !search) || group.supplierGroup) && group.items.length > 0 && (
+                  {((activeFolder === 'inbox' && !search && listFilter === 'tous') || group.supplierGroup) && group.items.length > 0 && (
                     <div className={group.supplierGroup ? 'mail-supplier-subheader' : 'mail-section-header'}>
                       <span>{group.label}</span>
                       <span className="text-neya-muted font-normal">{group.items.length}</span>
@@ -913,33 +988,40 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                     const active = (selected?.id || selected?.gmail_message_id) === id;
                     const unread = !isSent && (m.isUnread || m.unread);
                     const badge = CATEGORY_BADGE[m.mailCategory];
+                    const preview = m.snippet || m.bodyPreview || '';
                     return (
                       <button
                         key={id}
                         type="button"
                         onClick={() => openMessage(m)}
-                        className={`mail-row ${active ? 'mail-row-active' : ''} ${unread && !active ? 'border-l-2 border-l-neya-ink pl-[10px]' : ''} ${unread ? 'mail-row-unread' : ''}`}
+                        className={`mail-row ${active ? 'mail-row-active' : ''} ${unread ? 'mail-row-unread' : ''}`}
                       >
-                        <span className="mail-avatar" style={{ backgroundColor: avatarColor(peer) }}>
+                        <span className={`mail-avatar ${unread ? 'mail-avatar--unread' : 'mail-avatar--read'}`}>
                           {getInitials(peer)}
                         </span>
-                        <span className="flex-1 min-w-0 overflow-hidden">
-                          <span className="flex items-baseline justify-between gap-2 min-w-0">
-                            <span className={`text-[15px] sm:text-[13px] truncate min-w-0 ${unread ? 'font-semibold' : 'font-medium text-neya-ink/90'}`}>
-                              {isSent ? `À : ${name}` : name}
-                            </span>
-                            <span className="text-[11px] sm:text-[10px] text-neya-muted shrink-0 tabular-nums">
-                              {formatMailDate(m.date)}
-                            </span>
+                        <span className="min-w-0">
+                          <span className={`block truncate text-[13px] ${unread ? 'font-semibold text-neya-ink' : 'font-medium text-neya-ink-light'}`}>
+                            {isSent ? `À : ${name}` : name}
                           </span>
-                          <span className="mail-row-subject block text-[14px] sm:text-[13px] truncate text-neya-ink/80">
+                          <span className={`mail-row-subject mt-0.5 block truncate text-[12.5px] ${unread ? 'font-medium text-neya-ink' : 'text-neya-ink-light'}`}>
                             {m.subject || '(sans objet)'}
                           </span>
-                          {badge && activeFolder === 'inbox' && (
-                            <span className={`mt-1 ${badge.className}`}>
-                              {badge.label}
-                            </span>
-                          )}
+                          {preview ? (
+                            <span className="mail-row-preview">{preview}</span>
+                          ) : null}
+                          <span className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                            {badge && (
+                              <span className="rounded-md bg-neya-surface px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-neya-ink-light">
+                                {badge.label}
+                              </span>
+                            )}
+                          </span>
+                        </span>
+                        <span className="mail-row-meta">
+                          <span className="text-[11px] tabular-nums text-neya-muted">
+                            {formatMailDate(m.date)}
+                          </span>
+                          {unread && <span className="mail-unread-dot" aria-hidden />}
                         </span>
                       </button>
                     );
@@ -1009,7 +1091,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                       <button
                         type="button"
                         onClick={() => setErpOpen(v => !v)}
-                        className={`mail-icon-btn lg:hidden ${erpOpen ? 'text-neya-orange bg-orange-50' : ''}`}
+                        className={`mail-icon-btn xl:hidden ${erpOpen ? 'text-neya-orange bg-orange-50' : ''}`}
                         title="Contexte ERP"
                         aria-label="Contexte ERP"
                       >
@@ -1034,78 +1116,75 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                 {!isSent && (
                   <div className="mail-compose">
                     <div className="mail-compose-card">
-                    <div className="flex items-center justify-between gap-2 mb-2">
-                      <label className="text-xs font-semibold tracking-wide uppercase text-neya-muted">Répondre</label>
-                      <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                        {prevReply != null && (
+                      <div className="mail-compose-card__head">
+                        <p className="text-[12px] font-medium text-neya-muted truncate">
+                          Répondre{selectedSender.name ? ` à ${selectedSender.name}` : ''}
+                        </p>
+                        <div className="ml-auto flex items-center gap-1.5 flex-wrap justify-end">
+                          {prevReply != null && (
+                            <button
+                              type="button"
+                              className="text-[11px] font-medium text-neya-muted hover:text-neya-ink"
+                              onClick={() => { setReply(prevReply); setPrevReply(null); showUndo('Brouillon restauré', null); }}
+                            >
+                              Annuler
+                            </button>
+                          )}
                           <button
                             type="button"
-                            className="text-[11px] font-medium text-neya-muted hover:text-neya-ink"
-                            onClick={() => { setReply(prevReply); setPrevReply(null); showUndo('Brouillon restauré', null); }}
+                            disabled={!reply.trim() || draftAiLoading}
+                            onClick={() => reviseDraftAi('spellcheck')}
+                            className="text-[11.5px] font-medium text-neya-muted hover:text-neya-ink disabled:opacity-40"
                           >
-                            Annuler la modif
+                            Orthographe
                           </button>
-                        )}
-                        <button
-                          type="button"
-                          disabled={!reply.trim() || draftAiLoading}
-                          onClick={() => reviseDraftAi('spellcheck')}
-                          className="text-[11px] font-medium text-neya-muted hover:text-neya-ink disabled:opacity-40"
-                          title="Corriger l’orthographe"
-                        >
-                          Orthographe
-                        </button>
-                        <button
-                          type="button"
-                          disabled={!reply.trim() || draftAiLoading}
-                          onClick={() => setShowDraftInstr(v => !v)}
-                          className="text-[11px] font-medium text-neya-ink hover:underline disabled:opacity-40"
-                        >
-                          Demander à l’IA…
-                        </button>
+                          <button
+                            type="button"
+                            disabled={!reply.trim() || draftAiLoading}
+                            onClick={() => setShowDraftInstr(v => !v)}
+                            className="inline-flex items-center gap-1 rounded-md bg-neya-orange-soft px-2 py-1 text-[11.5px] font-semibold text-neya-orange hover:bg-neya-orange-soft/70 disabled:opacity-40"
+                          >
+                            <IconSparkles /> Rédiger avec l&apos;IA
+                          </button>
+                        </div>
                       </div>
-                    </div>
 
-                    {showDraftInstr && (
-                      <div className="mb-2 flex flex-col sm:flex-row gap-2">
-                        <input
-                          className="input text-sm flex-1 min-h-[36px]"
-                          placeholder="Ex. plus court, plus formel, ajoute un délai…"
-                          value={draftInstr}
-                          onChange={e => setDraftInstr(e.target.value)}
-                          onKeyDown={e => e.key === 'Enter' && reviseDraftAi('revise')}
-                        />
-                        <button
-                          type="button"
-                          disabled={draftAiLoading}
-                          onClick={() => reviseDraftAi('revise')}
-                          className="btn-secondary text-xs min-h-[36px] shrink-0"
-                        >
-                          {draftAiLoading ? 'IA…' : 'Modifier le brouillon'}
-                        </button>
-                      </div>
-                    )}
-
-                    <textarea
-                      className="input mb-3 min-h-[96px] text-base sm:text-sm resize-y"
-                      placeholder="Rédigez votre réponse…"
-                      value={reply}
-                      onChange={e => { setReply(e.target.value); setPrevReply(null); }}
-                    />
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <button
-                        type="button"
-                        onClick={sendReply}
-                        disabled={!reply.trim()}
-                        className="btn-primary text-sm min-h-[44px] flex-1 sm:flex-none"
-                      >
-                        Envoyer
-                      </button>
-                      {draftAiLoading && <span className="text-xs text-neya-muted">L’IA travaille…</span>}
-                      {!draftAiLoading && synthesis?.needs_response && (
-                        <span className="text-xs text-neya-muted">Brouillon suggéré</span>
+                      {showDraftInstr && (
+                        <div className="flex flex-col sm:flex-row gap-2 px-4 py-2 border-b border-neya-border">
+                          <input
+                            className="input text-sm flex-1 min-h-[36px]"
+                            placeholder="Ex. plus court, plus formel, ajoute un délai…"
+                            value={draftInstr}
+                            onChange={e => setDraftInstr(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && reviseDraftAi('revise')}
+                          />
+                          <button
+                            type="button"
+                            disabled={draftAiLoading}
+                            onClick={() => reviseDraftAi('revise')}
+                            className="btn-secondary text-xs min-h-[36px] shrink-0"
+                          >
+                            {draftAiLoading ? 'IA…' : 'Modifier'}
+                          </button>
+                        </div>
                       )}
-                    </div>
+
+                      <textarea
+                        placeholder="Bonjour,&#10;Merci pour votre message…"
+                        value={reply}
+                        onChange={e => { setReply(e.target.value); setPrevReply(null); }}
+                      />
+                      <div className="mail-compose-card__foot">
+                        {draftAiLoading && <span className="mr-auto text-xs text-neya-muted">L’IA travaille…</span>}
+                        <button
+                          type="button"
+                          onClick={sendReply}
+                          disabled={!reply.trim()}
+                          className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-neya-orange px-4 text-[12.5px] font-semibold text-white shadow-sm hover:bg-neya-orange/90 disabled:opacity-40"
+                        >
+                          <IconSent /> Envoyer
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1120,13 +1199,17 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                 />
               )}
               <aside className={`mail-erp-panel ${erpOpen ? 'mail-erp-panel--open' : ''}`}>
-                <div className="mail-erp-sheet__handle lg:hidden" />
-                <div className="px-4 py-3 border-b border-neya-border flex items-center justify-between shrink-0">
-                  <div>
-                    <p className="text-sm font-semibold text-neya-ink">Contexte ERP</p>
-                    <p className="text-[11px] text-neya-muted">Liens, synthèse et actions</p>
+                <div className="mail-erp-sheet__handle xl:hidden" />
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-b border-neya-border px-5 py-4 shrink-0">
+                  <div className="min-w-0">
+                    <p className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-neya-muted">
+                      Contexte ERP
+                    </p>
+                    <h3 className="truncate font-display text-[15px] font-semibold text-neya-ink">
+                      {thread?.client_name || selectedSender.name || 'Message'}
+                    </h3>
                   </div>
-                  <button type="button" className="mail-icon-btn lg:hidden" onClick={() => setErpOpen(false)} aria-label="Fermer">
+                  <button type="button" className="mail-icon-btn xl:hidden" onClick={() => setErpOpen(false)} aria-label="Fermer">
                     ✕
                   </button>
                 </div>
@@ -1262,6 +1345,61 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
       </div>
 
       <UndoToast toast={undoToast} onUndo={runUndo} onDismiss={dismissUndo} />
+
+      {showComposeNew && (
+        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/30 backdrop-blur-[1px]"
+            aria-label="Fermer"
+            onClick={() => setShowComposeNew(false)}
+          />
+          <form
+            onSubmit={sendComposeNew}
+            className="relative z-[1] w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl border border-neya-border bg-white shadow-xl p-5 space-y-3"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="font-display text-[17px] font-semibold text-neya-ink">Nouveau message</h2>
+              <button type="button" className="mail-icon-btn" onClick={() => setShowComposeNew(false)} aria-label="Fermer">✕</button>
+            </div>
+            <div>
+              <label className="label">À</label>
+              <input
+                className="input"
+                type="email"
+                required
+                value={composeNew.to}
+                onChange={e => setComposeNew({ ...composeNew, to: e.target.value })}
+                placeholder="destinataire@exemple.ca"
+              />
+            </div>
+            <div>
+              <label className="label">Objet</label>
+              <input
+                className="input"
+                required
+                value={composeNew.subject}
+                onChange={e => setComposeNew({ ...composeNew, subject: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="label">Message</label>
+              <textarea
+                className="input min-h-[140px]"
+                required
+                value={composeNew.body}
+                onChange={e => setComposeNew({ ...composeNew, body: e.target.value })}
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button type="button" className="btn-secondary text-sm" onClick={() => setShowComposeNew(false)}>Annuler</button>
+              <button type="submit" disabled={composeSending} className="btn-primary text-sm gap-1.5">
+                <IconSent /> {composeSending ? 'Envoi…' : 'Envoyer'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
