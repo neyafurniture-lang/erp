@@ -1,224 +1,115 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import {
+  ArrowUpRight,
+  CheckCircle2,
+  Clock,
+  FileText,
+  Hammer,
+  Mail,
+  TrendingUp,
+} from 'lucide-react';
 import AppShell from '../components/AppShell';
 import AuthGuard from '../components/AuthGuard';
 import { api, formatMoney, formatDate } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
-import { AdminTasksSummary } from '../components/AdminTasksPanel';
-import SupplierInvoiceQueue from '../components/SupplierInvoiceQueue';
-import EditableSection from '../components/EditableSection';
 
-const QUICK_ACTIONS = [
-  { href: '/production', label: 'Production' },
-  { href: '/sauna-cloud', label: 'Sauna Cloud' },
-  { href: '/projects', label: 'Projets' },
-  { href: '/invoices', label: 'Devis / factures' },
-  { href: '/finance', label: 'Finance' },
-  { href: '/mail', label: 'Courriel' },
-  { href: '/liste-courses', label: 'Liste de courses' },
-  { href: '/clients', label: 'Clients' },
-  { href: '/calendar', label: 'Calendrier' },
-  { href: '/expenses', label: 'Dépenses' },
-  { href: '/admin', label: 'Session admin' },
-];
+function initials(name = '') {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(p => p[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase() || '?';
+}
 
-function Metric({ label, value, hint, href, tone }) {
+function dueLabel(deadline) {
+  if (!deadline) return 'Sans échéance';
+  const d = new Date(deadline);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(d);
+  target.setHours(0, 0, 0, 0);
+  const diff = Math.round((target - today) / 86400000);
+  if (diff < 0) return `En retard · ${formatDate(deadline)}`;
+  if (diff === 0) return "Aujourd'hui";
+  if (diff === 1) return 'Demain';
+  return d.toLocaleDateString('fr-CA', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+function agendaType(task) {
+  const t = `${task.title || ''} ${task.type || ''}`.toLowerCase();
+  if (/livr|delivery/.test(t)) return 'livraison';
+  if (/appel|call|zoom|meet/.test(t)) return 'appel';
+  return 'atelier';
+}
+
+function KpiCard({ label, value, delta, Icon, tone = 'neutral', href }) {
+  const toneClass = {
+    success: 'cf-kpi-icon-success',
+    primary: 'cf-kpi-icon-primary',
+    warning: 'cf-kpi-icon-warning',
+    neutral: 'cf-kpi-icon-neutral',
+  }[tone] || 'cf-kpi-icon-neutral';
+  const deltaClass = {
+    success: 'text-emerald-700',
+    primary: 'text-neya-orange',
+    warning: 'text-amber-700',
+    neutral: 'text-neya-muted',
+  }[tone] || 'text-neya-muted';
+
   const body = (
-    <div className={`dash-metric ${tone || ''}`}>
-      <p className="dash-metric-label">{label}</p>
-      <p className="dash-metric-value">{value}</p>
-      {hint ? <p className="dash-metric-hint">{hint}</p> : null}
-    </div>
-  );
-  return href ? <Link href={href} className="block hover:bg-neya-surface/80 transition-colors">{body}</Link> : body;
-}
-
-function SectionHead({ title, href, hrefLabel = 'Voir tout', aside }) {
-  return (
-    <div className="dash-section-head">
-      <h2 className="dash-section-title">{title}</h2>
-      <div className="flex items-center gap-3">
-        {aside}
-        {href && (
-          <Link href={href} className="dash-link">
-            {hrefLabel}
-          </Link>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function AlertsBar({ alerts }) {
-  if (!alerts?.length) return null;
-  return (
-    <div className="dash-alerts">
-      {alerts.map((a, i) => (
-        <Link
-          key={i}
-          href={a.href || '/'}
-          className={`dash-alert dash-alert-${a.type || 'info'}`}
-        >
-          <span className="dash-alert-dot" aria-hidden />
-          <span className="flex-1 min-w-0">{a.text}</span>
-          <span className="dash-alert-arrow" aria-hidden>→</span>
-        </Link>
-      ))}
-    </div>
-  );
-}
-
-function DashboardTodoList({ todos, onChange, listKey = 'main', title = 'Ma todo' }) {
-  const [newTitle, setNewTitle] = useState('');
-  const [adding, setAdding] = useState(false);
-  const listTodos = todos.filter(t => (t.list_key || 'main') === listKey);
-  const pending = listTodos.filter(t => !t.done);
-  const done = listTodos.filter(t => t.done);
-
-  async function addTodo(e) {
-    e.preventDefault();
-    const t = newTitle.trim();
-    if (!t) return;
-    setAdding(true);
-    try {
-      await api('/dashboard/todos', { method: 'POST', body: JSON.stringify({ title: t, list_key: listKey }) });
-      setNewTitle('');
-      onChange();
-    } finally {
-      setAdding(false);
-    }
-  }
-
-  async function toggleTodo(todo) {
-    await api(`/dashboard/todos/${todo.id}`, { method: 'PATCH', body: JSON.stringify({ done: !todo.done }) });
-    onChange();
-  }
-
-  return (
-    <div className="dash-block">
-      <SectionHead
-        title={title}
-        aside={pending.length > 0 ? <span className="dash-count">{pending.length}</span> : null}
-      />
-      <form onSubmit={addTodo} className="flex gap-2 mb-2">
-        <input
-          className="input flex-1"
-          placeholder="Ajouter une tâche…"
-          value={newTitle}
-          onChange={e => setNewTitle(e.target.value)}
-        />
-        <button type="submit" disabled={adding || !newTitle.trim()} className="btn-secondary text-sm shrink-0 disabled:opacity-40">
-          Ajouter
-        </button>
-      </form>
-      <ul className="dash-list">
-        {pending.length === 0 && done.length === 0 && (
-          <li className="dash-empty">Rien pour l&apos;instant</li>
-        )}
-        {pending.map(todo => (
-          <li key={todo.id} className="dash-row">
-            <button
-              type="button"
-              onClick={() => toggleTodo(todo)}
-              className="dash-check"
-              aria-label="Cocher"
-            />
-            <span className="text-sm flex-1">{todo.title}</span>
-          </li>
-        ))}
-        {done.map(todo => (
-          <li key={todo.id} className="dash-row opacity-50">
-            <button
-              type="button"
-              onClick={() => toggleTodo(todo)}
-              className="dash-check dash-check-on"
-              aria-label="Décocher"
-            >✓</button>
-            <span className="text-sm line-through flex-1">{todo.title}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function TaskRow({ task, onToggle }) {
-  const time = task.start_time
-    ? new Date(task.start_time).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' })
-    : null;
-
-  return (
-    <li className="dash-row">
-      {task.status !== 'done' && (
-        <button
-          type="button"
-          onClick={() => onToggle(task)}
-          className="dash-check"
-          title="Marquer fait"
-          aria-label="Marquer fait"
-        />
-      )}
-      <Link href={task.project_id ? `/projects/${task.project_id}` : '/calendar'} className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-neya-ink truncate">{task.title}</p>
-        <p className="text-xs text-neya-muted truncate">
-          {time && `${time} · `}{task.project_name || 'Atelier'}
-        </p>
-      </Link>
-      {task.status === 'doing' && <span className="dash-pill">En cours</span>}
-    </li>
-  );
-}
-
-function ProjectRow({ project }) {
-  const overdue = project.deadline && new Date(project.deadline) < new Date(new Date().toDateString());
-  const progress = project.progress_pct ?? project.costs?.progress_pct ?? 0;
-  const open = (project.tasks_open ?? 0);
-  const done = (project.tasks_done ?? 0);
-  const total = open + done;
-
-  return (
-    <Link href={`/projects/${project.id}`} className="dash-project-row">
-      <div className="min-w-0 flex-1">
-        <p className="text-[11px] text-neya-muted truncate mb-0.5">{project.client_name || 'Sans client'}</p>
-        <p className="text-sm font-medium text-neya-ink truncate">{project.name}</p>
-        <div className="dash-progress mt-2">
-          <div className="dash-progress-bar" style={{ width: `${Math.min(100, progress)}%` }} />
+    <div className="cf-kpi">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="cf-kpi-label">{label}</p>
+          <p className="cf-kpi-value">{value}</p>
+          {delta ? <p className={`cf-kpi-delta ${deltaClass}`}>{delta}</p> : null}
         </div>
+        <span className={`cf-kpi-icon ${toneClass}`}>
+          <Icon className="h-[18px] w-[18px]" strokeWidth={2} />
+        </span>
       </div>
-      <div className="text-right shrink-0 ml-4">
-        {total > 0 && (
-          <p className="text-xs text-neya-ink tabular-nums">{done}/{total}</p>
-        )}
-        {project.deadline && (
-          <p className={`text-[11px] mt-0.5 ${overdue ? 'text-neya-error font-medium' : 'text-neya-muted'}`}>
-            {formatDate(project.deadline)}
-          </p>
-        )}
-      </div>
-    </Link>
+    </div>
   );
+  return href ? <Link href={href} className="block hover:opacity-95 transition-opacity">{body}</Link> : body;
 }
 
 export default function DashboardPage() {
   const { user } = useAuth();
   const [data, setData] = useState(null);
-  const [layout, setLayout] = useState(null);
-  const [sauna, setSauna] = useState(null);
+  const [mailPreview, setMailPreview] = useState({ messages: [], unread: 0, urgent: 0 });
   const [error, setError] = useState('');
-  const firstName = (user?.name || '').split(/\s+/)[0] || '';
+  const firstName = (user?.name || '').split(/\s+/)[0] || 'Mehdi';
 
-  const load = () => Promise.all([
-    api('/dashboard'),
-    api('/ui/dashboard-layout'),
-    api('/sauna-cloud').catch(() => null),
-  ]).then(([d, ui, sc]) => {
-    setData(d);
-    setLayout(ui.layout);
-    setSauna(sc);
-    setError('');
-  }).catch(e => setError(e.message));
+  const load = () => {
+    Promise.all([
+      api('/dashboard'),
+      api('/gmail/inbox-sorted?max=30').catch(() => null),
+    ]).then(([d, mail]) => {
+      setData(d);
+      setError('');
+      if (mail) {
+        const sections = mail.sections || [];
+        const reply = sections.find(s => s.id === 'a_repondre');
+        const msgs = (mail.messages || [])
+          .filter(m => (m.erpFolder || m.folder || m.section) === 'a_repondre' || m.urgent || m.needsReply)
+          .slice(0, 4);
+        const fallback = msgs.length
+          ? msgs
+          : (mail.messages || []).slice(0, 4);
+        const urgent = (mail.messages || []).filter(m => m.urgent || /urgent/i.test(m.subject || '')).length;
+        setMailPreview({
+          messages: fallback,
+          unread: reply?.count ?? (mail.messages || []).length,
+          urgent,
+        });
+      }
+    }).catch(e => setError(e.message));
+  };
 
   useEffect(() => {
     load();
@@ -227,66 +118,21 @@ export default function DashboardPage() {
     return () => window.removeEventListener('neya:assistant-action', handler);
   }, []);
 
-  const editMode = Boolean(layout?.edit_mode);
-
-  async function toggleEditMode() {
-    const next = await api('/ui/dashboard-layout/edit-mode', {
-      method: 'POST',
-      body: JSON.stringify({ enabled: !editMode }),
-    });
-    setLayout(next);
-  }
-
-  async function moveSection(sectionId, direction) {
-    const next = await api('/ui/dashboard-layout/move', {
-      method: 'POST',
-      body: JSON.stringify({ section_id: sectionId, direction }),
-    });
-    setLayout(next);
-  }
-
-  async function removeTodoSection(sectionId) {
-    const next = await api('/ui/dashboard-layout/remove', {
-      method: 'POST',
-      body: JSON.stringify({ section_id: sectionId }),
-    });
-    setLayout(next);
-  }
-
-  async function addTodoList() {
-    const title = window.prompt('Nom de la liste todo ?', 'Todo atelier');
-    if (!title) return;
-    const next = await api('/ui/dashboard-layout/add-todo', {
-      method: 'POST',
-      body: JSON.stringify({ title }),
-    });
-    setLayout(next);
-  }
-
-  async function completeTask(task) {
-    await api(`/tasks/${task.id}`, {
-      method: 'PUT',
-      body: JSON.stringify({ ...task, status: 'done' }),
-    });
-    load();
-    window.dispatchEvent(new CustomEvent('neya:assistant-action'));
-  }
-
-  const greeting = (() => {
+  const greeting = useMemo(() => {
     const h = new Date().getHours();
     if (h < 12) return 'Bonjour';
     if (h < 18) return 'Bon après-midi';
     return 'Bonsoir';
-  })();
+  }, []);
 
-  const todayLabel = new Date().toLocaleDateString('fr-CA', {
+  const todayLabel = useMemo(() => new Date().toLocaleDateString('fr-CA', {
     weekday: 'long', day: 'numeric', month: 'long',
-  });
+  }), []);
 
   if (!data && !error) {
     return (
       <AuthGuard>
-        <AppShell title="Accueil" wide>
+        <AppShell title="Tableau de bord" wide>
           <div className="text-neya-muted py-16 text-center text-sm">Chargement…</div>
         </AppShell>
       </AuthGuard>
@@ -294,344 +140,44 @@ export default function DashboardPage() {
   }
 
   const s = data?.stats || {};
-  const web = data?.web;
-  const sections = (layout?.sections || []).filter(sec => sec.visible !== false);
-  const todayCount = data?.tasksToday?.length ?? 0;
-  const dueHint = s.overdueProjects > 0
-    ? `${s.overdueProjects} en retard`
-    : `${s.dueSoonProjects ?? 0} sous 7 j`;
+  const projects = (data?.projectCards || data?.activeProjects || []).slice(0, 4);
+  const agenda = (data?.tasksToday || [])
+    .filter(t => t.start_time)
+    .slice(0, 5);
+  const agendaFallback = agenda.length
+    ? agenda
+    : (data?.tasksWeek || []).slice(0, 3);
 
-  function wrap(section, node) {
-    return (
-      <EditableSection
-        key={section.id}
-        section={section}
-        editMode={editMode}
-        className="dash-section"
-        onMoveUp={(id) => moveSection(id, 'up')}
-        onMoveDown={(id) => moveSection(id, 'down')}
-        onHide={removeTodoSection}
-      >
-        {node}
-      </EditableSection>
-    );
-  }
+  const revDelta = s.revenueDeltaPct;
+  const revDeltaLabel = revDelta == null
+    ? (s.revenueMonth > 0 ? 'Encaissé ce mois' : 'Aucun encaissement')
+    : `${revDelta >= 0 ? '+' : ''}${revDelta} %`;
 
-  function renderSection(section) {
-    if (section.type === 'todo') {
-      return wrap(section, (
-        <DashboardTodoList
-          todos={data?.todos || []}
-          onChange={load}
-          listKey={section.list_key || 'main'}
-          title={section.title || section.label || 'Todo'}
-        />
-      ));
-    }
+  const nextFree = (() => {
+    const withTime = agendaFallback
+      .filter(t => t.start_time)
+      .map(t => new Date(t.start_time))
+      .sort((a, b) => a - b);
+    if (!withTime.length) return 'Après-midi libre';
+    const last = withTime[withTime.length - 1];
+    const next = new Date(last.getTime() + 60 * 60 * 1000);
+    return next.toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' });
+  })();
 
-    switch (section.id) {
-      case 'alerts':
-        if (!data?.alerts?.length) return null;
-        return wrap(section, <AlertsBar alerts={data.alerts} />);
-
-      case 'supplier_invoices':
-        return wrap(section, <SupplierInvoiceQueue compact />);
-
-      case 'admin_tasks':
-        return wrap(section, (
-          <div className="dash-block">
-            <AdminTasksSummary />
-          </div>
-        ));
-
-      case 'sauna_cloud': {
-        const prog = sauna?.progress || { done: 0, total: 0, pct: 0 };
-        const nextFrames = (sauna?.frames || []).filter(f => f.status !== 'done').slice(0, 4);
-        return wrap(section, (
-          <div className="dash-block">
-            <SectionHead title="Sauna Cloud — frames" href="/sauna-cloud" hrefLabel="Ouvrir →" />
-            <div className="flex justify-between text-xs text-neya-muted mb-1">
-              <span>Avancement</span>
-              <span className="font-semibold text-neya-ink">{prog.done}/{prog.total} · {prog.pct}%</span>
-            </div>
-            <div className="h-2 bg-neya-cream rounded-full overflow-hidden mb-3">
-              <div className="h-full bg-neya-orange transition-all" style={{ width: `${prog.pct}%` }} />
-            </div>
-            {nextFrames.length === 0 ? (
-              <p className="text-sm text-neya-muted">Toutes les frames sont complétées.</p>
-            ) : (
-              <ul className="space-y-1.5 mb-3">
-                {nextFrames.map(f => (
-                  <li key={f.id} className="text-sm flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-neya-border shrink-0" />
-                    <span className="truncate">{f.title}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <Link href="/sauna-cloud" className="btn-secondary text-xs w-full text-center">
-              Compléter les frames
-            </Link>
-          </div>
-        ));
-      }
-
-      case 'projects_cards':
-        return wrap(section, (
-          <div className="dash-block">
-            <SectionHead title="Projets en cours" href="/projects" />
-            {!data?.projectCards?.length ? (
-              <div className="dash-empty-block">
-                <p className="text-sm text-neya-muted mb-3">Aucun projet actif</p>
-                <Link href="/projects" className="btn-primary text-sm">Créer un projet</Link>
-              </div>
-            ) : (
-              <div className="dash-projects">
-                {(data.projectCards || []).slice(0, 8).map(p => (
-                  <ProjectRow key={p.id} project={p} />
-                ))}
-              </div>
-            )}
-          </div>
-        ));
-
-      case 'quick_actions':
-        return wrap(section, (
-          <div className="dash-block">
-            <SectionHead title="Raccourcis" />
-            <div className="dash-shortcuts">
-              {QUICK_ACTIONS.map(a => (
-                <Link key={a.href} href={a.href} className="dash-shortcut">
-                  {a.label}
-                </Link>
-              ))}
-            </div>
-          </div>
-        ));
-
-      case 'stats':
-        return wrap(section, (
-          <div className="dash-metrics">
-            <Metric
-              label="Projets actifs"
-              value={s.activeProjects ?? 0}
-              hint={dueHint}
-              href="/projects"
-              tone={s.overdueProjects > 0 ? 'dash-metric-warn' : ''}
-            />
-            <Metric
-              label="À recevoir"
-              value={formatMoney(s.invoicesDue)}
-              hint={`${data?.pendingInvoices?.length ?? 0} facture(s)`}
-              href="/invoices"
-              tone="dash-metric-accent"
-            />
-            <Metric
-              label="Dépenses du mois"
-              value={formatMoney(s.expensesMonth)}
-              hint="Ce mois-ci"
-              href="/expenses"
-            />
-            <Metric
-              label="Clients"
-              value={s.clients ?? 0}
-              hint={web?.configured ? `${web.web_orders_active ?? 0} cmd. web` : `${s.unscheduledTasks ?? 0} à planifier`}
-              href="/clients"
-            />
-          </div>
-        ));
-
-      case 'today_week':
-        return wrap(section, (
-          <div className="dash-split">
-            <div className="dash-block">
-              <SectionHead
-                title="Aujourd’hui"
-                href="/calendar"
-                hrefLabel="Calendrier"
-                aside={todayCount > 0 ? <span className="dash-count">{todayCount}</span> : null}
-              />
-              {!data?.tasksToday?.length ? (
-                <p className="dash-empty">Aucune tâche — planifiez dans le calendrier</p>
-              ) : (
-                <ul className="dash-list">
-                  {data.tasksToday.map(t => (
-                    <TaskRow key={t.id} task={t} onToggle={completeTask} />
-                  ))}
-                </ul>
-              )}
-            </div>
-            <div className="dash-block">
-              <SectionHead
-                title="Cette semaine"
-                aside={<span className="text-xs text-neya-muted">{data?.tasksWeek?.length ?? 0}</span>}
-              />
-              {!data?.tasksWeek?.length ? (
-                <p className="dash-empty">Semaine libre pour l&apos;instant</p>
-              ) : (
-                <ul className="dash-list">
-                  {data.tasksWeek.map(t => {
-                    const d = new Date(t.start_time);
-                    return (
-                      <li key={t.id} className="dash-row">
-                        <div className="dash-date-cell">
-                          <span className="dash-date-day">{d.toLocaleDateString('fr-CA', { weekday: 'short' })}</span>
-                          <span className="dash-date-num">{d.getDate()}</span>
-                        </div>
-                        <Link href={t.project_id ? `/projects/${t.project_id}` : '/calendar'} className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{t.title}</p>
-                          <p className="text-xs text-neya-muted truncate">
-                            {d.toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' })} · {t.project_name || 'Atelier'}
-                          </p>
-                        </Link>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
-          </div>
-        ));
-
-      case 'finances':
-        return wrap(section, (
-          <div className="dash-block">
-            <SectionHead title="Finances" href="/invoices" hrefLabel="Factures & devis" />
-            <div className="dash-kv">
-              <div className="dash-kv-row">
-                <span>Factures en attente</span>
-                <strong className="text-neya-orange tabular-nums">{formatMoney(s.invoicesDue)}</strong>
-              </div>
-              <div className="dash-kv-row">
-                <span>Devis en cours</span>
-                <strong className="tabular-nums">{data?.pendingQuotes?.length ?? 0}</strong>
-              </div>
-              <div className="dash-kv-row">
-                <span>Dépenses (mois)</span>
-                <strong className="tabular-nums">{formatMoney(s.expensesMonth)}</strong>
-              </div>
-              <div className="dash-kv-row dash-kv-row-last">
-                <span>Budget projets actifs</span>
-                <strong className="tabular-nums">{formatMoney(s.budgetActive)}</strong>
-              </div>
-            </div>
-          </div>
-        ));
-
-      case 'projects_deadlines':
-        return wrap(section, (
-          <div className="dash-split">
-            <div className="dash-block">
-              <SectionHead title="Projets actifs" href="/projects" />
-              {!data?.activeProjects?.length ? (
-                <p className="dash-empty">Aucun projet actif</p>
-              ) : (
-                <ul className="dash-list">
-                  {data.activeProjects.map(p => (
-                    <li key={p.id}>
-                      <Link href={`/projects/${p.id}`} className="dash-row hover:bg-neya-surface -mx-1 px-1 rounded-sm">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium truncate">{p.name}</p>
-                          <p className="text-xs text-neya-muted">{p.client_name || 'Sans client'}</p>
-                        </div>
-                        <div className="text-right shrink-0 ml-2">
-                          {p.tasks_open > 0 && (
-                            <span className="text-xs tabular-nums text-neya-muted">{p.tasks_done}/{p.tasks_done + p.tasks_open}</span>
-                          )}
-                          {p.deadline && <p className="text-[10px] text-neya-muted">{formatDate(p.deadline)}</p>}
-                        </div>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            <div className="dash-block">
-              <SectionHead title="Deadlines proches" />
-              {!data?.urgentProjects?.length ? (
-                <p className="dash-empty">Aucune deadline dans les 14 prochains jours</p>
-              ) : (
-                <ul className="dash-list">
-                  {data.urgentProjects.map(p => {
-                    const overdue = p.deadline && new Date(p.deadline) < new Date(new Date().toDateString());
-                    return (
-                      <li key={p.id}>
-                        <Link href={`/projects/${p.id}`} className="dash-row hover:bg-neya-surface -mx-1 px-1 rounded-sm">
-                          <p className="text-sm font-medium truncate flex-1">{p.name}</p>
-                          <span className={`text-xs tabular-nums shrink-0 ml-2 ${overdue ? 'text-neya-error font-medium' : 'text-neya-muted'}`}>
-                            {formatDate(p.deadline)}
-                          </span>
-                        </Link>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
-          </div>
-        ));
-
-      case 'invoices_web':
-        return wrap(section, (
-          <div className="dash-split">
-            <div className="dash-block">
-              <SectionHead title="Factures à suivre" href="/invoices" />
-              {!data?.pendingInvoices?.length ? (
-                <p className="dash-empty">Tout est à jour</p>
-              ) : (
-                <ul className="dash-list">
-                  {data.pendingInvoices.map(inv => (
-                    <li key={inv.id}>
-                      <Link href={`/invoices/${inv.id}`} className="dash-row hover:bg-neya-surface -mx-1 px-1 rounded-sm">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium">{inv.invoice_number}</p>
-                          <p className="text-xs text-neya-muted">{inv.client_name}</p>
-                        </div>
-                        <div className="text-right shrink-0">
-                          <p className="text-sm font-medium tabular-nums">{formatMoney(inv.total - inv.amount_paid)}</p>
-                          <p className="text-[10px] text-neya-muted">{inv.due_date ? formatDate(inv.due_date) : inv.status}</p>
-                        </div>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            {web && (
-              <div className="dash-block">
-                <SectionHead
-                  title="Site web"
-                  href="/web"
-                  hrefLabel="Hub"
-                  aside={(
-                    <span className={`text-[11px] ${web.configured ? 'text-neya-success' : 'text-neya-warning'}`}>
-                      {web.configured ? 'Connecté' : 'Non configuré'}
-                    </span>
-                  )}
-                />
-                {web.configured ? (
-                  <div className="dash-metrics dash-metrics-compact">
-                    <Metric label="Fiches" value={web.linked_products} />
-                    <Metric label="Commandes" value={web.web_orders_total} />
-                    <Metric label="Projets" value={web.web_projects} />
-                  </div>
-                ) : (
-                  <p className="dash-empty">Connectez WooCommerce pour sync produits et commandes.</p>
-                )}
-              </div>
-            )}
-          </div>
-        ));
-
-      default:
-        return null;
-    }
-  }
+  const statusOk = !(s.overdueProjects > 0);
+  const statusText = statusOk
+    ? "L'atelier tourne rond aujourd'hui"
+    : `${s.overdueProjects} projet(s) en retard — à prioriser`;
+  const statusSub = statusOk
+    ? (s.dueSoonProjects
+      ? `${s.dueSoonProjects} échéance(s) sous 7 jours · ${s.activeProjects ?? 0} projets actifs`
+      : `${s.activeProjects ?? 0} projets actifs · rien en retard`)
+    : 'Ouvre Production pour réorganiser la file atelier.';
 
   return (
     <AuthGuard>
       <AppShell
-        title={firstName ? `${greeting} ${firstName}` : greeting}
+        title={`${greeting} ${firstName} 👋`}
         subtitle={`Voici l'atelier · ${todayLabel}`}
         wide
       >
@@ -639,60 +185,215 @@ export default function DashboardPage() {
           <div className="mb-6 text-sm text-red-700 bg-red-50 border border-red-200 px-4 py-3 rounded-xl">{error}</div>
         )}
 
-        <header className="dash-hero lg:hidden">
+        {/* Hero mobile */}
+        <header className="dash-hero lg:hidden mb-6">
           <div>
             <p className="dash-hero-kicker capitalize">{todayLabel}</p>
             <h1 className="dash-hero-title">
               {greeting}{' '}
-              <span className="text-neya-orange">{firstName || 'atelier'}</span>
+              <span className="text-neya-orange">{firstName}</span>
             </h1>
             <p className="dash-hero-sub">
+              {mailPreview.urgent > 0 ? `${mailPreview.urgent} mails urgents · ` : ''}
               {s.activeProjects ?? 0} projets actifs
-              {s.overdueProjects > 0 ? ` · ${s.overdueProjects} en retard` : ''}
-              {todayCount > 0 ? ` · ${todayCount} tâches aujourd'hui` : ''}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={toggleEditMode}
-            className={`text-sm px-3 py-2 rounded-lg border font-medium transition-colors ${
-              editMode
-                ? 'bg-neya-ink text-white border-neya-ink'
-                : 'bg-white border-neya-border text-neya-ink hover:bg-neya-surface'
-            }`}
-          >
-            {editMode ? 'Terminer' : 'Réorganiser'}
-          </button>
         </header>
 
-        <div className="hidden lg:flex justify-end mb-4 gap-2">
-          {editMode && (
-            <button type="button" onClick={addTodoList} className="btn-secondary text-sm">
-              + Liste todo
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={toggleEditMode}
-            className={`text-sm px-3 py-2 rounded-lg border font-medium transition-colors ${
-              editMode
-                ? 'bg-neya-ink text-white border-neya-ink'
-                : 'bg-white border-neya-border text-neya-ink hover:bg-neya-surface'
-            }`}
-          >
-            {editMode ? 'Terminer' : 'Réorganiser'}
-          </button>
+        {/* KPIs Craft Flow */}
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-6">
+          <KpiCard
+            label="Chiffre du mois"
+            value={formatMoney(s.revenueMonth || 0)}
+            delta={revDeltaLabel}
+            Icon={TrendingUp}
+            tone="success"
+            href="/finance"
+          />
+          <KpiCard
+            label="Projets actifs"
+            value={String(s.activeProjects ?? 0)}
+            delta={s.dueSoonProjects ? `${s.dueSoonProjects} en livraison / échéance` : 'File atelier'}
+            Icon={Hammer}
+            tone="primary"
+            href="/production"
+          />
+          <KpiCard
+            label="Mails à traiter"
+            value={String(mailPreview.unread || 0)}
+            delta={mailPreview.urgent ? `${mailPreview.urgent} urgents` : 'Boîte synchronisée'}
+            Icon={Mail}
+            tone="warning"
+            href="/mail"
+          />
+          <KpiCard
+            label="Devis en attente"
+            value={String(s.quotesPending ?? data?.pendingQuotes?.length ?? 0)}
+            delta={formatMoney(s.quotesPendingTotal || 0)}
+            Icon={FileText}
+            tone="neutral"
+            href="/invoices"
+          />
         </div>
 
-        {editMode && (
-          <div className="dash-edit-banner mb-6 rounded-xl">
-            Mode édition — utilisez ↑ ↓ pour déplacer les blocs. L’ordre est sauvegardé pour votre compte.
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+          {/* Production en cours */}
+          <section className="cf-panel lg:col-span-2">
+            <div className="cf-panel-head">
+              <div>
+                <h2 className="cf-panel-title">Production en cours</h2>
+                <p className="cf-panel-sub">
+                  {projects.length} pièce{projects.length > 1 ? 's' : ''} suivie{projects.length > 1 ? 's' : ''} · file atelier
+                </p>
+              </div>
+              <Link href="/production" className="dash-link inline-flex items-center gap-1">
+                Voir tout <ArrowUpRight className="h-3.5 w-3.5" />
+              </Link>
+            </div>
+            {!projects.length ? (
+              <p className="dash-empty px-1">Aucun projet actif — crée-en un depuis Projets.</p>
+            ) : (
+              <ul className="divide-y divide-neya-border/70">
+                {projects.map(p => {
+                  const pct = Number(p.progress_pct || 0);
+                  const label = p.client_name ? `${p.name} — ${p.client_name}` : p.name;
+                  return (
+                    <li key={p.id}>
+                      <Link href={`/projects/${p.id}`} className="cf-prod-row">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-neya-ink truncate">{label}</p>
+                          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-neya-muted">
+                            <span className="inline-flex items-center gap-1">
+                              <Hammer className="h-3 w-3" /> {p.current_step || 'En cours'}
+                            </span>
+                            <span>·</span>
+                            <span className="inline-flex items-center gap-1">
+                              <Clock className="h-3 w-3" /> {dueLabel(p.deadline)}
+                            </span>
+                          </p>
+                          <div className="cf-prod-bar mt-2.5">
+                            <div className="cf-prod-bar-fill" style={{ width: `${Math.min(100, pct)}%` }} />
+                          </div>
+                        </div>
+                        <div className="shrink-0 text-right pl-3">
+                          <span className="cf-chip">{p.assigned_to || p.artisan || 'Atelier'}</span>
+                          <p className="mt-2 text-sm font-semibold tabular-nums text-neya-ink">{pct}%</p>
+                        </div>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+
+          {/* Agenda du jour */}
+          <section className="cf-panel">
+            <div className="cf-panel-head">
+              <div>
+                <h2 className="cf-panel-title">Agenda du jour</h2>
+                <p className="cf-panel-sub">
+                  {agendaFallback.length} rendez-vous · atelier & clients
+                </p>
+              </div>
+              <Link href="/calendar" className="dash-link">Calendrier</Link>
+            </div>
+            {!agendaFallback.length ? (
+              <p className="dash-empty">Rien de planifié — ouvre le calendrier.</p>
+            ) : (
+              <ul className="space-y-2.5">
+                {agendaFallback.map(t => {
+                  const time = t.start_time
+                    ? new Date(t.start_time).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' })
+                    : '—';
+                  const type = agendaType(t);
+                  return (
+                    <li key={t.id}>
+                      <Link
+                        href={t.project_id ? `/projects/${t.project_id}` : '/calendar'}
+                        className="cf-agenda-row"
+                      >
+                        <span className="cf-agenda-time">{time}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-medium text-neya-ink truncate">
+                            {t.title}
+                          </span>
+                          <span className="cf-agenda-type">{type}</span>
+                        </span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            <div className="cf-agenda-free mt-4">
+              <CheckCircle2 className="h-3.5 w-3.5 text-neya-orange shrink-0" />
+              <span>Prochain créneau libre : {nextFree}</span>
+            </div>
+          </section>
+        </div>
+
+        {/* Courriel — à répondre */}
+        <section className="cf-panel mb-6">
+          <div className="cf-panel-head">
+            <div>
+              <h2 className="cf-panel-title">Courriel — à répondre</h2>
+              <p className="cf-panel-sub">
+                {mailPreview.unread || 0} à traiter · Gmail
+              </p>
+            </div>
+            <Link href="/mail" className="dash-link inline-flex items-center gap-1">
+              Ouvrir la boîte <ArrowUpRight className="h-3.5 w-3.5" />
+            </Link>
           </div>
-        )}
+          {!mailPreview.messages?.length ? (
+            <p className="dash-empty">Aucun mail à afficher — connecte Gmail ou ouvre la boîte.</p>
+          ) : (
+            <ul className="divide-y divide-neya-border/70">
+              {mailPreview.messages.map(m => {
+                const from = m.fromName || m.from || m.sender || 'Inconnu';
+                const urgent = m.urgent || /urgent/i.test(m.subject || '');
+                const tag = m.erpFolder || m.tag || (urgent ? 'À répondre' : 'Boîte');
+                const time = m.date
+                  ? new Date(m.date).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' })
+                  : (m.internalDate
+                    ? new Date(Number(m.internalDate)).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' })
+                    : '');
+                return (
+                  <li key={m.id}>
+                    <Link href="/mail" className="cf-mail-row">
+                      <span className="cf-mail-avatar" aria-hidden>{initials(from)}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-medium text-neya-ink truncate">{from}</span>
+                          {urgent && <span className="cf-badge-urgent">Urgent</span>}
+                        </span>
+                        <span className="block text-[13px] text-neya-muted truncate mt-0.5">
+                          {m.subject || '(sans objet)'}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-right pl-2">
+                        <span className="block text-[11px] text-neya-muted tabular-nums">{time}</span>
+                        <span className="cf-chip mt-1 inline-block capitalize">{String(tag).replace(/_/g, ' ')}</span>
+                      </span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
 
-        <div className="dash-stack space-y-6">
-          {sections.map(renderSection)}
-        </div>
+        {/* Status banner */}
+        <section className={`cf-status ${statusOk ? 'cf-status-ok' : 'cf-status-warn'}`}>
+          <div className="min-w-0 flex-1">
+            <p className="font-display font-semibold text-neya-ink">{statusText}</p>
+            <p className="text-sm text-neya-muted mt-0.5">{statusSub}</p>
+          </div>
+          <Link href={statusOk ? '/projects' : '/production'} className="btn-secondary text-sm shrink-0">
+            {statusOk ? 'Voir les projets' : 'Ouvrir Production'}
+          </Link>
+        </section>
       </AppShell>
     </AuthGuard>
   );
