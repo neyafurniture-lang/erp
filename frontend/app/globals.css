@@ -791,10 +791,11 @@ h1, h2, h3, h4, h5, h6 {
     display: none;
     background: var(--surface, #f7f5f2);
   }
-  @media (min-width: 1280px) {
+  /* Colonne ERP seulement en très large — laisse la lecture lisible (~1440px) */
+  @media (min-width: 1536px) {
     .mail-erp-panel {
       display: flex;
-      width: 340px;
+      width: 320px;
       flex-shrink: 0;
       border-left: 1px solid var(--border, #e6e4e2);
       position: relative;
@@ -820,7 +821,7 @@ h1, h2, h3, h4, h5, h6 {
     from { transform: translateY(100%); opacity: 0.6; }
     to { transform: none; opacity: 1; }
   }
-  @media (min-width: 1280px) {
+  @media (min-width: 1536px) {
     .mail-erp-panel--open {
       position: relative;
       left: auto;
@@ -837,7 +838,7 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .mail-erp-backdrop {
-    @apply fixed inset-0 z-[55] xl:hidden;
+    @apply fixed inset-0 z-[55] 2xl:hidden;
     background: rgba(10, 10, 10, 0.35);
     backdrop-filter: blur(4px);
     animation: mail-fade-in 0.22s ease both;

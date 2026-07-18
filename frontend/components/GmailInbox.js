@@ -1091,7 +1091,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                       <button
                         type="button"
                         onClick={() => setErpOpen(v => !v)}
-                        className={`mail-icon-btn xl:hidden ${erpOpen ? 'text-neya-orange bg-orange-50' : ''}`}
+                        className={`mail-icon-btn 2xl:hidden ${erpOpen ? 'text-neya-orange bg-orange-50' : ''}`}
                         title="Contexte ERP"
                         aria-label="Contexte ERP"
                       >
@@ -1199,7 +1199,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                 />
               )}
               <aside className={`mail-erp-panel ${erpOpen ? 'mail-erp-panel--open' : ''}`}>
-                <div className="mail-erp-sheet__handle xl:hidden" />
+                <div className="mail-erp-sheet__handle 2xl:hidden" />
                 <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-b border-neya-border px-5 py-4 shrink-0">
                   <div className="min-w-0">
                     <p className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-neya-muted">
@@ -1209,7 +1209,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                       {thread?.client_name || selectedSender.name || 'Message'}
                     </h3>
                   </div>
-                  <button type="button" className="mail-icon-btn xl:hidden" onClick={() => setErpOpen(false)} aria-label="Fermer">
+                  <button type="button" className="mail-icon-btn 2xl:hidden" onClick={() => setErpOpen(false)} aria-label="Fermer">
                     ✕
                   </button>
                 </div>
