@@ -5,8 +5,33 @@ const router = Router();
 
 router.get('/', async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM clients ORDER BY name');
-    res.json(rows);
+    const { rows } = await pool.query(`
+      SELECT c.*,
+        (SELECT COUNT(*)::int FROM projects p WHERE p.client_id = c.id) AS project_count,
+        (SELECT COUNT(*)::int FROM projects p WHERE p.client_id = c.id AND p.status = 'active') AS active_projects,
+        (SELECT COALESCE(SUM(i.amount_paid), 0)::float FROM invoices i WHERE i.client_id = c.id) AS total_billed,
+        (SELECT COALESCE(SUM(i.total), 0)::float FROM invoices i WHERE i.client_id = c.id AND i.status != 'draft') AS total_invoiced,
+        GREATEST(
+          c.created_at,
+          (SELECT MAX(p.created_at) FROM projects p WHERE p.client_id = c.id),
+          (SELECT MAX(i.created_at) FROM invoices i WHERE i.client_id = c.id),
+          (SELECT MAX(q.created_at) FROM quotes q WHERE q.client_id = c.id)
+        ) AS last_activity_at,
+        (SELECT COUNT(*)::int FROM quotes q WHERE q.client_id = c.id AND q.status IN ('draft','sent')) AS open_quotes
+      FROM clients c
+      ORDER BY c.name
+    `);
+    res.json(rows.map(c => {
+      const active = Number(c.active_projects || 0);
+      const projects = Number(c.project_count || 0);
+      const openQuotes = Number(c.open_quotes || 0);
+      let tone = 'archived';
+      if (active > 0) tone = 'active';
+      else if (openQuotes > 0 && projects === 0) tone = 'prospect';
+      else if (projects >= 2) tone = 'fidele';
+      else if (projects > 0) tone = 'active';
+      return { ...c, tone };
+    }));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

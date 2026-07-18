@@ -11,7 +11,9 @@ Référence visuelle officielle pour **toute** l’app ERP.
 |------|--------|
 | Tokens / typo / shell / login | Fait |
 | Dashboard | Fait (composition Craft Flow : KPIs + Production + Agenda + Courriel) |
-| Projets / Clients / Production | Fait |
+| Calendrier | Fait (grille mois Craft Flow + vue équipe) |
+| Clients | Fait (table Craft Flow : projets, total, statut, dernier contact) |
+| Projets / Production | Fait |
 | Factures / Dépenses / Stock / Achats | Fait |
 | Settings / Admin / Sauna / Web / Drive / Roadmap / Manuel | Fait |
 | Courriel (CSS Craft Flow) | Fait (APIs Gmail inchangées) |
