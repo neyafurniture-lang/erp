@@ -25,13 +25,14 @@ const MONTHS_FR = [
 const DAYS_FR_SHORT = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 const DAYS_FR = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
 
+/** Catégories affichées comme Craft Flow Lovable (filtre Congé optionnel en données). */
 const CATEGORY_META = {
   production: {
     label: 'Production',
     Icon: Hammer,
     dot: 'bg-neya-orange',
     chip: 'bg-neya-orange-soft text-neya-orange border-neya-orange/20',
-    bar: 'border-l-neya-orange bg-neya-orange/[0.06]',
+    bar: 'border-l-neya-orange bg-neya-orange/[0.05]',
   },
   livraison: {
     label: 'Livraison',
@@ -62,6 +63,8 @@ const CATEGORY_META = {
     bar: 'border-l-neya-muted bg-neya-surface/80',
   },
 };
+
+const FILTER_KEYS = ['production', 'livraison', 'client', 'installation'];
 
 function iso(d) {
   const x = new Date(d);
@@ -104,10 +107,10 @@ function FilterChip({ label, active, dot, onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-medium transition-colors ${
+      className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11.5px] font-medium transition-colors ${
         active
           ? 'border-neya-ink bg-neya-ink text-white'
-          : 'border-neya-border bg-white text-neya-ink-light hover:bg-neya-surface'
+          : 'border-neya-border bg-white text-neya-muted hover:text-neya-ink'
       }`}
     >
       {dot ? <span className={`h-1.5 w-1.5 rounded-full ${active ? 'bg-white' : dot}`} /> : null}
@@ -149,6 +152,9 @@ function CraftCalendar() {
         const start = t.start ? new Date(t.start) : null;
         const end = t.end ? new Date(t.end) : null;
         const date = start ? iso(start) : null;
+        const projectName = t.extendedProps?.projectName
+          || t.title?.match(/\(([^)]+)\)/)?.[1]
+          || null;
         return {
           id: `t-${t.id}`,
           title: t.title,
@@ -156,9 +162,9 @@ function CraftCalendar() {
           start: hhmm(start),
           end: hhmm(end),
           category: categorizeTask(t),
-          project: t.extendedProps?.projectId ? t.title.match(/\(([^)]+)\)/)?.[1] : null,
+          project: projectName,
+          location: t.extendedProps?.location || null,
           href: t.extendedProps?.projectId ? `/projects/${t.extendedProps.projectId}` : null,
-          raw: t,
         };
       }).filter(e => e.date);
 
@@ -177,6 +183,7 @@ function CraftCalendar() {
             end: i === daysSpan - 1 ? hhmm(end) : '23:59',
             category: 'conge',
             project: to.notes || null,
+            location: null,
             href: null,
           };
         });
@@ -235,14 +242,14 @@ function CraftCalendar() {
   }
 
   return (
-    <div className="space-y-4">
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="inline-flex items-center rounded-lg border border-neya-border bg-white p-0.5">
+    <div>
+      {/* Toolbar — Craft Flow Lovable */}
+      <div className="mb-5 flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-1 rounded-lg border border-neya-border bg-white p-1">
           <button
             type="button"
             onClick={() => setView(new Date(view.getFullYear(), view.getMonth() - 1, 1))}
-            className="grid h-8 w-8 place-items-center rounded-md text-neya-muted hover:bg-neya-surface hover:text-neya-ink"
+            className="grid h-7 w-7 place-items-center rounded-md text-neya-muted hover:bg-neya-surface hover:text-neya-ink"
             aria-label="Mois précédent"
           >
             <ChevronLeft className="h-4 w-4" />
@@ -250,31 +257,33 @@ function CraftCalendar() {
           <button
             type="button"
             onClick={() => { setView(new Date(today)); setSelected(todayIso); }}
-            className="h-8 rounded-md px-2.5 text-[12px] font-medium text-neya-ink hover:bg-neya-surface"
+            className="h-7 rounded-md px-2.5 text-[12px] font-medium text-neya-ink hover:bg-neya-surface"
           >
             Aujourd&apos;hui
           </button>
           <button
             type="button"
             onClick={() => setView(new Date(view.getFullYear(), view.getMonth() + 1, 1))}
-            className="grid h-8 w-8 place-items-center rounded-md text-neya-muted hover:bg-neya-surface hover:text-neya-ink"
+            className="grid h-7 w-7 place-items-center rounded-md text-neya-muted hover:bg-neya-surface hover:text-neya-ink"
             aria-label="Mois suivant"
           >
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
-        <h2 className="font-display text-lg font-semibold text-neya-ink">{monthLabel}</h2>
+
+        <h2 className="font-display text-[17px] font-semibold text-neya-ink">{monthLabel}</h2>
+
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
-          <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-neya-muted mr-1">
-            <Filter className="h-3 w-3" /> Filtres
+          <span className="mr-1 hidden items-center gap-1 text-[11px] text-neya-muted sm:inline-flex">
+            <Filter className="h-3.5 w-3.5" /> Filtres
           </span>
-          <FilterChip label="Tous" active={filter === 'all'} onClick={() => setFilter('all')} />
-          {Object.entries(CATEGORY_META).map(([k, meta]) => (
+          <FilterChip label="Tout" active={filter === 'all'} onClick={() => setFilter('all')} />
+          {FILTER_KEYS.map(k => (
             <FilterChip
               key={k}
-              label={meta.label}
+              label={CATEGORY_META[k].label}
+              dot={CATEGORY_META[k].dot}
               active={filter === k}
-              dot={meta.dot}
               onClick={() => setFilter(k)}
             />
           ))}
@@ -282,15 +291,18 @@ function CraftCalendar() {
       </div>
 
       {err && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{err}</div>
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{err}</div>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-4">
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
         {/* Month grid */}
         <div className="overflow-hidden rounded-2xl border border-neya-border bg-white shadow-sm">
-          <div className="grid grid-cols-7 border-b border-neya-border bg-neya-surface/60">
+          <div className="grid grid-cols-7 border-b border-neya-border bg-neya-surface/40">
             {DAYS_FR_SHORT.map(d => (
-              <div key={d} className="px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wider text-neya-muted">
+              <div
+                key={d}
+                className="px-2 py-2 text-center text-[10.5px] font-semibold uppercase tracking-[0.14em] text-neya-muted"
+              >
                 {d}
               </div>
             ))}
@@ -309,32 +321,42 @@ function CraftCalendar() {
                   onClick={() => setSelected(key)}
                   className={[
                     'group relative flex min-h-[86px] flex-col gap-1 border-b border-r border-neya-border p-2 text-left transition-colors lg:min-h-[104px]',
-                    !inMonth ? 'bg-neya-surface/30 text-neya-muted' : 'bg-white',
-                    isSelected ? 'bg-neya-orange/[0.06] ring-1 ring-inset ring-neya-orange/30' : 'hover:bg-neya-surface/50',
+                    !inMonth ? 'bg-neya-surface/25 text-neya-muted' : '',
+                    isSelected ? 'bg-neya-orange/[0.06] ring-1 ring-inset ring-neya-orange/30' : 'hover:bg-neya-surface/40',
                     (i + 1) % 7 === 0 ? 'border-r-0' : '',
                     i >= 35 ? 'border-b-0' : '',
                   ].join(' ')}
                 >
-                  <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-[12px] font-semibold tabular-nums ${
-                    isToday ? 'bg-neya-orange text-white' : 'text-neya-ink'
-                  }`}>
+                  <span
+                    className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-[12px] font-semibold ${
+                      isToday
+                        ? 'bg-neya-orange text-white'
+                        : inMonth
+                          ? 'text-neya-ink'
+                          : 'text-neya-muted'
+                    }`}
+                  >
                     {d.getDate()}
                   </span>
-                  <div className="flex flex-col gap-0.5 w-full min-w-0">
+                  <div className="flex flex-col gap-0.5">
                     {evts.slice(0, 3).map(e => {
                       const meta = CATEGORY_META[e.category] || CATEGORY_META.production;
                       return (
                         <span
                           key={e.id}
-                          className={`truncate rounded px-1 py-0.5 text-[10px] font-medium border ${meta.chip}`}
+                          className={`flex items-center gap-1 truncate rounded px-1 py-0.5 text-[10.5px] font-medium border ${meta.chip}`}
                           title={`${e.start} ${e.title}`}
                         >
-                          <span className="hidden sm:inline">{e.start} · </span>{e.title}
+                          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${meta.dot}`} />
+                          <span className="hidden truncate lg:inline">{e.title}</span>
+                          <span className="truncate lg:hidden">{e.start}</span>
                         </span>
                       );
                     })}
                     {evts.length > 3 && (
-                      <span className="text-[10px] text-neya-muted font-medium">+{evts.length - 3} de plus</span>
+                      <span className="px-1 text-[10px] text-neya-muted">
+                        +{evts.length - 3} de plus
+                      </span>
                     )}
                   </div>
                 </button>
@@ -342,31 +364,30 @@ function CraftCalendar() {
             })}
           </div>
           {loading && (
-            <p className="px-4 py-3 text-sm text-neya-muted border-t border-neya-border">Chargement…</p>
+            <p className="border-t border-neya-border px-4 py-3 text-sm text-neya-muted">Chargement…</p>
           )}
         </div>
 
-        {/* Day detail */}
-        <aside className="rounded-2xl border border-neya-border bg-white shadow-sm p-4 sm:p-5 flex flex-col min-h-[320px]">
-          <div className="mb-4">
-            <h3 className="font-display text-[16px] font-semibold text-neya-ink">
+        {/* Day detail — Craft Flow */}
+        <aside className="flex flex-col gap-3">
+          <div className="rounded-2xl border border-neya-border bg-white p-4 shadow-sm">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-neya-muted">
               {formatDayLabel(selected)}
-            </h3>
-            <p className="text-[12px] text-neya-muted mt-0.5">
+            </p>
+            <p className="mt-0.5 font-display text-[22px] font-semibold text-neya-ink">
               {selectedEvents.length} événement{selectedEvents.length > 1 ? 's' : ''}
             </p>
+            <button
+              type="button"
+              onClick={() => setShowAdd(v => !v)}
+              className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-lg bg-neya-ink px-3 text-[12.5px] font-medium text-white hover:bg-neya-ink/90"
+            >
+              <Plus className="h-3.5 w-3.5" /> Ajouter à cette date
+            </button>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowAdd(v => !v)}
-            className="btn-primary text-sm w-full mb-4 gap-1.5"
-          >
-            <Plus className="h-4 w-4" /> Ajouter à cette date
-          </button>
-
           {showAdd && (
-            <form onSubmit={createEvent} className="mb-4 space-y-2 rounded-xl border border-neya-border bg-neya-surface/40 p-3">
+            <form onSubmit={createEvent} className="space-y-2 rounded-2xl border border-neya-border bg-white p-3 shadow-sm">
               <input
                 className="input text-sm"
                 placeholder="Titre (ex. Livraison table…)"
@@ -391,31 +412,37 @@ function CraftCalendar() {
             </form>
           )}
 
-          <div className="flex-1 space-y-2.5 overflow-y-auto">
+          <div className="flex flex-col gap-2">
             {selectedEvents.length === 0 && !loading && (
-              <div className="rounded-xl border border-dashed border-neya-border px-4 py-8 text-center">
-                <p className="text-sm font-medium text-neya-ink">Journée libre</p>
-                <p className="text-xs text-neya-muted mt-1">Aucun événement planifié.</p>
+              <div className="rounded-2xl border border-dashed border-neya-border bg-white/60 p-6 text-center">
+                <Clock className="mx-auto h-5 w-5 text-neya-muted" />
+                <p className="mt-2 text-[13px] font-medium text-neya-ink">Journée libre</p>
+                <p className="text-[12px] text-neya-muted">Aucun événement planifié.</p>
               </div>
             )}
             {selectedEvents.map(e => {
               const meta = CATEGORY_META[e.category] || CATEGORY_META.production;
               const Icon = meta.Icon;
               const body = (
-                <div className={`rounded-xl border border-neya-border border-l-4 px-3 py-2.5 ${meta.bar}`}>
-                  <div className="flex items-start gap-2">
-                    <span className={`mt-0.5 grid h-7 w-7 place-items-center rounded-lg border ${meta.chip}`}>
-                      <Icon className="h-3.5 w-3.5" />
+                <article className={`rounded-xl border border-neya-border border-l-4 bg-white p-3 shadow-sm ${meta.bar}`}>
+                  <div className="flex items-start gap-2.5">
+                    <span className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg border ${meta.chip}`}>
+                      <Icon className="h-4 w-4" />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-neya-ink leading-snug">{e.title}</p>
-                      <p className="text-[12px] text-neya-muted mt-0.5 tabular-nums">
+                      <p className="truncate text-[13.5px] font-semibold text-neya-ink">{e.title}</p>
+                      <p className="text-[11.5px] text-neya-muted">
                         {e.start} – {e.end}
-                        {e.project ? ` · ${e.project}` : ''}
+                        {e.location ? ` · ${e.location}` : ''}
                       </p>
+                      {e.project && (
+                        <p className="mt-1 inline-flex rounded-md bg-neya-surface px-1.5 py-0.5 text-[10.5px] font-medium text-neya-ink">
+                          {e.project}
+                        </p>
+                      )}
                     </div>
                   </div>
-                </div>
+                </article>
               );
               return e.href ? (
                 <Link key={e.id} href={e.href} className="block hover:opacity-90">{body}</Link>
@@ -431,21 +458,22 @@ function CraftCalendar() {
 }
 
 export default function CalendarPage() {
-  const [mode, setMode] = useState('mois'); // mois | equipe
+  const [mode, setMode] = useState('mois');
 
   return (
     <AuthGuard>
       <AppShell
         title="Calendrier"
-        subtitle="Planning atelier, livraisons et rendez-vous"
+        subtitle="Planning atelier · livraisons · rendez-vous"
         wide
       >
-        <div className="flex flex-wrap items-center gap-2 mb-5">
-          <div className="inline-flex rounded-lg border border-neya-border bg-white p-0.5">
+        {/* Vue mois = Craft Flow ; équipe conservée en secondaire */}
+        <div className="mb-4 flex justify-end">
+          <div className="inline-flex rounded-lg border border-neya-border bg-white p-0.5 text-[12px]">
             <button
               type="button"
               onClick={() => setMode('mois')}
-              className={`h-8 rounded-md px-3 text-[12.5px] font-medium ${
+              className={`h-7 rounded-md px-2.5 font-medium ${
                 mode === 'mois' ? 'bg-neya-ink text-white' : 'text-neya-muted hover:text-neya-ink'
               }`}
             >
@@ -454,11 +482,11 @@ export default function CalendarPage() {
             <button
               type="button"
               onClick={() => setMode('equipe')}
-              className={`h-8 rounded-md px-3 text-[12.5px] font-medium ${
+              className={`h-7 rounded-md px-2.5 font-medium ${
                 mode === 'equipe' ? 'bg-neya-ink text-white' : 'text-neya-muted hover:text-neya-ink'
               }`}
             >
-              Équipe / semaine
+              Équipe
             </button>
           </div>
         </div>
