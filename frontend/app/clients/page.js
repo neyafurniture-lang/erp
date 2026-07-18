@@ -6,7 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { Search, Plus, Mail, MapPin, Phone, ChevronRight } from 'lucide-react';
 import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
-import { api } from '../../lib/api';
+import { api, formatMoney } from '../../lib/api';
 
 function initials(name) {
   return String(name || '?')
@@ -18,10 +18,40 @@ function initials(name) {
     .toUpperCase();
 }
 
+function relativeLast(dateLike) {
+  if (!dateLike) return '—';
+  const d = new Date(dateLike);
+  if (Number.isNaN(d.getTime())) return '—';
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startThat = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diff = Math.round((startToday - startThat) / 86400000);
+  if (diff <= 0) return "Aujourd'hui";
+  if (diff === 1) return 'Hier';
+  if (diff < 7) return `${diff} j`;
+  if (diff < 30) return `${Math.floor(diff / 7)} sem`;
+  if (diff < 60) return '1 mois';
+  return d.toLocaleDateString('fr-CA', { day: 'numeric', month: 'short' });
+}
+
+function toneLabel(tone) {
+  if (tone === 'fidele') return 'Fidèle';
+  if (tone === 'prospect') return 'Prospect';
+  if (tone === 'active') return 'Actif';
+  return 'Archivé';
+}
+
+function toneClass(tone) {
+  if (tone === 'fidele') return 'bg-neya-orange-soft text-neya-orange border-neya-orange/25';
+  if (tone === 'prospect') return 'bg-amber-50 text-amber-800 border-amber-200';
+  if (tone === 'active') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+  return 'bg-neya-surface text-neya-muted border-neya-border';
+}
+
 export default function ClientsPage() {
   return (
     <AuthGuard>
-      <AppShell title="Clients" subtitle="Répertoire clients de l'atelier">
+      <AppShell title="Clients" subtitle="Répertoire clients de l'atelier" wide>
         <Suspense fallback={<p className="text-neya-muted">Chargement…</p>}>
           <ClientsContent />
         </Suspense>
@@ -67,7 +97,15 @@ function ClientsContent() {
   }
 
   function startEdit(c) {
-    setForm({ name: c.name, contact: c.contact || '', email: c.email || '', phone: c.phone || '', address: c.address || '', city: c.city || '', notes: c.notes || '' });
+    setForm({
+      name: c.name,
+      contact: c.contact || '',
+      email: c.email || '',
+      phone: c.phone || '',
+      address: c.address || '',
+      city: c.city || '',
+      notes: c.notes || '',
+    });
     setEditId(c.id);
     setShowForm(true);
   }
@@ -82,23 +120,17 @@ function ClientsContent() {
     );
   }, [clients, query]);
 
+  const activeCount = clients.filter(c => c.tone === 'active' || c.active_projects > 0).length;
+
   return (
     <div className="space-y-5">
-      <div className="lg:hidden">
-        <h1 className="font-display text-[26px] font-semibold text-neya-ink">Clients</h1>
-        <p className="text-sm text-neya-muted">{clients.length} compte{clients.length > 1 ? 's' : ''}</p>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative min-w-[220px] flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neya-muted" aria-hidden />
-          <input
-            type="search"
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            placeholder="Rechercher un client, une ville…"
-            className="cf-page-search h-11 pl-10 text-[13.5px]"
-          />
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="font-display text-[26px] font-semibold text-neya-ink lg:hidden">Clients</h1>
+          <p className="text-sm text-neya-muted">
+            {clients.length} compte{clients.length > 1 ? 's' : ''}
+            {activeCount ? ` · ${activeCount} actif${activeCount > 1 ? 's' : ''}` : ''}
+          </p>
         </div>
         <button
           type="button"
@@ -111,6 +143,17 @@ function ClientsContent() {
         >
           <Plus className="h-4 w-4" /> Nouveau client
         </button>
+      </div>
+
+      <div className="relative max-w-xl">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neya-muted" aria-hidden />
+        <input
+          type="search"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="Rechercher un client, une ville…"
+          className="cf-page-search h-11 pl-10 text-[13.5px]"
+        />
       </div>
 
       {showForm && (
@@ -133,7 +176,7 @@ function ClientsContent() {
           </div>
           <div>
             <label className="label">Adresse</label>
-            <input className="input" value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} placeholder="433 Chabanel West, suite 1021" />
+            <input className="input" value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} />
           </div>
           <div>
             <label className="label">Ville / Province</label>
@@ -150,98 +193,110 @@ function ClientsContent() {
         </form>
       )}
 
-      {/* Mobile card list */}
+      {/* Mobile cards — Craft Flow */}
       <ul className="space-y-2 lg:hidden">
-        {filtered.map(c => (
-          <li key={c.id}>
-            <div className="flex w-full items-center gap-3 rounded-2xl border border-neya-border bg-white p-3 text-left shadow-sm">
-              <Link href={`/clients/${c.id}`} className="flex min-w-0 flex-1 items-center gap-3">
+        {filtered.map(c => {
+          const projects = Number(c.project_count || 0);
+          const total = Number(c.total_billed || c.total_invoiced || 0);
+          return (
+            <li key={c.id}>
+              <Link
+                href={`/clients/${c.id}`}
+                className="flex w-full items-center gap-3 rounded-2xl border border-neya-border bg-white p-3.5 text-left shadow-sm"
+              >
                 <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-neya-ink font-display text-[13px] font-semibold text-white">
                   {initials(c.name)}
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[14px] font-semibold text-neya-ink">{c.name}</p>
-                  <p className="truncate text-[11.5px] text-neya-muted">
-                    {[c.city, c.email || c.phone].filter(Boolean).join(' · ') || '—'}
+                  <p className="truncate text-[11.5px] text-neya-muted mt-0.5">
+                    {[c.city || '—', `${projects} projet${projects > 1 ? 's' : ''}`, formatMoney(total)].join(' · ')}
                   </p>
                 </div>
+                <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${toneClass(c.tone)}`}>
+                  {toneLabel(c.tone)}
+                </span>
                 <ChevronRight className="h-4 w-4 shrink-0 text-neya-muted" />
               </Link>
-              <button
-                type="button"
-                onClick={() => startEdit(c)}
-                title="Modifier"
-                className="shrink-0 p-2 rounded-lg text-neya-muted hover:text-neya-orange hover:bg-neya-orange/10 text-sm"
-              >
-                ✎
-              </button>
-            </div>
-          </li>
-        ))}
+            </li>
+          );
+        })}
         {filtered.length === 0 && (
           <li className="card rounded-2xl text-center py-10 text-sm text-neya-muted">Aucun client</li>
         )}
       </ul>
 
-      {/* Desktop table */}
+      {/* Desktop table — Craft Flow */}
       <div className="cf-table-wrap hidden lg:block">
         <table className="w-full text-[13px]">
           <thead>
             <tr>
               <th className="px-5 py-3">Client</th>
               <th className="px-5 py-3">Ville</th>
-              <th className="px-5 py-3">Contact</th>
-              <th className="px-5 py-3">Téléphone</th>
-              <th className="px-5 py-3 text-right">Actions</th>
+              <th className="px-5 py-3">Projets</th>
+              <th className="px-5 py-3">Total facturé</th>
+              <th className="px-5 py-3">Statut</th>
+              <th className="px-5 py-3">Dernier contact</th>
+              <th className="px-5 py-3 text-right"> </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-neya-border">
-            {filtered.map(c => (
-              <tr key={c.id} className="cursor-pointer">
-                <td className="px-5 py-3">
-                  <Link href={`/clients/${c.id}`} className="flex items-center gap-3 min-w-0">
-                    <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-neya-ink font-display text-[12px] font-semibold text-white">
-                      {initials(c.name)}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="truncate font-semibold text-neya-ink">{c.name}</p>
-                      {c.email && (
-                        <p className="flex items-center gap-1.5 truncate text-[11px] text-neya-muted">
-                          <Mail className="h-3 w-3" /> {c.email}
-                        </p>
-                      )}
-                    </div>
-                  </Link>
-                </td>
-                <td className="px-5 py-3 text-neya-ink-light">
-                  {c.city ? (
-                    <span className="inline-flex items-center gap-1.5">
-                      <MapPin className="h-3 w-3 text-neya-muted" /> {c.city}
+            {filtered.map(c => {
+              const projects = Number(c.project_count || 0);
+              const total = Number(c.total_billed || c.total_invoiced || 0);
+              return (
+                <tr key={c.id}>
+                  <td className="px-5 py-3">
+                    <Link href={`/clients/${c.id}`} className="flex items-center gap-3 min-w-0">
+                      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-neya-ink font-display text-[12px] font-semibold text-white">
+                        {initials(c.name)}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-neya-ink">{c.name}</p>
+                        {c.email ? (
+                          <p className="flex items-center gap-1.5 truncate text-[11px] text-neya-muted">
+                            <Mail className="h-3 w-3" /> {c.email}
+                          </p>
+                        ) : c.phone ? (
+                          <p className="flex items-center gap-1.5 truncate text-[11px] text-neya-muted">
+                            <Phone className="h-3 w-3" /> {c.phone}
+                          </p>
+                        ) : null}
+                      </div>
+                    </Link>
+                  </td>
+                  <td className="px-5 py-3 text-neya-ink-light">
+                    {c.city ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <MapPin className="h-3 w-3 text-neya-muted" /> {c.city}
+                      </span>
+                    ) : '—'}
+                  </td>
+                  <td className="px-5 py-3 tabular-nums font-medium text-neya-ink">{projects}</td>
+                  <td className="px-5 py-3 tabular-nums font-medium text-neya-ink">{formatMoney(total)}</td>
+                  <td className="px-5 py-3">
+                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${toneClass(c.tone)}`}>
+                      {toneLabel(c.tone)}
                     </span>
-                  ) : '—'}
-                </td>
-                <td className="px-5 py-3 text-neya-ink-light">{c.contact || '—'}</td>
-                <td className="px-5 py-3 text-neya-ink-light">
-                  {c.phone ? (
-                    <span className="inline-flex items-center gap-1.5">
-                      <Phone className="h-3 w-3 text-neya-muted" /> {c.phone}
-                    </span>
-                  ) : '—'}
-                </td>
-                <td className="px-5 py-3 text-right">
-                  <button
-                    type="button"
-                    onClick={() => startEdit(c)}
-                    className="text-xs font-medium text-neya-orange hover:underline"
-                  >
-                    Modifier
-                  </button>
-                </td>
-              </tr>
-            ))}
+                  </td>
+                  <td className="px-5 py-3 text-neya-muted">
+                    {c.open_quotes > 0 && !c.last_activity_at ? 'Devis' : relativeLast(c.last_activity_at)}
+                  </td>
+                  <td className="px-5 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => startEdit(c)}
+                      className="text-xs font-medium text-neya-orange hover:underline"
+                    >
+                      Modifier
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-5 py-10 text-center text-neya-muted">Aucun client</td>
+                <td colSpan={7} className="px-5 py-10 text-center text-neya-muted">Aucun client</td>
               </tr>
             )}
           </tbody>
