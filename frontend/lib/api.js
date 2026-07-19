@@ -1,6 +1,8 @@
 const API_URL_DEFAULT = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4001/api';
 const API_ROOT_KEY = 'neya_api_url';
 const FETCH_TIMEOUT_MS = 45000;
+/** Scan Vision / uploads lourds (photos téléphone). */
+const FETCH_TIMEOUT_UPLOAD_MS = 120000;
 
 export function getApiRoot() {
   return getApiUrl().replace(/\/api\/?$/, '');
@@ -132,16 +134,23 @@ export async function api(path, options = {}) {
 
   let res;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const timeoutMs = options.timeoutMs
+    || (isFormData ? FETCH_TIMEOUT_UPLOAD_MS : FETCH_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    const { timeoutMs: _t, ...fetchOpts } = options;
     res = await fetch(`${getApiUrl()}${path}`, {
-      ...options,
+      ...fetchOpts,
       headers,
       signal: options.signal || controller.signal,
     });
   } catch (err) {
     if (err?.name === 'AbortError') {
-      throw new Error(`Délai dépassé — API inaccessible (${getApiUrl()})`);
+      throw new Error(
+        isFormData
+          ? 'Analyse trop longue — réessayez avec une photo plus légère (appareil photo).'
+          : `Délai dépassé — API inaccessible (${getApiUrl()})`
+      );
     }
     throw new Error(
       `Connexion API impossible (${getApiUrl()}). Vérifiez le réseau ou l'URL API.`

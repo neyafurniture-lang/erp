@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Camera, FolderKanban, Loader2 } from 'lucide-react';
 import { api, formatMoney, resolveUploadUrl, EXPENSE_CATEGORIES } from '../lib/api';
+import { prepareReceiptImage } from '../lib/receipt-image';
 
 const CATEGORY_LABELS = {
   materiaux: 'Matériaux',
@@ -200,15 +201,17 @@ export default function ReceiptScanner({ compact = false, onChange }) {
     if (!file) return;
     setScanning(true);
     setErr('');
-    setHint('Lecture IA du ticket…');
+    setHint('Préparation de la photo…');
     try {
+      const ready = await prepareReceiptImage(file);
+      setHint('Lecture IA du ticket (10–40 s)…');
       const form = new FormData();
-      form.append('receipt', file);
-      await api('/receipts/scan', { method: 'POST', body: form });
+      form.append('receipt', ready);
+      await api('/receipts/scan', { method: 'POST', body: form, timeoutMs: 120000 });
       setHint('Ticket lu — choisissez le projet et validez.');
       load({ openLatest: true });
     } catch (e) {
-      setErr(e.message);
+      setErr(e.message || 'Scan impossible');
       setHint('');
     } finally {
       setScanning(false);
@@ -229,7 +232,7 @@ export default function ReceiptScanner({ compact = false, onChange }) {
           <input
             ref={fileRef}
             type="file"
-            accept="image/*"
+            accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*"
             capture="environment"
             className="hidden"
             onChange={e => scanFile(e.target.files?.[0])}
@@ -248,6 +251,9 @@ export default function ReceiptScanner({ compact = false, onChange }) {
           </button>
         </div>
       </div>
+      <p className="text-[11px] text-neya-muted mb-3 -mt-1">
+        Préférez l’appareil photo (JPG). Les photos HEIC de la galerie sont converties si possible.
+      </p>
 
       <ol className="mb-4 grid grid-cols-3 gap-2 text-[11px] sm:text-xs">
         {[

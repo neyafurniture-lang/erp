@@ -242,6 +242,11 @@ async function scanWithClaude(filePath, mimeType) {
  */
 export async function scanReceiptImage(filePath, mimeType = null) {
   const type = mimeType || guessMime(filePath);
+  if (/heic|heif/i.test(type)) {
+    throw new Error(
+      'Format HEIC non supporté. Utilisez l’appareil photo (« Scanner un ticket ») pour un JPG.'
+    );
+  }
   if (!type.startsWith('image/')) {
     throw new Error('Pour l\'instant, scannez une photo du ticket (PDF bientôt disponible)');
   }

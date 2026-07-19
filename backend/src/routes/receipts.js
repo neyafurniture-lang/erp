@@ -12,25 +12,56 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uploadDir = path.join(__dirname, '../../uploads/receipts');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
-const RECEIPT_EXT = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp']);
+const RECEIPT_EXT = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.heif']);
+const MIME_TO_EXT = {
+  'image/jpeg': '.jpg',
+  'image/jpg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
+  'image/heic': '.heic',
+  'image/heif': '.heif',
+};
+
+function extFromUpload(file) {
+  const fromName = path.extname(file.originalname || '').toLowerCase();
+  if (RECEIPT_EXT.has(fromName)) return fromName;
+  return MIME_TO_EXT[String(file.mimetype || '').toLowerCase()] || '.jpg';
+}
 
 const storage = multer.diskStorage({
   destination: uploadDir,
   filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname || '').toLowerCase();
-    cb(null, `${Date.now()}${RECEIPT_EXT.has(ext) ? ext : '.jpg'}`);
+    cb(null, `${Date.now()}${extFromUpload(file)}`);
   },
 });
 
 const upload = multer({
   storage,
-  limits: { fileSize: 12 * 1024 * 1024 },
+  limits: { fileSize: 16 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
+    const mime = String(file.mimetype || '').toLowerCase();
     const ext = path.extname(file.originalname || '').toLowerCase();
-    const ok = file.mimetype?.startsWith('image/') && RECEIPT_EXT.has(ext);
-    cb(ok ? null : new Error('Photo JPG/PNG/WebP uniquement'), ok);
+    // Mobile : souvent image/jpeg sans extension, ou HEIC galerie
+    const ok = mime.startsWith('image/')
+      || RECEIPT_EXT.has(ext)
+      || !mime; // certains WebViews envoient un type vide
+    if (!ok) {
+      return cb(new Error('Photo requise (JPG, PNG, WebP — appareil photo recommandé)'));
+    }
+    cb(null, true);
   },
 });
+
+function multerScan(req, res, next) {
+  upload.single('receipt')(req, res, (err) => {
+    if (!err) return next();
+    const msg = err.code === 'LIMIT_FILE_SIZE'
+      ? 'Photo trop lourde (max 16 Mo). Recadrez ou utilisez l’appareil photo.'
+      : (err.message || 'Échec envoi de la photo');
+    return res.status(400).json({ error: msg });
+  });
+}
 
 const router = Router();
 
@@ -54,11 +85,18 @@ router.get('/pending', async (_req, res) => {
   }
 });
 
-router.post('/scan', upload.single('receipt'), async (req, res) => {
+router.post('/scan', multerScan, async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Photo du ticket requise' });
 
-    const parsed = await scanReceiptImage(req.file.path, req.file.mimetype);
+    const mime = req.file.mimetype || 'image/jpeg';
+    if (/heic|heif/i.test(mime) || /\.heic$|\.heif$/i.test(req.file.originalname || '')) {
+      return res.status(400).json({
+        error: 'Format HEIC non supporté par l’IA. Utilisez « Scanner un ticket » (appareil photo) ou convertissez en JPG.',
+      });
+    }
+
+    const parsed = await scanReceiptImage(req.file.path, mime.startsWith('image/') ? mime : 'image/jpeg');
     const receipt_url = `/uploads/receipts/${req.file.filename}`;
 
     const { rows } = await pool.query(
