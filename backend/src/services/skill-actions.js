@@ -1,6 +1,16 @@
 import pool from '../db/pool.js';
 import { createQuoteRecord, createInvoiceRecord, convertQuoteToInvoice } from './invoice-helpers.js';
 import { sendDocumentEmail } from './document-email.js';
+import {
+  stripPlanPrefix,
+  isJunkPlanSegment,
+  splitPlanItems,
+  isMultiIntentErpMessage,
+  isDayPlanMessage,
+  torontoWallTime,
+} from './day-plan-classify.js';
+
+export { splitPlanItems, isMultiIntentErpMessage, isDayPlanMessage };
 
 const DAY_MAP = {
   lundi: 1, mardi: 2, mercredi: 3, jeudi: 4, vendredi: 5, samedi: 6, dimanche: 0,
@@ -320,21 +330,6 @@ function inferTaskType(text) {
   return 'admin';
 }
 
-function stripPlanPrefix(message) {
-  return message
-    .replace(/^(planifie[rz]?|programme[rz]?|prévois|prevoyez|organise[rz]?)\s+(ma\s+)?(journée|journee|planning|étapes?|etapes?)\s+(de\s+|pour\s+)?(demain|lundi|mardi|mercredi|jeudi|vendredi)\s*[:,-]?\s*/i, '')
-    .replace(/^(mes\s+)?(étapes?|etapes?)\s+(de\s+|pour\s+)?(demain|lundi|mardi|mercredi|jeudi|vendredi)\s*[:,-]?\s*/i, '')
-    .replace(/^(demain|pour\s+demain|lundi|mardi|mercredi|jeudi|vendredi)\s*[:,-]?\s*/i, '')
-    .trim();
-}
-
-function splitPlanItems(text) {
-  return text
-    .split(/\s*(?:,|;|\.|\bet\b|\bpuis\b|\baprès\b|\bapres\b|\bensuite\b)\s*/i)
-    .map(s => s.trim())
-    .filter(s => s.length > 2 && !/^(demain|pour|planifier|programmer|journée|journee|matin|après-midi)$/i.test(s));
-}
-
 function tokenizeForMatch(text) {
   return text
     .toLowerCase()
@@ -423,21 +418,16 @@ async function findOrCreatePlannedTask({ segment, type, project, pageContext }) 
   return rows[0];
 }
 
-export function isDayPlanMessage(message) {
-  const lower = message.toLowerCase();
-  const hasDate = /demain|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche/i.test(lower);
-  const multiItems = /,| et | puis | ensuite/i.test(lower);
-  const planIntent = /planif|journée|journee|étapes|etapes|programme|prévois|prevoyez|organise/i.test(lower);
-  const workKeywords = /finition|débitage|debitage|usinage|assemblage|mail|courriel|tâche|tache|étape|etape/i.test(lower);
-  const segments = splitPlanItems(stripPlanPrefix(message));
-  return (
-    (hasDate && segments.length >= 2 && workKeywords)
-    || (planIntent && hasDate)
-    || (hasDate && multiItems && workKeywords)
-  );
-}
-
 async function planDay(message, pageContext) {
+  if (isMultiIntentErpMessage(message)) {
+    return {
+      reply: 'Cette demande mélange plusieurs actions ERP (calendrier, devis, client…). '
+        + 'Utilisez le micro → « Créer le plan » pour les séparer, ou envoyez une action à la fois. '
+        + 'Pour une journée atelier : « Demain finition X, mail Y, débitage Z ».',
+      actions: [],
+    };
+  }
+
   const planDate = parseDateHint(message) || (() => {
     const d = new Date();
     d.setDate(d.getDate() + 1);
@@ -445,7 +435,7 @@ async function planDay(message, pageContext) {
   })();
 
   const body = stripPlanPrefix(message);
-  const items = splitPlanItems(body);
+  const items = splitPlanItems(body).filter(s => !isJunkPlanSegment(s));
   if (!items.length) {
     return {
       reply: 'Dites par ex. : « Demain finition banc olive Mehdi, mail pour The NNS, débitage table chêne »',
@@ -453,16 +443,13 @@ async function planDay(message, pageContext) {
     };
   }
 
-  const dayStart = new Date(planDate);
-  if (!parseDateHint(message) || !/\d{1,2}[h:]\d{0,2}/i.test(message)) {
-    dayStart.setHours(8, 30, 0, 0);
-  } else {
-    dayStart.setSeconds(0, 0);
-  }
+  const timeMatch = String(message).match(/(\d{1,2})[h:](\d{2})?/i);
+  let cursor = timeMatch
+    ? torontoWallTime(planDate, parseInt(timeMatch[1], 10), parseInt(timeMatch[2] || '0', 10))
+    : torontoWallTime(planDate, 8, 30);
 
   const actions = [];
   const lines = [];
-  let cursor = new Date(dayStart);
 
   for (const segment of items) {
     const type = inferTaskType(segment);
@@ -478,13 +465,22 @@ async function planDay(message, pageContext) {
     const scheduled = rows[0];
 
     actions.push({ type: 'plan_day', data: scheduled });
-    const timeStr = cursor.toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' });
+    const timeStr = cursor.toLocaleTimeString('fr-CA', {
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: 'America/Toronto',
+    });
     const projLabel = project ? ` (${project.name})` : '';
     lines.push(`• ${timeStr} — ${scheduled.title}${projLabel}`);
     cursor = end;
   }
 
-  const dateLabel = dayStart.toLocaleDateString('fr-CA', { weekday: 'long', day: 'numeric', month: 'long' });
+  const dateLabel = torontoWallTime(planDate, 12, 0).toLocaleDateString('fr-CA', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    timeZone: 'America/Toronto',
+  });
   return {
     reply: `Planning ${dateLabel} — ${items.length} étape(s) :\n${lines.join('\n')}`,
     actions,
@@ -703,7 +699,10 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
     }
 
     case 'create_client': {
-      const name = extractQuotedText(message) || extractAfterKeyword(message, ['client']) || 'Nouveau client';
+      const named = msg.match(/client\s+nomm[ée]e?\s+([A-Za-zÀ-ÿ][\wÀ-ÿ' -]{1,80})/i);
+      let name = params.name || extractQuotedText(message) || (named ? named[1].trim() : null)
+        || extractAfterKeyword(message, ['client']) || 'Nouveau client';
+      name = String(name).replace(/^(nommé|nommee|nommée|nomme)\s+/i, '').trim();
       const { rows } = await pool.query('INSERT INTO clients (name) VALUES ($1) RETURNING *', [name.slice(0, 200)]);
       actions.push({ type: 'create_client', data: rows[0] });
       return { reply: `Client ajouté : « ${rows[0].name} »`, actions };
