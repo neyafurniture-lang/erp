@@ -55,6 +55,7 @@ const PATH_MAP = [
   ['/finance', 'finance'],
   ['/expenses', 'expenses'],
   ['/clients', 'clients'],
+  ['/suppliers', 'purchases'],
   ['/standards', 'standards'],
   ['/web', 'web'],
   ['/marketplace', 'marketplace'],

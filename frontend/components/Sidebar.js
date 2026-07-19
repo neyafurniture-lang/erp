@@ -27,6 +27,7 @@ import {
   Share2,
   LogOut,
   MoreHorizontal,
+  Truck,
 } from 'lucide-react';
 import { api, logout } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
@@ -42,6 +43,7 @@ const NAV = [
   { href: '/admin', label: 'Session admin', section: 'principal', permission: 'admin', icon: Shield },
   { href: '/mail', label: 'Courriel', section: 'ops', permission: 'mail', icon: Mail },
   { href: '/clients', label: 'Clients', section: 'ops', permission: 'clients', icon: Users },
+  { href: '/suppliers', label: 'Fournisseurs', section: 'ops', permission: 'purchases', icon: Truck },
   { href: '/calendar', label: 'Calendrier', section: 'ops', permission: 'calendar', icon: Calendar },
   { href: '/inventory', label: 'Stock', section: 'ops', permission: 'inventory', icon: Package },
   { href: '/liste-courses', label: 'Liste de courses', section: 'ops', permission: 'purchases', icon: ShoppingCart },

@@ -1,5 +1,9 @@
 import { Router } from 'express';
 import pool from '../db/pool.js';
+import {
+  scanClientCandidatesFromMail,
+  importClientsFromCandidates,
+} from '../services/clients-from-mail.js';
 
 const router = Router();
 
@@ -32,6 +36,44 @@ router.get('/', async (req, res) => {
       else if (projects > 0) tone = 'active';
       return { ...c, tone };
     }));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Suggestions de clients à partir du miroir local (sans rescan Gmail). */
+router.get('/from-mail/suggestions', async (_req, res) => {
+  try {
+    const result = await scanClientCandidatesFromMail({ maxMessages: 0 });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Scan Gmail + miroir local → candidats clients. */
+router.post('/from-mail/scan', async (req, res) => {
+  try {
+    const maxMessages = Math.min(Number(req.body?.max_messages) || 400, 800);
+    const days = Number(req.body?.days) || 0;
+    const result = await scanClientCandidatesFromMail({ maxMessages, days });
+    res.json(result);
+  } catch (err) {
+    const status = /token|oauth|gmail|connect/i.test(err.message) ? 400 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+/** Création en masse des fiches clients sélectionnées. */
+router.post('/from-mail/import', async (req, res) => {
+  try {
+    const items = Array.isArray(req.body?.clients) ? req.body.clients : [];
+    if (!items.length) return res.status(400).json({ error: 'Aucun contact à importer' });
+    if (items.length > 200) return res.status(400).json({ error: 'Maximum 200 contacts par import' });
+    const result = await importClientsFromCandidates(items, {
+      linkThreads: req.body?.link_threads !== false,
+    });
+    res.status(201).json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

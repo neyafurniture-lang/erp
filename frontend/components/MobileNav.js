@@ -31,6 +31,7 @@ const MENU_GROUPS = [
     items: [
       { href: '/mail', label: 'Courriel', permission: 'mail' },
       { href: '/clients', label: 'Clients', permission: 'clients' },
+      { href: '/suppliers', label: 'Fournisseurs', permission: 'purchases' },
       { href: '/calendar', label: 'Calendrier', permission: 'calendar' },
       { href: '/inventory', label: 'Stock', permission: 'inventory' },
       { href: '/liste-courses', label: 'Liste de courses', permission: 'purchases' },

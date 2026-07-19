@@ -37,16 +37,18 @@ const router = Router();
 
 router.get('/', async (req, res) => {
   try {
-    const { project_id, category } = req.query;
+    const { project_id, category, supplier_id } = req.query;
     let query = `
-      SELECT e.*, p.name as project_name
+      SELECT e.*, p.name as project_name, s.name as supplier_name
       FROM expenses e
       LEFT JOIN projects p ON p.id = e.project_id
+      LEFT JOIN suppliers s ON s.id = e.supplier_id
       WHERE 1=1
     `;
     const params = [];
     if (project_id) { params.push(project_id); query += ` AND e.project_id = $${params.length}`; }
     if (category) { params.push(category); query += ` AND e.category = $${params.length}`; }
+    if (supplier_id) { params.push(supplier_id); query += ` AND e.supplier_id = $${params.length}`; }
     query += ' ORDER BY e.date DESC';
     const { rows } = await pool.query(query, params);
     res.json(rows);
@@ -57,12 +59,20 @@ router.get('/', async (req, res) => {
 
 router.post('/', upload.single('receipt'), async (req, res) => {
   try {
-    const { amount, category, description, project_id, date } = req.body;
+    const { amount, category, description, project_id, date, supplier_id } = req.body;
     const receipt_url = req.file ? `/uploads/${req.file.filename}` : null;
     const { rows } = await pool.query(
-      `INSERT INTO expenses (amount, category, description, project_id, receipt_url, date)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [amount, category || 'materiaux', description, project_id || null, receipt_url, date || new Date()]
+      `INSERT INTO expenses (amount, category, description, project_id, receipt_url, date, supplier_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [
+        amount,
+        category || 'materiaux',
+        description,
+        project_id || null,
+        receipt_url,
+        date || new Date(),
+        supplier_id ? Number(supplier_id) : null,
+      ]
     );
     res.status(201).json(rows[0]);
   } catch (err) {
