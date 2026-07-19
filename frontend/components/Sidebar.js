@@ -14,6 +14,7 @@ import {
   Package,
   Users,
   Calendar,
+  Clock,
   HardDrive,
   Mail,
   FileText,
@@ -30,7 +31,7 @@ import {
 } from 'lucide-react';
 import { api, logout } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
-import { canAccessPath, hasPermission } from '../lib/permissions';
+import { canAccessHours, canAccessPath, hasPermission } from '../lib/permissions';
 import NeyaMark from './NeyaMark';
 
 const NAV = [
@@ -43,6 +44,7 @@ const NAV = [
   { href: '/mail', label: 'Courriel', section: 'ops', permission: 'mail', icon: Mail },
   { href: '/clients', label: 'Clients', section: 'ops', permission: 'clients', icon: Users },
   { href: '/calendar', label: 'Calendrier', section: 'ops', permission: 'calendar', icon: Calendar },
+  { href: '/mes-heures', label: 'Mes heures', section: 'ops', permission: 'hours', icon: Clock },
   { href: '/inventory', label: 'Stock', section: 'ops', permission: 'inventory', icon: Package },
   { href: '/liste-courses', label: 'Liste de courses', section: 'ops', permission: 'purchases', icon: ShoppingCart },
   { href: '/purchases', label: 'Achats atelier', section: 'ops', permission: 'purchases', icon: Package },
@@ -82,11 +84,11 @@ export default function Sidebar() {
   const { user } = useAuth();
   const [shopUrl, setShopUrl] = useState('https://neyafurniture.ca');
 
-  const visibleNav = NAV.filter(n => (
-    n.permission === 'finance'
-      ? canAccessPath(user, '/finance')
-      : hasPermission(user, n.permission)
-  ));
+  const visibleNav = NAV.filter(n => {
+    if (n.permission === 'finance') return canAccessPath(user, '/finance');
+    if (n.permission === 'hours') return canAccessHours(user);
+    return hasPermission(user, n.permission);
+  });
   const showSettings = hasPermission(user, 'settings');
   const shopHost = shopUrl.replace(/^https?:\/\//, '');
   const initials = (user?.name || user?.email || 'N')

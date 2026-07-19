@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { FolderKanban, Hammer, LayoutDashboard, Mail, MoreHorizontal } from 'lucide-react';
 import { useAuth } from '../lib/auth-context';
-import { canAccessPath, hasPermission } from '../lib/permissions';
+import { canAccessHours, canAccessPath, hasPermission } from '../lib/permissions';
 
 const TABS = [
   { href: '/', label: 'Accueil', permission: 'dashboard', Icon: LayoutDashboard },
@@ -32,6 +32,7 @@ const MENU_GROUPS = [
       { href: '/mail', label: 'Courriel', permission: 'mail' },
       { href: '/clients', label: 'Clients', permission: 'clients' },
       { href: '/calendar', label: 'Calendrier', permission: 'calendar' },
+      { href: '/mes-heures', label: 'Mes heures', permission: 'hours' },
       { href: '/inventory', label: 'Stock', permission: 'inventory' },
       { href: '/liste-courses', label: 'Liste de courses', permission: 'purchases' },
       { href: '/purchases', label: 'Achats atelier', permission: 'purchases' },
@@ -81,9 +82,11 @@ export default function MobileNav() {
   const { user } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const canSee = (permission, href) => (
-    permission === 'finance' ? canAccessPath(user, href || '/finance') : hasPermission(user, permission)
-  );
+  const canSee = (permission, href) => {
+    if (permission === 'finance') return canAccessPath(user, href || '/finance');
+    if (permission === 'hours') return canAccessHours(user);
+    return hasPermission(user, permission);
+  };
   const tabs = TABS.filter(t => canSee(t.permission, t.href));
   const groups = MENU_GROUPS
     .map(g => ({ ...g, items: g.items.filter(i => canSee(i.permission, i.href)) }))

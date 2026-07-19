@@ -371,10 +371,19 @@ CREATE TABLE IF NOT EXISTS time_entries (
   employee_id INT REFERENCES employees(id) ON DELETE CASCADE,
   project_id INT REFERENCES projects(id) ON DELETE SET NULL,
   task_id INT REFERENCES tasks(id) ON DELETE SET NULL,
+  shift_id INT REFERENCES shifts(id) ON DELETE SET NULL,
   started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   ended_at TIMESTAMPTZ,
-  notes TEXT
+  notes TEXT,
+  source TEXT DEFAULT 'manual',
+  created_by INT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_time_entries_shift_unique
+  ON time_entries(shift_id) WHERE shift_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_time_entries_employee_started
+  ON time_entries(employee_id, started_at DESC);
 
 CREATE TABLE IF NOT EXISTS assistant_memories (
   id SERIAL PRIMARY KEY,

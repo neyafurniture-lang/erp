@@ -105,6 +105,33 @@ export async function initDb() {
   await pool.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS drive_folder_id TEXT');
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS employee_id INT REFERENCES employees(id) ON DELETE SET NULL');
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS time_entries (
+      id SERIAL PRIMARY KEY,
+      employee_id INT REFERENCES employees(id) ON DELETE CASCADE,
+      project_id INT REFERENCES projects(id) ON DELETE SET NULL,
+      task_id INT REFERENCES tasks(id) ON DELETE SET NULL,
+      shift_id INT REFERENCES shifts(id) ON DELETE SET NULL,
+      started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ended_at TIMESTAMPTZ,
+      notes TEXT,
+      source TEXT DEFAULT 'manual',
+      created_by INT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query('ALTER TABLE time_entries ADD COLUMN IF NOT EXISTS shift_id INT REFERENCES shifts(id) ON DELETE SET NULL');
+  await pool.query('ALTER TABLE time_entries ADD COLUMN IF NOT EXISTS source TEXT DEFAULT \'manual\'');
+  await pool.query('ALTER TABLE time_entries ADD COLUMN IF NOT EXISTS created_by INT REFERENCES users(id) ON DELETE SET NULL');
+  await pool.query('ALTER TABLE time_entries ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()');
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_time_entries_shift_unique
+    ON time_entries(shift_id) WHERE shift_id IS NOT NULL
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_time_entries_employee_started
+    ON time_entries(employee_id, started_at DESC)
+  `);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS time_off (
       id SERIAL PRIMARY KEY,
       employee_id INT NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
@@ -391,6 +418,36 @@ async function seedV2Extensions() {
        WHERE employee_id IS NULL AND (name ILIKE $2 OR email ILIKE $3)`,
       [er[0].id, `%${emp.name}%`, `%${emp.name.toLowerCase()}%`]
     );
+  }
+
+  // Compte Olive (artisan) pour inscrire ses shifts effectués
+  const { rows: oliveEmp } = await pool.query(`SELECT id FROM employees WHERE name = 'Olive' LIMIT 1`);
+  if (oliveEmp[0]) {
+    const oliveEmail = 'olive@neya.local';
+    const { rows: oliveUser } = await pool.query('SELECT id, employee_id FROM users WHERE email = $1', [oliveEmail]);
+    const olivePerms = JSON.stringify(['dashboard', 'calendar', 'projects', 'production']);
+    if (oliveUser.length === 0) {
+      const olivePassword = process.env.OLIVE_PASSWORD || process.env.ADMIN_PASSWORD || 'neya2024';
+      const hash = await bcrypt.hash(olivePassword, 12);
+      await pool.query(
+        `INSERT INTO users (name, email, password_hash, role, permissions, active, employee_id)
+         VALUES ($1, $2, $3, 'member', $4, true, $5)`,
+        ['Olive', oliveEmail, hash, olivePerms, oliveEmp[0].id]
+      );
+      console.log('Compte Olive créé: olive@neya.local (lié au profil atelier)');
+    } else {
+      await pool.query(
+        `UPDATE users
+         SET employee_id = COALESCE(employee_id, $1),
+             active = true,
+             permissions = CASE
+               WHEN permissions IS NULL OR permissions = '[]'::jsonb THEN $2::jsonb
+               ELSE permissions
+             END
+         WHERE email = $3`,
+        [oliveEmp[0].id, olivePerms, oliveEmail]
+      );
+    }
   }
 }
 

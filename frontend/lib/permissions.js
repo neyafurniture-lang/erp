@@ -49,6 +49,7 @@ const PATH_MAP = [
   ['/inventory', 'inventory'],
   ['/team', 'team'],
   ['/calendar', 'calendar'],
+  ['/mes-heures', 'hours'],
   ['/drive', 'drive'],
   ['/mail', 'mail'],
   ['/invoices', 'invoices'],
@@ -79,7 +80,17 @@ export function canAccessPath(user, pathname) {
       || hasPermission(user, 'invoices')
       || hasPermission(user, 'expenses');
   }
+  if (key === 'hours') {
+    return canAccessHours(user);
+  }
   return hasPermission(user, key);
+}
+
+/** Accès page Mes heures : profil employé lié, ou équipe / calendrier. */
+export function canAccessHours(user) {
+  if (!user || user.active === false) return false;
+  if (isAdmin(user) || hasPermission(user, 'team') || hasPermission(user, 'calendar')) return true;
+  return Boolean(user.employee_id);
 }
 
 export function setStoredUser(user) {

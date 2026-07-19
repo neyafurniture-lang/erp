@@ -62,7 +62,7 @@ export function AuthProvider({ children }) {
 }
 
 function firstAllowedPath(user) {
-  const order = ['/', '/production', '/projects', '/purchases', '/inventory', '/team', '/calendar', '/settings'];
+  const order = ['/', '/mes-heures', '/production', '/projects', '/purchases', '/inventory', '/team', '/calendar', '/settings'];
   return order.find(p => canAccessPath(user, p)) || null;
 }
 

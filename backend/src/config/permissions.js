@@ -35,6 +35,7 @@ export const PATH_PERMISSION = [
   { prefix: '/inventory', permission: 'inventory' },
   { prefix: '/team', permission: 'team' },
   { prefix: '/calendar', permission: 'calendar' },
+  { prefix: '/mes-heures', permission: 'hours' },
   { prefix: '/drive', permission: 'drive' },
   { prefix: '/mail', permission: 'mail' },
   { prefix: '/invoices', permission: 'invoices' },
@@ -80,6 +81,10 @@ export function canAccessPath(user, pathname) {
     return hasPermission(user, 'finance')
       || hasPermission(user, 'invoices')
       || hasPermission(user, 'expenses');
+  }
+  if (key === 'hours') {
+    if (isAdmin(user) || hasPermission(user, 'team') || hasPermission(user, 'calendar')) return true;
+    return Boolean(user.employee_id);
   }
   return hasPermission(user, key);
 }

@@ -199,7 +199,7 @@ export default function UsersManager() {
             </div>
             {form.role !== 'admin' && employees.length > 0 && (
               <div>
-                <label className="label">Profil atelier (congés, shifts)</label>
+                <label className="label">Profil atelier (congés, Mes heures)</label>
                 <select className="input" value={form.employee_id} onChange={e => setForm({ ...form, employee_id: e.target.value })}>
                   <option value="">— Aucun —</option>
                   {employees.map(e => (
