@@ -139,7 +139,8 @@ function CraftCalendar() {
   const [editTaskId, setEditTaskId] = useState(null);
   const [dragOverDate, setDragOverDate] = useState(null);
   const dragPayloadRef = useRef(null);
-  const didDragRef = useRef(false);
+  /** Ignore le click fantôme qui suit parfois un drag HTML5 */
+  const suppressClickRef = useRef(false);
 
   const gridStart = useMemo(() => startOfMonthGrid(view), [view]);
   const days = useMemo(() => Array.from({ length: 42 }, (_, i) => addDays(gridStart, i)), [gridStart]);
@@ -256,20 +257,20 @@ function CraftCalendar() {
       e.preventDefault();
       return;
     }
-    didDragRef.current = false;
     dragPayloadRef.current = {
       taskId: String(id),
       start: ev.raw?.start || null,
       end: ev.raw?.end || null,
     };
+    e.dataTransfer.setData('text/plain', String(id));
     e.dataTransfer.setData('text/task-id', String(id));
     e.dataTransfer.effectAllowed = 'move';
   }
 
   function onTaskDragEnd() {
     setDragOverDate(null);
-    // laisser le click suivant ignorer si un vrai drag a eu lieu
-    setTimeout(() => { didDragRef.current = false; }, 0);
+    suppressClickRef.current = true;
+    setTimeout(() => { suppressClickRef.current = false; }, 300);
   }
 
   async function moveTaskToDate(taskId, dateKey, startIso, endIso) {
@@ -298,9 +299,11 @@ function CraftCalendar() {
     e.preventDefault();
     e.stopPropagation();
     setDragOverDate(null);
-    const taskId = e.dataTransfer.getData('text/task-id') || dragPayloadRef.current?.taskId;
+    const taskId = e.dataTransfer.getData('text/task-id')
+      || e.dataTransfer.getData('text/plain')
+      || dragPayloadRef.current?.taskId;
     if (!taskId) return;
-    didDragRef.current = true;
+    suppressClickRef.current = true;
     try {
       await moveTaskToDate(
         taskId,
@@ -317,10 +320,8 @@ function CraftCalendar() {
 
   function onTaskClick(e, ev) {
     e.stopPropagation();
-    if (didDragRef.current) {
-      didDragRef.current = false;
-      return;
-    }
+    e.preventDefault();
+    if (suppressClickRef.current) return;
     openTask(ev);
   }
 
@@ -442,11 +443,19 @@ function CraftCalendar() {
                       return (
                         <span
                           key={e.id}
+                          role={canDrag ? 'button' : undefined}
+                          tabIndex={canDrag ? 0 : undefined}
                           draggable={canDrag}
                           onDragStart={ev => onTaskDragStart(ev, e)}
-                          onDrag={() => { didDragRef.current = true; }}
                           onDragEnd={onTaskDragEnd}
                           onClick={ev => onTaskClick(ev, e)}
+                          onKeyDown={ev => {
+                            if (canDrag && (ev.key === 'Enter' || ev.key === ' ')) {
+                              ev.preventDefault();
+                              ev.stopPropagation();
+                              openTask(e);
+                            }
+                          }}
                           className={`truncate rounded px-1 py-0.5 text-[10px] font-medium border ${meta.chip} ${
                             canDrag ? 'cursor-grab active:cursor-grabbing hover:brightness-95' : ''
                           }`}
@@ -531,13 +540,9 @@ function CraftCalendar() {
                   type="button"
                   draggable={canEdit}
                   onDragStart={ev => onTaskDragStart(ev, e)}
-                  onDrag={() => { didDragRef.current = true; }}
                   onDragEnd={onTaskDragEnd}
                   onClick={ev => {
-                    if (didDragRef.current) {
-                      didDragRef.current = false;
-                      return;
-                    }
+                    if (suppressClickRef.current) return;
                     if (canEdit) openTask(e);
                   }}
                   className={`w-full text-left rounded-xl border border-neya-border border-l-4 px-3 py-2.5 ${meta.bar} ${
