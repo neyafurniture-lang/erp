@@ -32,6 +32,8 @@ const MENU_GROUPS = [
       { href: '/mail', label: 'Courriel', permission: 'mail' },
       { href: '/clients', label: 'Clients', permission: 'clients' },
       { href: '/calendar', label: 'Calendrier', permission: 'calendar' },
+      { href: '/marketplace', label: 'Ventes marketplace', permission: 'marketplace' },
+      { href: '/social', label: 'Réseaux sociaux', permission: 'social' },
       { href: '/inventory', label: 'Stock', permission: 'inventory' },
       { href: '/liste-courses', label: 'Liste de courses', permission: 'purchases' },
       { href: '/purchases', label: 'Achats atelier', permission: 'purchases' },
@@ -57,8 +59,6 @@ const MENU_GROUPS = [
     items: [
       { href: '/standards', label: 'Standards', permission: 'standards' },
       { href: '/web', label: 'Site web', permission: 'web' },
-      { href: '/marketplace', label: 'Marketplace', permission: 'marketplace' },
-      { href: '/social', label: 'Réseaux sociaux', permission: 'social' },
     ],
   },
   {

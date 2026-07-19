@@ -6,6 +6,7 @@ import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
 import { api, formatMoney } from '../../lib/api';
 import { useAuth } from '../../lib/auth-context';
+import FinanceSyncPanel from '../../components/FinanceSyncPanel';
 
 const CATEGORY_LABELS = {
   materiaux: 'Matériaux',
@@ -107,6 +108,14 @@ export default function FinancePage() {
         title="Finance"
         subtitle="Bénéfice, dépenses et temps — suivi mensuel"
       >
+        <FinanceSyncPanel
+          year={year}
+          onDone={() => {
+            const q = new URLSearchParams({ year: String(year), me: meName || 'Mehdi' });
+            api(`/analytics/monthly-pnl?${q}`).then(setData).catch(() => {});
+          }}
+        />
+
         <div className="flex flex-wrap items-end gap-3 mb-6">
           <div>
             <label className="label">Année</label>

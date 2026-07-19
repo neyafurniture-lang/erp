@@ -45,23 +45,41 @@ function nextSlot(index = 0) {
   return d.toISOString();
 }
 
+function localWeekProposals(limit = 6) {
+  const topics = [
+    { title: 'Banc atelier', focus: 'banc en bois massif' },
+    { title: 'Détail assemblage', focus: 'assemblage à tenon' },
+    { title: 'Table sur mesure', focus: 'table sur mesure' },
+    { title: 'Finition huilée', focus: 'finition huile naturelle' },
+    { title: 'Livraison client', focus: 'livraison et installation' },
+    { title: 'Coulisses atelier', focus: 'coulisses de l’atelier NEYA' },
+  ];
+  return topics.slice(0, limit).map((t, i) => ({
+    key: `local-${i}-${t.title}`,
+    platforms: i % 3 === 0 ? ['instagram', 'facebook', 'pinterest'] : ['instagram', 'facebook'],
+    title: t.title,
+    caption: buildCaption(t.focus, i),
+    scheduled_at: nextSlot(i),
+    media: [],
+    source: 'local_template',
+    score: 1,
+  }));
+}
+
 /**
  * Cherche de belles photos Drive et propose des brouillons de posts cross-platform.
+ * Sans Drive : propositions locales (semaine type) pour garder le pôle utilisable.
  */
 export async function proposePostsFromDrive(req, { limit = 6, query = null } = {}) {
   const user = await getRequestUser(req);
   let files = [];
+  let driveError = null;
 
   try {
     const recent = await drive.listRecentImages({ pageSize: 40, query });
     files = await filterSearchResults(user, recent.files || []);
   } catch (err) {
-    // Pas de Drive / OAuth : retourner propositions vides avec hint
-    return {
-      proposals: [],
-      error: err.message || 'Drive indisponible',
-      hint: 'Connectez Google Drive dans Paramètres → Intégrations pour les propositions auto.',
-    };
+    driveError = err.message || 'Drive indisponible';
   }
 
   const images = files
@@ -71,12 +89,23 @@ export async function proposePostsFromDrive(req, { limit = 6, query = null } = {
     .sort((a, b) => b._score - a._score)
     .slice(0, Math.min(Number(limit) || 6, 12));
 
-  // Si peu de résultats filtrés, élargir
   let pool = images;
   if (pool.length < 3) {
     pool = files
       .filter(f => f.mimeType?.startsWith('image/'))
       .slice(0, Math.min(Number(limit) || 6, 12));
+  }
+
+  if (!pool.length) {
+    return {
+      proposals: localWeekProposals(limit),
+      drive_ready: false,
+      error: driveError || null,
+      hint: driveError
+        ? 'Drive non connecté — propositions locales affichées. Branchez Google Drive pour les photos produit.'
+        : 'Peu de photos trouvées — propositions locales (semaine type).',
+      platforms: PLATFORMS,
+    };
   }
 
   const roots = await resolveDriveRoots(user).catch(() => null);
@@ -106,4 +135,4 @@ export async function proposePostsFromDrive(req, { limit = 6, query = null } = {
   };
 }
 
-export { PLATFORMS, buildCaption, cleanName };
+export { PLATFORMS, buildCaption, cleanName, localWeekProposals };

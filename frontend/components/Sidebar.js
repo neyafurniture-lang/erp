@@ -43,6 +43,8 @@ const NAV = [
   { href: '/mail', label: 'Courriel', section: 'ops', permission: 'mail', icon: Mail },
   { href: '/clients', label: 'Clients', section: 'ops', permission: 'clients', icon: Users },
   { href: '/calendar', label: 'Calendrier', section: 'ops', permission: 'calendar', icon: Calendar },
+  { href: '/marketplace', label: 'Ventes marketplace', section: 'ops', permission: 'marketplace', icon: Store },
+  { href: '/social', label: 'Réseaux sociaux', section: 'ops', permission: 'social', icon: Share2 },
   { href: '/inventory', label: 'Stock', section: 'ops', permission: 'inventory', icon: Package },
   { href: '/liste-courses', label: 'Liste de courses', section: 'ops', permission: 'purchases', icon: ShoppingCart },
   { href: '/purchases', label: 'Achats atelier', section: 'ops', permission: 'purchases', icon: Package },
@@ -53,8 +55,6 @@ const NAV = [
   { href: '/finance', label: 'Finance', section: 'facturation', permission: 'finance', icon: TrendingUp },
   { href: '/standards', label: 'Standards', section: 'crm', permission: 'standards', icon: BookOpen },
   { href: '/web', label: 'Site web', section: 'crm', permission: 'web', icon: Globe },
-  { href: '/marketplace', label: 'Marketplace', section: 'crm', permission: 'marketplace', icon: Store },
-  { href: '/social', label: 'Réseaux sociaux', section: 'crm', permission: 'social', icon: Share2 },
 ];
 
 const SECTIONS = [

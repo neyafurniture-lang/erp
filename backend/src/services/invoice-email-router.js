@@ -168,11 +168,14 @@ export async function ingestMessage(msg, { autoAssign = true } = {}) {
   return row;
 }
 
-export async function scanInboxForSupplierInvoices({ max = 40 } = {}) {
+export async function scanInboxForSupplierInvoices({ max = 40, year = null } = {}) {
   let ingested = 0;
   let pending = 0;
   const errors = [];
-  const q = 'newer_than:14d (facture OR invoice OR receipt OR homedepot OR rona OR canac OR renodepot OR amazon)';
+  const y = year ? Number(year) : null;
+  const q = y
+    ? `after:${y}/01/01 before:${y + 1}/01/01 (facture OR invoice OR receipt OR homedepot OR rona OR canac OR renodepot OR amazon)`
+    : 'newer_than:14d (facture OR invoice OR receipt OR homedepot OR rona OR canac OR renodepot OR amazon)';
   const { messages } = await gmail.searchMessages(q, max);
 
   for (const m of messages || []) {
@@ -188,7 +191,7 @@ export async function scanInboxForSupplierInvoices({ max = 40 } = {}) {
     }
   }
 
-  return { ingested, pending, scanned: messages?.length || 0, errors };
+  return { ingested, pending, scanned: messages?.length || 0, errors, query: q };
 }
 
 export async function assignSupplierInvoice(id, { project_id, amount, category, description, remember_rule, keyword_pattern }) {

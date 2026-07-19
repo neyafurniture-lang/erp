@@ -42,6 +42,35 @@ function normalizePlatforms(raw) {
   return ['instagram'];
 }
 
+/** Semaine type planifiée (templates locaux, sans Drive). */
+router.post('/seed-week', async (req, res) => {
+  try {
+    await readyTables();
+    const { localWeekProposals } = await import('../services/social-propose.js');
+    const proposals = localWeekProposals(Number(req.body.count) || 6);
+    const created = [];
+    for (const p of proposals) {
+      const { rows } = await pool.query(
+        `INSERT INTO social_posts (title, caption, platforms, status, scheduled_at, media, source, created_by)
+         VALUES ($1,$2,$3,'scheduled',$4,$5,'local_template',$6)
+         RETURNING *`,
+        [
+          p.title,
+          p.caption,
+          p.platforms,
+          p.scheduled_at,
+          JSON.stringify(p.media || []),
+          req.user?.id || null,
+        ]
+      );
+      created.push(rows[0]);
+    }
+    res.status(201).json({ created: created.length, posts: created });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/platforms', (_req, res) => {
   res.json(PLATFORMS.map(value => ({
     value,

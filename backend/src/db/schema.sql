@@ -535,6 +535,8 @@ CREATE TABLE IF NOT EXISTS supplier_invoice_emails (
   expense_id INT REFERENCES expenses(id) ON DELETE SET NULL,
   status TEXT NOT NULL DEFAULT 'pending',
   assigned_at TIMESTAMPTZ,
+  received_at TIMESTAMPTZ,
+  suggested_amount NUMERIC(12,2),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

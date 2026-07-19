@@ -213,9 +213,15 @@ export default function SocialPage() {
     <AuthGuard>
       <AppShell
         title="Réseaux sociaux"
-        subtitle="Posts cross-platform, planning 1 clic, analytics IG / Facebook / Pinterest"
+        subtitle="Pôle contenu — planifier Instagram / Facebook / Pinterest, légendes et calendrier"
         wide
       >
+        <div className="rounded-2xl border border-neya-border bg-white px-4 py-3 mb-5 text-sm text-neya-muted">
+          <strong className="text-neya-ink font-medium">Pôle réseaux sociaux</strong>
+          {' — '}propositions (Drive ou semaine type), calendrier de posts, analytics locales.
+          La publication Meta/Pinterest OAuth arrive ensuite ; en attendant, planifiez ici et marquez « Publié ».
+        </div>
+
         <div className="flex flex-wrap items-center gap-2 mb-5">
           {TABS.map(({ id, label, Icon }) => (
             <button
@@ -234,8 +240,29 @@ export default function SocialPage() {
           ))}
           <button
             type="button"
+            onClick={async () => {
+              setBusyKey('seed');
+              setErr('');
+              try {
+                const r = await api('/social/seed-week', { method: 'POST', body: '{}' });
+                setMsg(`${r.created} posts planifiés (semaine type).`);
+                await loadPosts();
+                setTab('plan');
+              } catch (e) {
+                setErr(e.message);
+              } finally {
+                setBusyKey('');
+              }
+            }}
+            disabled={busyKey === 'seed'}
+            className="btn-secondary text-sm h-9 ml-auto"
+          >
+            {busyKey === 'seed' ? '…' : 'Générer semaine type'}
+          </button>
+          <button
+            type="button"
             onClick={() => { setTab('plan'); setShowForm(true); }}
-            className="btn-primary ml-auto gap-1.5 text-sm h-9"
+            className="btn-primary gap-1.5 text-sm h-9"
           >
             <Plus className="h-4 w-4" /> Nouveau post
           </button>
