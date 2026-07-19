@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import pool from '../db/pool.js';
+import { bookMarketplaceSale } from '../services/marketplace-compta.js';
 
 const router = Router();
 
@@ -36,6 +37,10 @@ async function ensureTables() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_marketplace_sales_sold_at ON marketplace_sales(sold_at DESC)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_marketplace_sales_channel ON marketplace_sales(channel)`);
+  await pool.query('ALTER TABLE marketplace_sales ADD COLUMN IF NOT EXISTS invoice_id INT REFERENCES invoices(id) ON DELETE SET NULL');
+  await pool.query('ALTER TABLE marketplace_sales ADD COLUMN IF NOT EXISTS payment_id INT REFERENCES payments(id) ON DELETE SET NULL');
+  await pool.query('ALTER TABLE marketplace_sales ADD COLUMN IF NOT EXISTS expense_id INT REFERENCES expenses(id) ON DELETE SET NULL');
+  await pool.query('ALTER TABLE marketplace_sales ADD COLUMN IF NOT EXISTS payment_method TEXT');
 }
 
 let ready;
@@ -95,10 +100,12 @@ router.get('/', async (req, res) => {
     params.push(lim);
 
     const { rows } = await pool.query(
-      `SELECT s.*, p.name AS project_name, c.name AS client_name
+      `SELECT s.*, p.name AS project_name, c.name AS client_name,
+              i.invoice_number
        FROM marketplace_sales s
        LEFT JOIN projects p ON p.id = s.project_id
        LEFT JOIN clients c ON c.id = s.client_id
+       LEFT JOIN invoices i ON i.id = s.invoice_id
        ${where}
        ORDER BY s.sold_at DESC, s.id DESC
        LIMIT $${params.length}`,
@@ -116,31 +123,107 @@ router.post('/', async (req, res) => {
     const {
       sold_at, channel, product_name, buyer_name, amount, fees,
       currency, order_ref, notes, project_id, client_id,
+      payment_method, book_accounting, book_fees,
     } = req.body || {};
     if (!product_name?.trim()) {
       return res.status(400).json({ error: 'product_name requis' });
     }
+    const amt = Number(amount) || 0;
+    const feeAmt = Number(fees) || 0;
+    const wantCompta = book_accounting !== false && book_accounting !== 'false';
+
     const { rows } = await pool.query(
       `INSERT INTO marketplace_sales
-        (sold_at, channel, product_name, buyer_name, amount, fees, currency, order_ref, notes, project_id, client_id, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        (sold_at, channel, product_name, buyer_name, amount, fees, currency, order_ref, notes,
+         project_id, client_id, payment_method, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        RETURNING *`,
       [
         sold_at || new Date().toISOString().slice(0, 10),
         channel || 'autre',
         product_name.trim(),
         buyer_name || null,
-        Number(amount) || 0,
-        Number(fees) || 0,
+        amt,
+        feeAmt,
         currency || 'CAD',
         order_ref || null,
         notes || null,
         project_id || null,
         client_id || null,
+        payment_method || 'interac',
         req.user?.id || null,
       ]
     );
-    res.status(201).json(rows[0]);
+    let sale = rows[0];
+
+    if (wantCompta && amt > 0) {
+      const booked = await bookMarketplaceSale(sale, {
+        payment_method: payment_method || 'interac',
+        book_fees: book_fees !== false && book_fees !== 'false',
+      });
+      const { rows: updated } = await pool.query(
+        `UPDATE marketplace_sales SET
+           invoice_id = $1,
+           payment_id = $2,
+           expense_id = $3,
+           client_id = COALESCE(client_id, $4),
+           updated_at = NOW()
+         WHERE id = $5
+         RETURNING *`,
+        [
+          booked.invoice.id,
+          booked.payment.id,
+          booked.expense?.id || null,
+          booked.client_id,
+          sale.id,
+        ]
+      );
+      sale = updated[0];
+      sale.invoice_number = booked.invoice.invoice_number;
+      sale.accounting = {
+        invoice_id: booked.invoice.id,
+        invoice_number: booked.invoice.invoice_number,
+        payment_id: booked.payment.id,
+        expense_id: booked.expense?.id || null,
+      };
+    }
+
+    res.status(201).json(sale);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Relancer la compta sur une vente déjà notée sans facture. */
+router.post('/:id/book', async (req, res) => {
+  try {
+    await readyTables();
+    const { rows: existing } = await pool.query('SELECT * FROM marketplace_sales WHERE id = $1', [req.params.id]);
+    if (!existing[0]) return res.status(404).json({ error: 'Vente introuvable' });
+    if (existing[0].invoice_id) {
+      return res.status(400).json({ error: 'Cette vente a déjà une facture en compta' });
+    }
+    const booked = await bookMarketplaceSale(existing[0], {
+      payment_method: req.body?.payment_method || existing[0].payment_method || 'interac',
+      book_fees: req.body?.book_fees !== false,
+    });
+    const { rows } = await pool.query(
+      `UPDATE marketplace_sales SET
+         invoice_id = $1, payment_id = $2, expense_id = $3,
+         client_id = COALESCE(client_id, $4), updated_at = NOW()
+       WHERE id = $5 RETURNING *`,
+      [booked.invoice.id, booked.payment.id, booked.expense?.id || null, booked.client_id, req.params.id]
+    );
+    res.json({
+      ...rows[0],
+      invoice_number: booked.invoice.invoice_number,
+      accounting: {
+        invoice_id: booked.invoice.id,
+        invoice_number: booked.invoice.invoice_number,
+        payment_id: booked.payment.id,
+        expense_id: booked.expense?.id || null,
+      },
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -155,13 +238,15 @@ router.put('/:id', async (req, res) => {
     const { rows } = await pool.query(
       `UPDATE marketplace_sales SET
          sold_at=$1, channel=$2, product_name=$3, buyer_name=$4, amount=$5, fees=$6,
-         currency=$7, order_ref=$8, notes=$9, project_id=$10, client_id=$11, updated_at=NOW()
-       WHERE id=$12 RETURNING *`,
+         currency=$7, order_ref=$8, notes=$9, project_id=$10, client_id=$11,
+         payment_method=$12, updated_at=NOW()
+       WHERE id=$13 RETURNING *`,
       [
         t.sold_at, t.channel, t.product_name, t.buyer_name,
         Number(t.amount) || 0, Number(t.fees) || 0,
         t.currency || 'CAD', t.order_ref, t.notes,
-        t.project_id || null, t.client_id || null, req.params.id,
+        t.project_id || null, t.client_id || null,
+        t.payment_method || null, req.params.id,
       ]
     );
     res.json(rows[0]);

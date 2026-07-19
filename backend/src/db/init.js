@@ -302,8 +302,12 @@ export async function initDb() {
       currency TEXT NOT NULL DEFAULT 'CAD',
       order_ref TEXT,
       notes TEXT,
+      payment_method TEXT,
       project_id INT REFERENCES projects(id) ON DELETE SET NULL,
       client_id INT REFERENCES clients(id) ON DELETE SET NULL,
+      invoice_id INT REFERENCES invoices(id) ON DELETE SET NULL,
+      payment_id INT REFERENCES payments(id) ON DELETE SET NULL,
+      expense_id INT REFERENCES expenses(id) ON DELETE SET NULL,
       created_by INT REFERENCES users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -311,6 +315,10 @@ export async function initDb() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_marketplace_sales_sold_at ON marketplace_sales(sold_at DESC)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_marketplace_sales_channel ON marketplace_sales(channel)`);
+  await pool.query('ALTER TABLE marketplace_sales ADD COLUMN IF NOT EXISTS payment_method TEXT');
+  await pool.query('ALTER TABLE marketplace_sales ADD COLUMN IF NOT EXISTS invoice_id INT REFERENCES invoices(id) ON DELETE SET NULL');
+  await pool.query('ALTER TABLE marketplace_sales ADD COLUMN IF NOT EXISTS payment_id INT REFERENCES payments(id) ON DELETE SET NULL');
+  await pool.query('ALTER TABLE marketplace_sales ADD COLUMN IF NOT EXISTS expense_id INT REFERENCES expenses(id) ON DELETE SET NULL');
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS social_posts (
