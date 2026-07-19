@@ -42,7 +42,12 @@ function ProductionCard({ item, onAdvance, advancing }) {
           <Image src={image} alt="" fill className="object-contain p-2" unoptimized />
         ) : (
           <div className="h-full flex items-center justify-center text-xs text-neya-muted px-4 text-center">
-            {resolveProject3dUrl(projectMeta, item.standard_meta) ? 'Plan 3D dans la vue d\'ensemble' : 'Aperçu visuel'}
+            {(() => {
+              const plans = Array.isArray(projectMeta.plans) ? projectMeta.plans : [];
+              if (plans.length) return `${plans.length} plan${plans.length > 1 ? 's' : ''} PDF`;
+              if (resolveProject3dUrl(projectMeta, item.standard_meta)) return 'Modèle 3D disponible';
+              return 'Sans visuel';
+            })()}
           </div>
         )}
       </div>

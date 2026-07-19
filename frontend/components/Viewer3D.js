@@ -2,12 +2,15 @@
 
 import { useEffect, useRef } from 'react';
 
-/** Visualiseur 3D navigateur — GLB/GLTF. SolidWorks (.SLDPRT) nécessite conversion STEP→GLB */
+/**
+ * Visualiseur 3D navigateur — GLB/GLTF.
+ * Sans URL : ne rend rien (pas de placeholder « Aucun modèle 3D » partout).
+ */
 export default function Viewer3D({ url, title = 'Modèle 3D', compact = false }) {
   const ref = useRef(null);
 
   useEffect(() => {
-    if (!url || !ref.current) return;
+    if (!url || !ref.current) return undefined;
     const el = document.createElement('model-viewer');
     el.setAttribute('src', url);
     el.setAttribute('alt', title);
@@ -27,18 +30,13 @@ export default function Viewer3D({ url, title = 'Modèle 3D', compact = false })
       s.dataset.modelViewer = '1';
       document.head.appendChild(s);
     }
+
+    return () => {
+      if (ref.current) ref.current.innerHTML = '';
+    };
   }, [url, title]);
 
-  if (!url) {
-    return (
-      <div className={`card-flat flex flex-col items-center justify-center text-center p-6 ${compact ? 'h-48' : 'h-64'}`}>
-        <p className="text-sm text-neya-muted mb-2">Aucun modèle 3D lié</p>
-        <p className="text-xs text-neya-muted max-w-sm">
-          Fichiers SolidWorks (.SLDPRT, .SLDASM) sur Google Drive — exportez en GLB ou STEP pour aperçu navigateur.
-        </p>
-      </div>
-    );
-  }
+  if (!url) return null;
 
   return (
     <div className={`border border-neya-border rounded overflow-hidden bg-neya-surface ${compact ? 'h-[min(320px,45vh)]' : 'h-[min(480px,60vh)]'}`}>

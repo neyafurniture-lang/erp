@@ -3,12 +3,13 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { api, formatMoney, formatDate, TASK_TYPES } from '../lib/api';
+import { api, formatMoney, formatDate, TASK_TYPES, resolveUploadUrl } from '../lib/api';
 import { isCustomProject, checklistProgress } from '../lib/projects';
 import { PRODUCTION_STAGES, computeProductionStage, resolveProject3dUrl } from '../lib/production';
 import { parseMeta } from '../lib/standards';
 import { productImageUrl } from '../lib/fiche-images';
 import Viewer3D from './Viewer3D';
+import ProjectPlansPanel from './ProjectPlansPanel';
 import DriveExplorer from './DriveExplorer';
 import GmailInbox from './GmailInbox';
 
@@ -18,7 +19,7 @@ const MODULES = [
   { id: 'materials', label: 'Matériaux' },
   { id: 'costs', label: 'Coûts' },
   { id: 'purchases', label: 'Achats' },
-  { id: 'plans', label: 'Plans 3D' },
+  { id: 'plans', label: 'Plans' },
   { id: 'drive', label: 'Drive' },
   { id: 'mail', label: 'Courriel' },
   { id: 'hours', label: 'Heures' },
@@ -108,6 +109,7 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
   const meta = typeof project.meta === 'string' ? JSON.parse(project.meta || '{}') : (project.meta || {});
   const standardMeta = project.standard_meta || null;
   const model3dUrl = resolveProject3dUrl(meta, standardMeta);
+  const planPages = Array.isArray(meta.plans) ? meta.plans : [];
   const stdMeta = standardMeta ? parseMeta(standardMeta) : {};
   const productImage = productImageUrl(stdMeta);
   const stage = computeProductionStage(project.tasks);
@@ -363,24 +365,79 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
         <div className="space-y-6">
           <div className="grid lg:grid-cols-5 gap-6">
             <div className="lg:col-span-3 space-y-4">
-              <div className="card-flat p-0 overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-3 border-b border-neya-border">
-                  <p className="text-sm font-semibold text-neya-ink">Plan 3D</p>
-                  {model3dUrl && (
+              {/* Priorité : PDF plans → visuel produit → 3D seulement s’il y a un modèle */}
+              {planPages.length > 0 ? (
+                <div className="card-flat p-0 overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-neya-border">
+                    <p className="text-sm font-semibold text-neya-ink">
+                      Plans PDF <span className="text-neya-muted font-normal">({planPages.length})</span>
+                    </p>
                     <button type="button" onClick={() => changeTab('plans')} className="text-xs text-neya-orange hover:underline">
-                      Plein écran →
+                      Voir / importer →
                     </button>
-                  )}
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-3">
+                    {planPages.slice(0, 6).map(plan => {
+                      const url = resolveUploadUrl(plan.url);
+                      return (
+                        <a
+                          key={plan.id || plan.url}
+                          href={url || '#'}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-lg border border-neya-border bg-neya-surface/50 overflow-hidden hover:border-neya-orange/40 transition-colors"
+                        >
+                          <div className="aspect-[4/3] bg-white">
+                            {url ? (
+                              <iframe
+                                title={plan.name}
+                                src={`${url}#toolbar=0&navpanes=0`}
+                                className="w-full h-full pointer-events-none"
+                              />
+                            ) : (
+                              <div className="w-full h-full grid place-items-center text-[11px] text-neya-muted">PDF</div>
+                            )}
+                          </div>
+                          <p className="px-2 py-1.5 text-[11px] font-medium text-neya-ink truncate">{plan.name}</p>
+                        </a>
+                      );
+                    })}
+                  </div>
                 </div>
-                <Viewer3D url={model3dUrl} title={project.name} compact />
-              </div>
-              {!model3dUrl && productImage && (
+              ) : productImage ? (
                 <div className="card-flat p-4">
-                  <p className="text-sm font-semibold text-neya-ink mb-3">Visuel produit</p>
-                  <div className="relative h-40 bg-neya-surface rounded border border-neya-border">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-sm font-semibold text-neya-ink">Visuel produit</p>
+                    <button type="button" onClick={() => changeTab('plans')} className="text-xs text-neya-orange hover:underline">
+                      Importer des plans PDF →
+                    </button>
+                  </div>
+                  <div className="relative h-48 bg-neya-surface rounded border border-neya-border">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={productImage} alt="" className="w-full h-full object-contain p-2" />
                   </div>
+                </div>
+              ) : (
+                <div className="card-flat py-8 px-4 text-center">
+                  <p className="text-sm font-medium text-neya-ink">Aucun plan PDF pour l’instant</p>
+                  <p className="text-xs text-neya-muted mt-1 mb-3">
+                    Importez les shop drawings — la vue 3D n’apparaît que s’il y a un modèle GLB.
+                  </p>
+                  <button type="button" onClick={() => changeTab('plans')} className="btn-primary text-sm">
+                    Importer un PDF
+                  </button>
+                </div>
+              )}
+
+              {model3dUrl && (
+                <div className="card-flat p-0 overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-neya-border">
+                    <p className="text-sm font-semibold text-neya-ink">Modèle 3D</p>
+                    <button type="button" onClick={() => changeTab('plans')} className="text-xs text-neya-orange hover:underline">
+                      Plein écran →
+                    </button>
+                  </div>
+                  <Viewer3D url={model3dUrl} title={project.name} compact />
                 </div>
               )}
             </div>
@@ -641,7 +698,15 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
       )}
 
       {tab === 'plans' && (
-        <Viewer3D url={model3dUrl} title={project.name} />
+        <div className="space-y-6">
+          <ProjectPlansPanel project={project} onReload={onReload} />
+          {model3dUrl ? (
+            <div className="space-y-2">
+              <p className="text-sm font-semibold text-neya-ink">Modèle 3D</p>
+              <Viewer3D url={model3dUrl} title={project.name} />
+            </div>
+          ) : null}
+        </div>
       )}
 
       {tab === 'drive' && (
