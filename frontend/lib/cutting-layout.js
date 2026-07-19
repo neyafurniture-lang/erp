@@ -75,6 +75,52 @@ export function emptySheet(partial = {}) {
   };
 }
 
+/**
+ * Déplace un rectangle placé d’un panneau à un autre (glisser-déposer souris).
+ * @returns {{ sheets: array, moved: boolean }}
+ */
+export function transferRectBetweenSheets(sheets, {
+  fromSheetId,
+  toSheetId,
+  rectId,
+  x,
+  y,
+}) {
+  if (!fromSheetId || !toSheetId || fromSheetId === toSheetId || !rectId) {
+    return { sheets, moved: false };
+  }
+  const from = sheets.find((s) => s.id === fromSheetId);
+  const to = sheets.find((s) => s.id === toSheetId);
+  if (!from || !to) return { sheets, moved: false };
+  const rect = (from.rects || []).find((r) => r.id === rectId);
+  if (!rect) return { sheets, moved: false };
+
+  const TW = Number(to.width) || SHEET_W;
+  const TH = Number(to.height) || SHEET_H;
+  const w = Number(rect.w) || 1;
+  const h = Number(rect.h) || 1;
+  const nx = Math.max(0, Math.min(TW - w, Number(x)));
+  const ny = Math.max(0, Math.min(TH - h, Number(y)));
+  const movedRect = {
+    ...rect,
+    x: Math.round(nx * 10) / 10,
+    y: Math.round(ny * 10) / 10,
+  };
+
+  return {
+    moved: true,
+    sheets: sheets.map((s) => {
+      if (s.id === fromSheetId) {
+        return { ...s, rects: (s.rects || []).filter((r) => r.id !== rectId) };
+      }
+      if (s.id === toSheetId) {
+        return { ...s, rects: [...(s.rects || []).filter((r) => r.id !== rectId), movedRect] };
+      }
+      return s;
+    }),
+  };
+}
+
 export function boardUsed(board, kerf = DEFAULT_KERF) {
   const segs = board.segments || [];
   if (!segs.length) return 0;

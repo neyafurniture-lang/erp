@@ -16,6 +16,7 @@ import {
   layoutStats,
   packLinearLocal,
   packPanelsLocal,
+  transferRectBetweenSheets,
   trimNum,
 } from '../../lib/cutting-layout';
 import { api, formatMoney, getApiUrl, getToken } from '../../lib/api';
@@ -47,6 +48,7 @@ export default function CuttingStudio() {
   const [savedList, setSavedList] = useState([]);
   const [showSaved, setShowSaved] = useState(false);
   const [mobilePane, setMobilePane] = useState('canvas'); // input | canvas
+  const [dropSheetId, setDropSheetId] = useState(null);
 
   const stats = useMemo(() => layoutStats(doc, doc.kerf), [doc]);
   const placePart = useMemo(
@@ -68,6 +70,15 @@ export default function CuttingStudio() {
 
   function updateSheet(sheet) {
     patch({ sheets: doc.sheets.map((s) => (s.id === sheet.id ? sheet : s)) });
+  }
+
+  function transferRect(payload) {
+    setDoc((d) => {
+      const { sheets, moved } = transferRectBetweenSheets(d.sheets || [], payload);
+      return moved ? { ...d, sheets } : d;
+    });
+    setDropSheetId(null);
+    if (payload?.rectId) setSelectedId(payload.rectId);
   }
 
   async function runOptimize() {
@@ -565,6 +576,11 @@ export default function CuttingStudio() {
                       Placement : {placePart.label || `${placePart.w}×${placePart.h}`}
                     </span>
                   )}
+                  {!placePart && doc.sheets.length > 1 && (
+                    <span className="ml-2 text-xs font-normal text-neya-muted">
+                      Glissez une pièce d’un panneau à l’autre
+                    </span>
+                  )}
                 </h2>
                 <button
                   type="button"
@@ -587,8 +603,11 @@ export default function CuttingStudio() {
                     sheet={sheet}
                     selectedId={selectedId}
                     placePart={placePart}
+                    dropHighlight={dropSheetId === sheet.id}
                     onChange={updateSheet}
                     onSelect={setSelectedId}
+                    onDragHoverSheet={setDropSheetId}
+                    onTransferRect={transferRect}
                     onRemove={(id) => {
                       patch({ sheets: doc.sheets.filter((s) => s.id !== id) });
                       setSelectedId(null);
