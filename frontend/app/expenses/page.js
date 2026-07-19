@@ -15,7 +15,14 @@ export default function ExpensesPage() {
   const [expenses, setExpenses] = useState([]);
   const [projects, setProjects] = useState([]);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ amount: '', category: 'materiaux', description: '', project_id: '' });
+  const [form, setForm] = useState({
+    amount: '',
+    category: 'materiaux',
+    description: '',
+    notes: '',
+    project_id: '',
+    date: new Date().toISOString().slice(0, 10),
+  });
 
   const load = () => {
     api('/expenses')
@@ -25,7 +32,7 @@ export default function ExpensesPage() {
         setExpenses([]);
       });
     api('/projects')
-      .then(setProjects)
+      .then(p => setProjects(Array.isArray(p) ? p.filter(x => x.status !== 'cancelled') : []))
       .catch(() => setProjects([]));
   };
 
@@ -37,12 +44,26 @@ export default function ExpensesPage() {
 
   async function create(e) {
     e.preventDefault();
+    const parts = [form.description.trim(), form.notes.trim()].filter(Boolean);
     await api('/expenses', {
       method: 'POST',
-      body: JSON.stringify({ ...form, amount: Number(form.amount), project_id: form.project_id || null }),
+      body: JSON.stringify({
+        amount: Number(form.amount),
+        category: form.category,
+        description: parts.join(' — ') || null,
+        project_id: form.project_id || null,
+        date: form.date || null,
+      }),
     });
     setShowForm(false);
-    setForm({ amount: '', category: 'materiaux', description: '', project_id: '' });
+    setForm({
+      amount: '',
+      category: 'materiaux',
+      description: '',
+      notes: '',
+      project_id: '',
+      date: new Date().toISOString().slice(0, 10),
+    });
     load();
   }
 
@@ -63,30 +84,75 @@ export default function ExpensesPage() {
         </div>
 
         {showForm && (
-          <form onSubmit={create} className="card rounded-2xl mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <form onSubmit={create} className="card rounded-2xl mb-6 space-y-4">
+            <p className="text-sm font-medium text-neya-ink">Dépense manuelle</p>
+
             <div>
-              <label className="label">Montant ($)</label>
-              <input type="number" className="input" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} required />
+              <label className="label">Projet</label>
+              <select
+                className="input"
+                value={form.project_id}
+                onChange={e => setForm({ ...form, project_id: e.target.value })}
+              >
+                <option value="">— Général atelier —</option>
+                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
             </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="label">Montant ($)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className="input"
+                  value={form.amount}
+                  onChange={e => setForm({ ...form, amount: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <label className="label">Date</label>
+                <input
+                  type="date"
+                  className="input"
+                  value={form.date}
+                  onChange={e => setForm({ ...form, date: e.target.value })}
+                />
+              </div>
+            </div>
+
             <div>
               <label className="label">Catégorie</label>
               <select className="input" value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
                 {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}
               </select>
             </div>
+
             <div>
               <label className="label">Description</label>
-              <input className="input" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
+              <input
+                className="input"
+                value={form.description}
+                onChange={e => setForm({ ...form, description: e.target.value })}
+                placeholder="Ex. Vis, colle, panneau…"
+              />
             </div>
+
             <div>
-              <label className="label">Projet (optionnel)</label>
-              <select className="input" value={form.project_id} onChange={e => setForm({ ...form, project_id: e.target.value })}>
-                <option value="">— Aucun —</option>
-                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
+              <label className="label">Détails / notes</label>
+              <textarea
+                className="input min-h-[88px] resize-y"
+                value={form.notes}
+                onChange={e => setForm({ ...form, notes: e.target.value })}
+                placeholder="Contexte, magasin, n° facture…"
+              />
             </div>
-            <div className="md:col-span-2">
+
+            <div className="flex gap-2">
               <button type="submit" className="btn-primary">Enregistrer</button>
+              <button type="button" className="btn-secondary" onClick={() => setShowForm(false)}>Annuler</button>
             </div>
           </form>
         )}

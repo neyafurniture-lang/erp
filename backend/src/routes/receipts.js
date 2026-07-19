@@ -103,12 +103,15 @@ router.post('/:id/confirm', async (req, res) => {
       description = row.description,
       purchase_date = row.purchase_date,
       upload_to_drive = true,
+      vendor,
     } = req.body;
 
     const finalAmount = Number(amount);
     if (!finalAmount || finalAmount <= 0) {
       return res.status(400).json({ error: 'Montant invalide — corrigez avant de confirmer' });
     }
+
+    const finalVendor = (vendor != null ? String(vendor).trim() : row.vendor) || null;
 
     let drive_file_id = row.drive_file_id;
     let drive_link = row.drive_link;
@@ -138,7 +141,10 @@ router.post('/:id/confirm', async (req, res) => {
       }
     }
 
-    const desc = [row.vendor, description].filter(Boolean).join(' — ') || 'Ticket de caisse';
+    // Description déjà complète côté UI (magasin + articles + notes) — pas de double préfixe
+    const desc = String(description || '').trim()
+      || [finalVendor, row.description].filter(Boolean).join(' — ')
+      || 'Ticket de caisse';
     const { rows: expenseRows } = await pool.query(
       `INSERT INTO expenses (amount, category, description, project_id, receipt_url, date)
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
@@ -162,7 +168,8 @@ router.post('/:id/confirm', async (req, res) => {
         purchase_date = $5,
         expense_id = $6,
         drive_file_id = $7,
-        drive_link = $8
+        drive_link = $8,
+        vendor = COALESCE($10, vendor)
        WHERE id = $9 RETURNING *`,
       [
         project_id || null,
@@ -174,6 +181,7 @@ router.post('/:id/confirm', async (req, res) => {
         drive_file_id,
         drive_link,
         row.id,
+        finalVendor,
       ]
     );
 
