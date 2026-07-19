@@ -601,6 +601,45 @@ CREATE TABLE IF NOT EXISTS social_posts (
 CREATE INDEX IF NOT EXISTS idx_social_posts_status ON social_posts(status);
 CREATE INDEX IF NOT EXISTS idx_social_posts_scheduled ON social_posts(scheduled_at);
 
+-- Paie (aperçu QuickBooks : périodes, lignes, tâches)
+CREATE TABLE IF NOT EXISTS payroll_periods (
+  id SERIAL PRIMARY KEY,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open',
+  notes TEXT,
+  paid_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (start_date, end_date)
+);
+CREATE TABLE IF NOT EXISTS payroll_lines (
+  id SERIAL PRIMARY KEY,
+  period_id INT NOT NULL REFERENCES payroll_periods(id) ON DELETE CASCADE,
+  employee_id INT NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  hours_worked NUMERIC(10,2) NOT NULL DEFAULT 0,
+  hours_scheduled NUMERIC(10,2) NOT NULL DEFAULT 0,
+  hourly_rate NUMERIC(10,2) NOT NULL DEFAULT 0,
+  gross NUMERIC(12,2) NOT NULL DEFAULT 0,
+  deductions NUMERIC(12,2) NOT NULL DEFAULT 0,
+  advances NUMERIC(12,2) NOT NULL DEFAULT 0,
+  net NUMERIC(12,2) NOT NULL DEFAULT 0,
+  source_breakdown JSONB NOT NULL DEFAULT '{}',
+  notes TEXT,
+  UNIQUE (period_id, employee_id)
+);
+CREATE TABLE IF NOT EXISTS payroll_todos (
+  id SERIAL PRIMARY KEY,
+  period_id INT NOT NULL REFERENCES payroll_periods(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  done BOOLEAN NOT NULL DEFAULT false,
+  sort_order INT NOT NULL DEFAULT 0,
+  due_date DATE,
+  link_href TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_payroll_todos_period ON payroll_todos(period_id);
+
 CREATE INDEX IF NOT EXISTS idx_inventory_category ON inventory_items(category);
 CREATE INDEX IF NOT EXISTS idx_shifts_employee ON shifts(employee_id, start_at);
 CREATE INDEX IF NOT EXISTS idx_memories_project ON assistant_memories(project_id);

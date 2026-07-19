@@ -44,6 +44,7 @@ const MENU_GROUPS = [
       { href: '/invoices', label: 'Devis & factures', permission: 'invoices' },
       { href: '/expenses', label: 'Dépenses', permission: 'expenses' },
       { href: '/finance', label: 'Finance', permission: 'finance' },
+      { href: '/paie', label: 'Paie', permission: 'payroll' },
     ],
   },
   {
@@ -81,9 +82,11 @@ export default function MobileNav() {
   const { user } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const canSee = (permission, href) => (
-    permission === 'finance' ? canAccessPath(user, href || '/finance') : hasPermission(user, permission)
-  );
+  const canSee = (permission, href) => {
+    if (permission === 'finance') return canAccessPath(user, href || '/finance');
+    if (permission === 'payroll') return canAccessPath(user, href || '/paie');
+    return hasPermission(user, permission);
+  };
   const tabs = TABS.filter(t => canSee(t.permission, t.href));
   const groups = MENU_GROUPS
     .map(g => ({ ...g, items: g.items.filter(i => canSee(i.permission, i.href)) }))
