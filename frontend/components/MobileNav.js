@@ -57,6 +57,8 @@ const MENU_GROUPS = [
     items: [
       { href: '/standards', label: 'Standards', permission: 'standards' },
       { href: '/web', label: 'Site web', permission: 'web' },
+      { href: '/marketplace', label: 'Marketplace', permission: 'marketplace' },
+      { href: '/social', label: 'Réseaux sociaux', permission: 'social' },
     ],
   },
   {

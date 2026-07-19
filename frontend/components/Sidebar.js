@@ -23,6 +23,8 @@ import {
   Map,
   Globe,
   TrendingUp,
+  Store,
+  Share2,
   LogOut,
   MoreHorizontal,
 } from 'lucide-react';
@@ -51,6 +53,8 @@ const NAV = [
   { href: '/finance', label: 'Finance', section: 'facturation', permission: 'finance', icon: TrendingUp },
   { href: '/standards', label: 'Standards', section: 'crm', permission: 'standards', icon: BookOpen },
   { href: '/web', label: 'Site web', section: 'crm', permission: 'web', icon: Globe },
+  { href: '/marketplace', label: 'Marketplace', section: 'crm', permission: 'marketplace', icon: Store },
+  { href: '/social', label: 'Réseaux sociaux', section: 'crm', permission: 'social', icon: Share2 },
 ];
 
 const SECTIONS = [
