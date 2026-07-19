@@ -10,12 +10,13 @@ export const PROTOCOL_VERSION = '1.2.0';
 
 /** Métadonnées stables des actions (indépendantes du seed DB). */
 export const ACTION_CATALOG = [
-  { type: 'create_task', usage: 'Créer une tâche', params: { title: 'string', type: 'debitage|usinage|assemblage|finition|admin', project_name: 'string?', project_id: 'number?' } },
+  { type: 'create_task', usage: 'Créer une tâche (project_id null = hors checklist ; garder client_id + related_project_id pour l\'historique)', params: { title: 'string', type: 'debitage|usinage|assemblage|finition|admin', project_name: 'string?', project_id: 'number|null?', client_id: 'number?', related_project_id: 'number?' } },
   { type: 'create_project', usage: 'Créer un projet simple', params: { name: 'string', client_id: 'number?' } },
   { type: 'create_project_from_quote_email', usage: 'Devis Gmail/PDF → client + projet(s) + devis + tâches', params: { query: 'string (ex. Alexandra, The NNS)', message_id: 'string?', max: 'number?' } },
   { type: 'complete_task', usage: 'Cocher une tâche', params: { task_title: 'string', project_name: 'string?', project_id: 'number?' } },
   { type: 'update_task', usage: 'Modifier tâche (titre/statut)', params: { task_title: 'string', new_title: 'string?', status: 'done|todo?', project_name: 'string?' } },
   { type: 'delete_task', usage: 'Supprimer une tâche', params: { task_title: 'string', project_id: 'number?' } },
+  { type: 'unlink_task', usage: 'Détacher une tâche du projet (admin mal classée / « pas en rapport »)', params: { task_title: 'string?', task_id: 'number?', project_id: 'number?' } },
   { type: 'list_project_tasks', usage: 'Lister tâches d’un projet', params: { project_name: 'string?', project_id: 'number?' } },
   { type: 'update_project', usage: 'Notes / deadline / budget / statut projet', params: { project_name: 'string?', project_id: 'number?', notes: 'string?', append_notes: 'boolean?', status: 'active|done?', deadline: 'YYYY-MM-DD?', budget_estimated: 'number?' } },
   { type: 'search_projects', usage: 'Chercher projets', params: { query: 'string', status: 'active|done?' } },

@@ -8,7 +8,7 @@ const DAY_MAP = {
 
 export const ACTION_TYPES = [
   'create_task', 'create_project', 'schedule_task', 'plan_day', 'create_expense', 'list_today', 'list_tomorrow', 'create_client',
-  'complete_task', 'update_task', 'delete_task', 'list_project_tasks',
+  'complete_task', 'update_task', 'delete_task', 'unlink_task', 'list_project_tasks',
   'update_project', 'update_client', 'list_projects', 'list_clients', 'list_expenses',
   'search_projects', 'search_memory', 'get_project',
   'list_emails', 'search_emails', 'get_email', 'list_mail_threads',
@@ -267,22 +267,57 @@ export async function createProjectFromStandard(pageContext, message) {
   }
 }
 
-async function insertTaskForProject(projectId, title, type, minutes) {
+/** Soft-contexte client / projet d'origine (sans forcer la checklist atelier). */
+async function resolveSoftTaskContext(pageContext, params = {}) {
+  let clientId = params.client_id != null && params.client_id !== '' && params.client_id !== 'null'
+    ? Number(params.client_id) : null;
+  let relatedProjectId = params.related_project_id != null && params.related_project_id !== '' && params.related_project_id !== 'null'
+    ? Number(params.related_project_id) : null;
+
+  if (pageContext?.type === 'client') {
+    clientId = clientId || pageContext.id;
+  } else if (pageContext?.type === 'project') {
+    relatedProjectId = relatedProjectId || pageContext.id;
+    clientId = clientId || pageContext.client_id || pageContext.project?.client_id || null;
+  } else {
+    if (pageContext?.client_id) clientId = clientId || pageContext.client_id;
+    if (pageContext?.project_id) relatedProjectId = relatedProjectId || pageContext.project_id;
+  }
+
+  if (relatedProjectId && !clientId) {
+    const { rows } = await pool.query('SELECT client_id FROM projects WHERE id = $1', [relatedProjectId]);
+    clientId = rows[0]?.client_id || null;
+  }
+  return { clientId: clientId || null, relatedProjectId: relatedProjectId || null };
+}
+
+async function insertTaskForProject(projectId, title, type, minutes, extras = {}) {
   let estMinutes = minutes;
   let sortOrder = 0;
+  let clientId = extras.clientId ?? null;
+  let relatedProjectId = extras.relatedProjectId ?? null;
+  const description = extras.description ?? null;
+
   if (projectId) {
-    const { rows: proj } = await pool.query('SELECT standard_id FROM projects WHERE id = $1', [projectId]);
+    const { rows: proj } = await pool.query('SELECT standard_id, client_id FROM projects WHERE id = $1', [projectId]);
     if (proj[0] && !proj[0].standard_id) estMinutes = null;
+    if (!clientId) clientId = proj[0]?.client_id || null;
     const { rows: ord } = await pool.query(
       'SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM tasks WHERE project_id = $1',
       [projectId]
     );
     sortOrder = ord[0]?.n ?? 0;
+  } else {
+    const { rows: ord } = await pool.query(
+      'SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM tasks WHERE project_id IS NULL'
+    );
+    sortOrder = ord[0]?.n ?? 0;
   }
+
   const { rows } = await pool.query(
-    `INSERT INTO tasks (project_id, title, type, status, estimated_minutes, sort_order)
-     VALUES ($1,$2,$3,'todo',$4,$5) RETURNING *`,
-    [projectId, title.slice(0, 200), type, estMinutes, sortOrder]
+    `INSERT INTO tasks (project_id, client_id, related_project_id, title, description, type, status, estimated_minutes, sort_order)
+     VALUES ($1,$2,$3,$4,$5,$6,'todo',$7,$8) RETURNING *`,
+    [projectId, clientId, relatedProjectId, title.slice(0, 200), description, type, estMinutes, sortOrder]
   );
   return rows[0];
 }
@@ -311,6 +346,30 @@ const TYPE_HINTS = [
 function defaultMinutesForType(type) {
   const map = { finition: 120, debitage: 90, usinage: 90, assemblage: 120, admin: 30 };
   return map[type] || 60;
+}
+
+/** Tâche admin / finance / hors projet — ne pas forcer le projet ouvert dans le chat. */
+export function shouldCreateStandaloneTask(message, title = '', params = {}) {
+  if (params && Object.prototype.hasOwnProperty.call(params, 'project_id')
+    && (params.project_id === null || params.project_id === '' || params.project_id === 'null')) {
+    return true;
+  }
+  if (params?.standalone === true || params?.no_project === true) return true;
+  const text = `${message || ''} ${title || ''}`;
+  if (/sans\s+(le\s+)?projet|hors\s+projet|pas\s+de\s+projet|tâche\s+(libre|globale)/i.test(text)) return true;
+  if (/t[aâ]che\s+admin\b|\badmin\s*[-–—:]/i.test(text)) return true;
+  const adminOps = /\b(transfert(\s+bancaire)?|remboursement|paiement|comptabilit[eé]|imp[oô]ts?|tps|tvq|salaire|paie|virement)\b/i.test(text);
+  const workshop = /\b(finition|d[eé]bitage|assemblage|usinage|cnc|pon[cç]age|vernis|d[eé]coupe)\b/i.test(text);
+  const namedProject = /\b(sur|pour|du|de)\s+(le\s+)?projet\b|\bprojet\s+[«"']?[A-Za-zÀ-ÿ]/i.test(text);
+  if (adminOps && !workshop && !namedProject) return true;
+  if (/\badmin\b/i.test(text) && !workshop && !namedProject) return true;
+  return false;
+}
+
+/** Correction utilisateur : la tâche ne doit pas rester sur le projet ouvert. */
+export function wantsUnlinkFromProject(message) {
+  const m = String(message || '');
+  return /pas\s+(en\s+rapport|li[eé]|reli[eé]|associ[eé])|sans\s+(le\s+)?projet|hors\s+(du\s+)?projet|mauvais\s+projet|pas\s+(pour|sur|dans)\s+(le\s+)?projet|d[eé]tach(e|er)|retir(e|er)\s+(du|le)\s+projet|ce\s+n['']?est\s+pas\s+(li[eé]|en\s+rapport|pour\s+(ce|le)\s+projet)|pas\s+celui[- ]l[aà]|pas\s+ce\s+projet/i.test(m);
 }
 
 function inferTaskType(text) {
@@ -603,23 +662,170 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
     }
 
     case 'create_task': {
-      const title = params.title || extractQuotedText(msg)
-        || extractAfterKeyword(msg, ['tâche', 'task', 'étape', 'checklist', 'ajouter'])
-        || 'Nouvelle tâche';
-      let pid = projectId || await resolveProjectId(params, msg, pageContext);
+      // Ignorer le préfixe [Contexte page : projet « … »] pour ne pas voler le titre
+      const cleanMsg = String(msg || '')
+        .replace(/\n?\[Contexte page[\s\S]*$/i, '')
+        .replace(/\n?\[Suite de conversation[\s\S]*$/i, '')
+        .replace(/\n?\[[0-9]+ fichier\(s\)[\s\S]*$/i, '')
+        .trim();
+      let title = params.title || extractQuotedText(cleanMsg)
+        || extractAfterKeyword(cleanMsg, [
+          'nouvelle tâche', 'nouvelle tache', 'créer tâche', 'creer tache', 'créer tache',
+          'ajouter tâche', 'ajoute tâche', 'ajouter tache', 'ajoute tache',
+          'tâche', 'tache', 'task', 'étape', 'etape', 'checklist', 'ajouter', 'ajoute',
+        ]);
+      if (!title || title.length < 2) {
+        if (cleanMsg && cleanMsg.length <= 180 && /t[aâ]che|admin|transfert|paiement|finition|assemblage|d[eé]bitage/i.test(cleanMsg)) {
+          title = cleanMsg.replace(/^(ajoute[rz]?|cr[eé]e[rz]?|nouvelle)\s+/i, '').trim();
+        }
+      }
+      // Si le LLM/extract a repris le nom du projet ouvert, reconstruire depuis la consigne
+      if (pageContext?.label && title && title.toLowerCase() === String(pageContext.label).toLowerCase() && cleanMsg) {
+        const rebuilt = extractAfterKeyword(cleanMsg, ['tâche', 'tache', 'task', 'ajouter', 'ajoute'])
+          || cleanMsg.replace(/^(ajoute[rz]?|cr[eé]e[rz]?|nouvelle)\s+/i, '').trim();
+        if (rebuilt && rebuilt.toLowerCase() !== String(pageContext.label).toLowerCase()) title = rebuilt;
+      }
+      title = (title || 'Nouvelle tâche').replace(/\s+/g, ' ').trim();
+      if (/^admin\b/i.test(title)) {
+        title = title
+          .replace(/^admin\s*[-–—:]?\s*/i, 'Admin – ')
+          .replace(/^Admin – (faire|à faire|a faire)\s+/i, 'Admin – ');
+        // Capitaliser le premier mot après le préfixe
+        title = title.replace(/^(Admin – )([a-zàâäéèêëïîôùûüç])/i, (_, p, c) => `${p}${c.toUpperCase()}`);
+      }
       let type = params.type || 'admin';
       if (!params.type) {
         if (/débitage|cnc|usinage/i.test(msg)) type = /cnc|usinage/i.test(msg) ? 'usinage' : 'debitage';
         else if (/assemblage/i.test(msg)) type = 'assemblage';
         else if (/finition|vernis|ponçage/i.test(msg)) type = 'finition';
+        else if (shouldCreateStandaloneTask(msg, title, params) || shouldCreateStandaloneTask(message, title, params)) {
+          type = 'admin';
+        }
       }
       const minutes = params.estimated_minutes || extractDuration(msg);
-      if (!pid) {
-        return { reply: 'Précisez le projet (ex. « ajoute finition sur projet Olive »).', actions: [] };
+      const soft = await resolveSoftTaskContext(pageContext, params);
+      // Admin / finance / « sans projet » : hors checklist atelier, mais client + projet d'origine conservés
+      if (shouldCreateStandaloneTask(msg, title, params) || shouldCreateStandaloneTask(message, title, params)) {
+        const task = await insertTaskForProject(null, title, type || 'admin', minutes, {
+          clientId: soft.clientId,
+          relatedProjectId: soft.relatedProjectId,
+        });
+        actions.push({ type: 'create_task', data: task });
+        const ctxBits = [];
+        if (soft.clientId) {
+          const { rows: crows } = await pool.query('SELECT name FROM clients WHERE id = $1', [soft.clientId]);
+          if (crows[0]?.name) ctxBits.push(`client « ${crows[0].name} »`);
+        }
+        if (soft.relatedProjectId) {
+          const { rows: prows } = await pool.query('SELECT name FROM projects WHERE id = $1', [soft.relatedProjectId]);
+          if (prows[0]?.name) ctxBits.push(`contexte « ${prows[0].name} »`);
+        }
+        const ctxNote = ctxBits.length ? ` — ${ctxBits.join(', ')} conservé` : '';
+        return {
+          reply: `Tâche « ${task.title} » créée hors checklist projet (admin / générale)${ctxNote}.`,
+          actions,
+        };
       }
-      const task = await insertTaskForProject(pid, title, type, minutes);
+      // Projet explicite dans params/message d'abord ; sinon hint page ouverte (atelier)
+      let pid = null;
+      if (params?.project_id != null && params.project_id !== '' && params.project_id !== 'null') {
+        pid = Number(params.project_id);
+      } else if (params?.project_name || /\bprojet\b/i.test(msg)) {
+        pid = await resolveProjectId(params, msg, null);
+      }
+      if (!pid && pageContext?.type === 'project') pid = pageContext.id;
+      if (!pid) pid = await resolveProjectId(params, msg, pageContext);
+      if (!pid) {
+        return { reply: 'Précisez le projet (ex. « ajoute finition sur projet Olive »), ou dites « tâche admin » / « sans projet ».', actions: [] };
+      }
+      const task = await insertTaskForProject(pid, title, type, minutes, {
+        clientId: soft.clientId,
+      });
       actions.push({ type: 'create_task', data: task });
-      return { reply: `Tâche créée dans le projet #${pid} : « ${task.title} »`, actions };
+      const { rows: pname } = await pool.query('SELECT name FROM projects WHERE id = $1', [pid]);
+      return {
+        reply: `Tâche « ${task.title} » ajoutée au projet « ${pname[0]?.name || `#${pid}`} ».`,
+        actions,
+      };
+    }
+
+    case 'unlink_task': {
+      let task = null;
+      const hint = params.task_title || params.task || extractQuotedText(msg) || null;
+      const pid = pageContext?.type === 'project'
+        ? pageContext.id
+        : (params.project_id != null && params.project_id !== '' ? Number(params.project_id) : null);
+
+      if (params.task_id) {
+        const { rows } = await pool.query('SELECT * FROM tasks WHERE id = $1', [Number(params.task_id)]);
+        task = rows[0] || null;
+      }
+      if (!task && hint && pid) {
+        const tasks = await resolveProjectTasks(pid, pageContext);
+        task = findTaskByHint(hint, tasks, false);
+      }
+      if (!task && pid) {
+        const { rows } = await pool.query(
+          `SELECT * FROM tasks WHERE project_id = $1
+           ORDER BY created_at DESC NULLS LAST, id DESC LIMIT 10`,
+          [pid]
+        );
+        task = rows.find(t => t.type === 'admin'
+          || /admin|transfert|paiement|remboursement|bancaire|virement/i.test(t.title))
+          || rows[0]
+          || null;
+      }
+      if (!task) {
+        const { rows } = await pool.query(
+          `SELECT * FROM tasks
+           WHERE project_id IS NOT NULL
+             AND (type = 'admin' OR title ~* 'admin|transfert|paiement|remboursement|bancaire')
+           ORDER BY created_at DESC NULLS LAST, id DESC
+           LIMIT 1`
+        );
+        task = rows[0] || null;
+      }
+      if (!task) {
+        return {
+          reply: 'Aucune tâche à détacher. Indiquez le titre ou ouvrez le projet concerné.',
+          actions: [],
+        };
+      }
+      if (!task.project_id) {
+        return {
+          reply: `La tâche « ${task.title} » n'est déjà plus dans une checklist projet`
+            + (task.client_id || task.related_project_id ? ' (contexte client/historique conservé).' : '.'),
+          actions: [],
+        };
+      }
+      const { rows: proj } = await pool.query(
+        'SELECT id, name, client_id FROM projects WHERE id = $1',
+        [task.project_id]
+      );
+      const oldName = proj[0]?.name || `#${task.project_id}`;
+      const keepClientId = task.client_id || proj[0]?.client_id || null;
+      const keepRelated = task.related_project_id || task.project_id;
+      const { rows } = await pool.query(
+        `UPDATE tasks
+         SET project_id = NULL,
+             related_project_id = COALESCE(related_project_id, $2),
+             client_id = COALESCE(client_id, $3)
+         WHERE id = $1
+         RETURNING *`,
+        [task.id, keepRelated, keepClientId]
+      );
+      actions.push({ type: 'unlink_task', data: rows[0] });
+      const ctxBits = [];
+      if (keepClientId) {
+        const { rows: crows } = await pool.query('SELECT name FROM clients WHERE id = $1', [keepClientId]);
+        if (crows[0]?.name) ctxBits.push(`client « ${crows[0].name} »`);
+      }
+      if (keepRelated) ctxBits.push(`historique « ${oldName} »`);
+      const ctxNote = ctxBits.length ? ` Contexte ${ctxBits.join(' / ')} conservé.` : '';
+      return {
+        reply: `Compris — « ${rows[0].title} » retirée de la checklist « ${oldName} » (admin / générale).${ctxNote}`,
+        actions,
+      };
     }
 
     case 'create_project': {

@@ -59,7 +59,9 @@ router.post('/chat', upload.array('files', 8), async (req, res) => {
     let pageContext = null;
     if (req.body.context) {
       try {
-        pageContext = JSON.parse(req.body.context);
+        pageContext = typeof req.body.context === 'string'
+          ? JSON.parse(req.body.context)
+          : req.body.context;
       } catch {
         pageContext = null;
       }

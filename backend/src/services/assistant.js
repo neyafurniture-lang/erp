@@ -8,6 +8,7 @@ import {
   createProjectFromStandard,
   isDayPlanMessage,
   runSkillAction,
+  wantsUnlinkFromProject,
 } from './skill-actions.js';
 
 export { ACTION_TYPES };
@@ -45,19 +46,48 @@ async function enrichPageContext(ctx) {
       'SELECT id, title, status, sort_order, type FROM tasks WHERE project_id = $1 ORDER BY sort_order, id',
       [ctx.id]
     );
+    let clientProjects = [];
+    if (rows[0].client_id) {
+      const { rows: cps } = await pool.query(
+        `SELECT id, name, status, deadline
+         FROM projects
+         WHERE client_id = $1
+         ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, created_at DESC
+         LIMIT 12`,
+        [rows[0].client_id]
+      );
+      clientProjects = cps;
+    }
     return {
       ...ctx,
       label: rows[0].name,
       project: rows[0],
       tasks,
       isCustom: !rows[0].standard_id,
+      client_id: rows[0].client_id || null,
+      client_name: rows[0].client_name || null,
+      clientProjects,
     };
   }
 
   if (ctx.type === 'client') {
     const { rows } = await pool.query('SELECT * FROM clients WHERE id = $1', [ctx.id]);
     if (!rows[0]) return null;
-    return { ...ctx, label: rows[0].name, client: rows[0] };
+    const { rows: projects } = await pool.query(
+      `SELECT id, name, status, deadline, budget_estimated
+       FROM projects
+       WHERE client_id = $1
+       ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, created_at DESC
+       LIMIT 15`,
+      [ctx.id]
+    );
+    return {
+      ...ctx,
+      label: rows[0].name,
+      client: rows[0],
+      client_id: ctx.id,
+      projects,
+    };
   }
 
   if (ctx.type === 'standard') {
@@ -115,9 +145,16 @@ function contextPrefix(ctx) {
   if (ctx.type === 'project') {
     const custom = ctx.isCustom ? ' (checklist atelier)' : ' (fiche catalogue)';
     const pending = ctx.tasks?.filter(t => t.status !== 'done').length ?? 0;
-    return `[Contexte page : projet « ${ctx.label} »${custom}${pending ? ` — ${pending} tâche(s) en cours` : ''}]\n`;
+    const clientBit = ctx.client_name ? ` — client « ${ctx.client_name} »` : '';
+    const hist = Array.isArray(ctx.clientProjects) && ctx.clientProjects.length > 1
+      ? ` — ${ctx.clientProjects.length} projets client en historique`
+      : '';
+    return `[Contexte page : projet « ${ctx.label} »${custom}${clientBit}${hist}${pending ? ` — ${pending} tâche(s) en cours` : ''}]\n`;
   }
-  if (ctx.type === 'client') return `[Contexte page : client « ${ctx.label} »]\n`;
+  if (ctx.type === 'client') {
+    const n = Array.isArray(ctx.projects) ? ctx.projects.length : 0;
+    return `[Contexte page : client « ${ctx.label} »${n ? ` — ${n} projet(s) historique` : ''}]\n`;
+  }
   if (ctx.type === 'standard') return `[Contexte page : fiche « ${ctx.label} »${ctx.sku ? ` (${ctx.sku})` : ''}]\n`;
   if (ctx.type === 'quote') {
     const q = ctx.quote;
@@ -450,9 +487,22 @@ export async function processMessage(message, attachments = [], rawContext = nul
     return studied;
   }
 
+  // Correction « pas lié à ce projet » avant le LLM (évite de recréer la tâche dans le projet ouvert)
+  if (wantsUnlinkFromProject(message)) {
+    const unlinkResult = await runSkillAction('unlink_task', message, pageContext);
+    await pool.query(
+      'INSERT INTO assistant_messages (role, content, actions_taken) VALUES ($1,$2,$3)',
+      ['assistant', unlinkResult.reply, JSON.stringify(unlinkResult.actions || [])]
+    );
+    return unlinkResult;
+  }
+
   async function runKeywordActions(msg = message) {
     if (isDayPlanMessage(msg)) {
       return runSkillAction('plan_day', msg, pageContext);
+    }
+    if (wantsUnlinkFromProject(msg)) {
+      return runSkillAction('unlink_task', msg, pageContext);
     }
     const skill = await matchSkill(msg);
     if (skill) return executeSkill(skill, msg, pageContext);
@@ -462,7 +512,7 @@ export async function processMessage(message, attachments = [], rawContext = nul
     if (/supprimer|retirer|effacer/i.test(msg) && /tâche|étape/i.test(msg)) {
       return runSkillAction('delete_task', msg, pageContext);
     }
-    if (/ajouter|ajoute|étape|checklist|nouvelle tâche|créer tâche/i.test(msg)) {
+    if (/ajouter|ajoute|étape|checklist|nouvelle tâche|créer tâche|t[aâ]che\s+admin/i.test(msg)) {
       return runSkillAction('create_task', msg, pageContext);
     }
     if (/descriptif|description|note(s)? (du )?projet|modifier (le )?projet|deadline|budget|renommer projet/i.test(msg)) {
