@@ -30,6 +30,7 @@ const DONE = [
   'Gestion admin (marchés, factures, site, pub/SEO)',
   'Achats atelier — consommables manquants',
   'Drive + Gmail, permissions, assistant IA',
+  'Marketplace (ventes canaux) + pôle réseaux sociaux',
 ];
 
 export default function ErpRoadmapContent() {

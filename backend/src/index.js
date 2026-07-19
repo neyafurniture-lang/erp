@@ -46,6 +46,8 @@ import deployRoutes from './routes/deploy.js';
 import timeOffRoutes from './routes/time-off.js';
 import saunaCloudRoutes from './routes/sauna-cloud.js';
 import cuttingPlansRoutes from './routes/cutting-plans.js';
+import marketplaceRoutes from './routes/marketplace.js';
+import socialRoutes from './routes/social.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -137,6 +139,8 @@ protectedRouter.use('/manual', manualRoutes);
 protectedRouter.use('/habits', atelierHabitsRoutes);
 protectedRouter.use('/sauna-cloud', saunaCloudRoutes);
 protectedRouter.use('/cutting-plans', cuttingPlansRoutes);
+protectedRouter.use('/marketplace', marketplaceRoutes);
+protectedRouter.use('/social', socialRoutes);
 
 app.use('/api', protectedRouter);
 

@@ -544,6 +544,48 @@ CREATE TABLE IF NOT EXISTS invoice_routing_rules (
 
 CREATE INDEX IF NOT EXISTS idx_supplier_invoices_status ON supplier_invoice_emails(status);
 
+-- Marketplace : ventes canaux (Etsy, FB Marketplace, Kijiji, site…)
+CREATE TABLE IF NOT EXISTS marketplace_sales (
+  id SERIAL PRIMARY KEY,
+  sold_at DATE NOT NULL DEFAULT CURRENT_DATE,
+  channel TEXT NOT NULL DEFAULT 'autre',
+  product_name TEXT NOT NULL,
+  buyer_name TEXT,
+  amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+  fees NUMERIC(12,2) NOT NULL DEFAULT 0,
+  currency TEXT NOT NULL DEFAULT 'CAD',
+  order_ref TEXT,
+  notes TEXT,
+  project_id INT REFERENCES projects(id) ON DELETE SET NULL,
+  client_id INT REFERENCES clients(id) ON DELETE SET NULL,
+  created_by INT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_marketplace_sales_sold_at ON marketplace_sales(sold_at DESC);
+CREATE INDEX IF NOT EXISTS idx_marketplace_sales_channel ON marketplace_sales(channel);
+
+-- Réseaux sociaux : calendrier éditorial cross-platform
+CREATE TABLE IF NOT EXISTS social_posts (
+  id SERIAL PRIMARY KEY,
+  title TEXT,
+  caption TEXT NOT NULL DEFAULT '',
+  platforms TEXT[] NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL DEFAULT 'draft',
+  scheduled_at TIMESTAMPTZ,
+  published_at TIMESTAMPTZ,
+  media JSONB NOT NULL DEFAULT '[]',
+  metrics JSONB NOT NULL DEFAULT '{}',
+  source TEXT DEFAULT 'manual',
+  external_ids JSONB NOT NULL DEFAULT '{}',
+  notes TEXT,
+  created_by INT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_social_posts_status ON social_posts(status);
+CREATE INDEX IF NOT EXISTS idx_social_posts_scheduled ON social_posts(scheduled_at);
+
 CREATE INDEX IF NOT EXISTS idx_inventory_category ON inventory_items(category);
 CREATE INDEX IF NOT EXISTS idx_shifts_employee ON shifts(employee_id, start_at);
 CREATE INDEX IF NOT EXISTS idx_memories_project ON assistant_memories(project_id);
