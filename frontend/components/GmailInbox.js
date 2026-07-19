@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { api } from '../lib/api';
+import { decodeHtmlEntities, readableMailBody } from '../lib/mail-text';
 import { threadApi } from '../lib/mail-threads';
 import { connectGoogle, getGoogleStatus } from '../lib/google';
 
@@ -96,29 +97,6 @@ function formatMailDate(dateStr) {
     month: 'short',
     ...(sameYear ? {} : { year: 'numeric' }),
   });
-}
-
-/** Affiche un corps mail lisible même si Gmail renvoie du HTML brut. */
-function readableMailBody(raw) {
-  const text = String(raw || '');
-  if (!text) return '';
-  if (!/<\/?[a-z][\s\S]*>/i.test(text)) return text;
-  return text
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|tr|li|h[1-6])>/gi, '\n')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .replace(/[ \t]{2,}/g, ' ')
-    .trim();
 }
 
 /** Nettoyage léger avant iframe (scripts / handlers). */
@@ -989,7 +967,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                     const active = (selected?.id || selected?.gmail_message_id) === id;
                     const unread = !isSent && (m.isUnread || m.unread);
                     const badge = CATEGORY_BADGE[m.mailCategory];
-                    const preview = m.snippet || m.bodyPreview || '';
+                    const preview = decodeHtmlEntities(m.snippet || m.bodyPreview || '');
                     return (
                       <button
                         key={id}
@@ -1000,30 +978,30 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                         <span className={`mail-avatar ${unread ? 'mail-avatar--unread' : 'mail-avatar--read'}`}>
                           {getInitials(peer)}
                         </span>
-                        <span className="min-w-0">
-                          <span className={`block truncate text-[13px] ${unread ? 'font-semibold text-neya-ink' : 'font-medium text-neya-ink-light'}`}>
-                            {isSent ? `À : ${name}` : name}
+                        <span className="mail-row-body">
+                          <span className="mail-row-top">
+                            <span className={`mail-row-from ${unread ? 'font-semibold text-neya-ink' : 'font-medium text-neya-ink-light'}`}>
+                              {isSent ? `À : ${name}` : name}
+                            </span>
+                            <span className="mail-row-date">
+                              {formatMailDate(m.date)}
+                            </span>
                           </span>
-                          <span className={`mail-row-subject mt-0.5 block truncate text-[12.5px] ${unread ? 'font-medium text-neya-ink' : 'text-neya-ink-light'}`}>
+                          <span className={`mail-row-subject ${unread ? 'font-medium text-neya-ink' : 'text-neya-ink-light'}`}>
                             {m.subject || '(sans objet)'}
                           </span>
                           {preview ? (
                             <span className="mail-row-preview">{preview}</span>
                           ) : null}
-                          <span className="mt-1.5 flex items-center gap-1.5 flex-wrap">
-                            {badge && (
+                          {badge ? (
+                            <span className="mail-row-badges">
                               <span className="rounded-md bg-neya-surface px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-neya-ink-light">
                                 {badge.label}
                               </span>
-                            )}
-                          </span>
+                            </span>
+                          ) : null}
                         </span>
-                        <span className="mail-row-meta">
-                          <span className="text-[11px] tabular-nums text-neya-muted">
-                            {formatMailDate(m.date)}
-                          </span>
-                          {unread && <span className="mail-unread-dot" aria-hidden />}
-                        </span>
+                        {unread ? <span className="mail-unread-dot mail-unread-dot--row" aria-hidden /> : null}
                       </button>
                     );
                   })}
@@ -1329,7 +1307,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                             {thread.messages.map(m => (
                               <li key={m.id} className="p-2 rounded-lg bg-white border border-neya-border/80">
                                 <p className="font-medium text-neya-ink truncate">{m.from_email}</p>
-                                <p className="text-neya-muted line-clamp-2 mt-0.5">{m.snippet}</p>
+                                <p className="text-neya-muted line-clamp-2 mt-0.5">{decodeHtmlEntities(m.snippet)}</p>
                               </li>
                             ))}
                           </ul>

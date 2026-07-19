@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { api } from '../lib/api';
+import { decodeHtmlEntities } from '../lib/mail-text';
 
 function groupPendingBySupplier(items = []) {
   const map = new Map();
@@ -64,7 +65,7 @@ function AssignModal({ item, projects, onClose, onDone }) {
           <span className="font-medium text-neya-ink">{item.supplier_label}</span>
           {' — '}{item.subject}
         </p>
-        {item.snippet && <p className="text-xs text-neya-muted mb-4 line-clamp-2">{item.snippet}</p>}
+        {item.snippet && <p className="text-xs text-neya-muted mb-4 line-clamp-2">{decodeHtmlEntities(item.snippet)}</p>}
 
         {err && <div className="text-sm text-red-700 bg-red-50 px-3 py-2 rounded-lg mb-3">{err}</div>}
 

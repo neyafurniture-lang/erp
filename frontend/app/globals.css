@@ -649,13 +649,13 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .mail-list-scroll {
-    @apply flex-1 overflow-y-auto overscroll-contain divide-y;
+    @apply flex-1 overflow-y-auto overflow-x-hidden overscroll-contain divide-y;
     -webkit-overflow-scrolling: touch;
     border-color: rgba(10, 10, 10, 0.06);
   }
 
   .mail-row {
-    @apply relative grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 px-4 py-3 cursor-pointer text-left w-full min-w-0;
+    @apply relative flex items-start gap-3 px-4 py-3 cursor-pointer text-left w-full min-w-0 overflow-hidden;
     transition: background 0.15s ease;
   }
 
@@ -668,12 +668,36 @@ h1, h2, h3, h4, h5, h6 {
     box-shadow: none;
   }
 
+  .mail-row-body {
+    @apply flex-1 min-w-0 overflow-hidden;
+  }
+
+  .mail-row-top {
+    @apply flex items-baseline justify-between gap-2 min-w-0;
+  }
+
+  .mail-row-from {
+    @apply block truncate text-[13px] min-w-0;
+  }
+
+  .mail-row-date {
+    @apply shrink-0 text-[11px] tabular-nums text-neya-muted;
+  }
+
   .mail-row-unread .mail-row-subject {
     @apply font-medium text-neya-ink;
   }
 
+  .mail-row-subject {
+    @apply mt-0.5 block truncate text-[12.5px] min-w-0;
+  }
+
   .mail-row-preview {
-    @apply mt-0.5 truncate text-[11.5px] text-neya-muted;
+    @apply mt-0.5 block truncate text-[11.5px] text-neya-muted min-w-0;
+  }
+
+  .mail-row-badges {
+    @apply mt-1.5 flex items-center gap-1.5 flex-wrap;
   }
 
   .mail-row-meta {
@@ -685,6 +709,9 @@ h1, h2, h3, h4, h5, h6 {
     height: 0.5rem;
     border-radius: 999px;
     background: #D86B30;
+  }
+  .mail-unread-dot--row {
+    @apply mt-1.5 shrink-0;
   }
 
   .mail-avatar {
