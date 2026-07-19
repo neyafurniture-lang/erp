@@ -1,7 +1,18 @@
 import { Router } from 'express';
+import multer from 'multer';
 import pool from '../db/pool.js';
+import { splitPdfForProject } from '../services/project-plans.js';
 
 const router = Router();
+const planUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 40 * 1024 * 1024 },
+  fileFilter(_req, file, cb) {
+    const ok = file.mimetype === 'application/pdf'
+      || /\.pdf$/i.test(file.originalname || '');
+    cb(ok ? null : new Error('PDF requis'), ok);
+  },
+});
 
 router.get('/', async (req, res) => {
   try {
@@ -209,6 +220,38 @@ router.patch('/:id/client', async (req, res) => {
     res.json(project);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+/** Importer un PDF de plans → pages individuelles dans meta.plans */
+router.post('/:id/plans/import', planUpload.single('pdf'), async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!req.file?.buffer?.length) {
+      return res.status(400).json({ error: 'Fichier PDF requis (champ pdf)' });
+    }
+    const { rows: existing } = await pool.query('SELECT id, meta FROM projects WHERE id = $1', [id]);
+    if (!existing[0]) return res.status(404).json({ error: 'Projet introuvable' });
+
+    const pages = await splitPdfForProject(id, req.file.buffer, req.file.originalname || 'plan.pdf');
+    const curMeta = typeof existing[0].meta === 'string'
+      ? JSON.parse(existing[0].meta || '{}')
+      : (existing[0].meta || {});
+    const prev = Array.isArray(curMeta.plans) ? curMeta.plans : [];
+    const nextMeta = {
+      ...curMeta,
+      plans: [...prev, ...pages],
+      plans_updated_at: new Date().toISOString(),
+    };
+
+    const { rows } = await pool.query(
+      `UPDATE projects SET meta = $1::jsonb WHERE id = $2
+       RETURNING id, meta`,
+      [JSON.stringify(nextMeta), id]
+    );
+    res.status(201).json({ ok: true, plans: rows[0].meta?.plans || nextMeta.plans, added: pages.length });
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Import PDF impossible' });
   }
 });
 
