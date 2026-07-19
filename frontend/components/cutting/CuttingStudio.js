@@ -309,20 +309,11 @@ export default function CuttingStudio() {
       <div className="cut-studio__body">
         {/* Left input */}
         <aside className={`cut-studio__sidebar ${mobilePane === 'input' ? 'is-open' : ''}`}>
-          <section className="cut-side-block">
-            <h3>Réglages</h3>
-            <label className="cut-field">
-              <span>Kerf (″)</span>
-              <input
-                className="input !min-h-[36px] !py-1.5 text-sm"
-                type="number"
-                step="0.01"
-                value={doc.kerf}
-                onChange={(e) => patch({ kerf: Number(e.target.value) })}
-              />
-            </label>
+          {/* Réglages panneau toujours visibles — pas besoin de défiler */}
+          <section className="cut-side-block cut-side-block--pinned">
+            <h3>Réglages panneau</h3>
             {mode === '1d' ? (
-              <label className="cut-field">
+              <label className="cut-field !mb-1.5">
                 <span>Longueur planche (″)</span>
                 <input
                   className="input !min-h-[36px] !py-1.5 text-sm"
@@ -333,7 +324,7 @@ export default function CuttingStudio() {
               </label>
             ) : (
               <div className="grid grid-cols-2 gap-2">
-                <label className="cut-field">
+                <label className="cut-field !mb-1.5">
                   <span>Larg. ″</span>
                   <input
                     className="input !min-h-[36px] !py-1.5 text-sm"
@@ -342,7 +333,7 @@ export default function CuttingStudio() {
                     onChange={(e) => patch({ sheetW: Number(e.target.value) })}
                   />
                 </label>
-                <label className="cut-field">
+                <label className="cut-field !mb-1.5">
                   <span>Haut. ″</span>
                   <input
                     className="input !min-h-[36px] !py-1.5 text-sm"
@@ -353,156 +344,171 @@ export default function CuttingStudio() {
                 </label>
               </div>
             )}
-            <label className="cut-field">
-              <span>Projet / note</span>
-              <input
-                className="input !min-h-[36px] !py-1.5 text-sm"
-                value={doc.project_label}
-                onChange={(e) => patch({ project_label: e.target.value })}
-                placeholder="ex. Haltigan #153"
-              />
-            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="cut-field !mb-0">
+                <span>Kerf (″)</span>
+                <input
+                  className="input !min-h-[36px] !py-1.5 text-sm"
+                  type="number"
+                  step="0.01"
+                  value={doc.kerf}
+                  onChange={(e) => patch({ kerf: Number(e.target.value) })}
+                />
+              </label>
+              <label className="cut-field !mb-0">
+                <span>Projet / note</span>
+                <input
+                  className="input !min-h-[36px] !py-1.5 text-sm"
+                  value={doc.project_label}
+                  onChange={(e) => patch({ project_label: e.target.value })}
+                  placeholder="Haltigan #153"
+                />
+              </label>
+            </div>
           </section>
 
-          {mode === '1d' ? (
-            <section className="cut-side-block">
-              <div className="flex items-center justify-between gap-2 mb-2">
-                <h3>Pièces à couper</h3>
-                <button
-                  type="button"
-                  className="cut-icon-btn"
-                  onClick={() => patch({ linearParts: [...doc.linearParts, emptyLinearPart()] })}
-                >
-                  +
-                </button>
-              </div>
-              <p className="text-[11px] text-neya-muted mb-2">
-                Entrez les longueurs nécessaires, puis <b>Optimiser</b> — ou posez-les à la main sur les planches (+).
-              </p>
-              <div className="space-y-2">
-                {doc.linearParts.map((p, i) => (
-                  <div key={p.id} className="cut-part-row">
-                    <span className="cut-swatch" style={{ background: p.color }} />
-                    <input
-                      className="cut-part-input flex-[1.2]"
-                      placeholder="Label"
-                      value={p.label}
-                      onChange={(e) => {
-                        const linearParts = doc.linearParts.map((x, j) => (j === i ? { ...x, label: e.target.value } : x));
-                        patch({ linearParts });
-                      }}
-                    />
-                    <input
-                      className="cut-part-input w-14"
-                      type="number"
-                      title="Longueur ″"
-                      value={p.length}
-                      onChange={(e) => {
-                        const length = Number(e.target.value);
-                        const linearParts = doc.linearParts.map((x, j) => (
-                          j === i ? { ...x, length, color: x.color } : x
-                        ));
-                        patch({ linearParts });
-                      }}
-                    />
-                    <input
-                      className="cut-part-input w-12"
-                      type="number"
-                      title="Qty"
-                      value={p.qty}
-                      onChange={(e) => {
-                        const linearParts = doc.linearParts.map((x, j) => (j === i ? { ...x, qty: Number(e.target.value) } : x));
-                        patch({ linearParts });
-                      }}
-                    />
-                    <button
-                      type="button"
-                      className="text-neya-muted hover:text-red-600 text-sm"
-                      onClick={() => patch({ linearParts: doc.linearParts.filter((_, j) => j !== i) })}
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </section>
-          ) : (
-            <section className="cut-side-block">
-              <div className="flex items-center justify-between gap-2 mb-2">
-                <h3>Pièces panneau</h3>
-                <button
-                  type="button"
-                  className="cut-icon-btn"
-                  onClick={() => patch({ panelParts: [...doc.panelParts, emptyPanelPart()] })}
-                >
-                  +
-                </button>
-              </div>
-              <p className="text-[11px] text-neya-muted mb-2">
-                Cliquez une pièce pour la « charger », puis cliquez sur le panneau pour la poser. Ou Optimiser.
-              </p>
-              <div className="space-y-2">
-                {doc.panelParts.map((p, i) => (
+          {/* Seule la liste des pièces défile */}
+          <div className="cut-studio__sidebar-scroll">
+            {mode === '1d' ? (
+              <section className="cut-side-block">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <h3 className="!mb-0">Pièces à couper</h3>
                   <button
-                    key={p.id}
                     type="button"
-                    className={`cut-part-row cut-part-row--btn ${placePartId === p.id ? 'is-active' : ''}`}
-                    onClick={() => setPlacePartId(placePartId === p.id ? null : p.id)}
+                    className="cut-icon-btn"
+                    onClick={() => patch({ linearParts: [...doc.linearParts, emptyLinearPart()] })}
                   >
-                    <span className="cut-swatch" style={{ background: p.color }} />
-                    <input
-                      className="cut-part-input flex-1"
-                      placeholder="Label"
-                      value={p.label}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => {
-                        const panelParts = doc.panelParts.map((x, j) => (j === i ? { ...x, label: e.target.value } : x));
-                        patch({ panelParts });
-                      }}
-                    />
-                    <input
-                      className="cut-part-input w-12"
-                      type="number"
-                      value={p.w}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => {
-                        const panelParts = doc.panelParts.map((x, j) => (j === i ? { ...x, w: Number(e.target.value) } : x));
-                        patch({ panelParts });
-                      }}
-                    />
-                    <span className="text-neya-muted text-xs">×</span>
-                    <input
-                      className="cut-part-input w-12"
-                      type="number"
-                      value={p.h}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => {
-                        const panelParts = doc.panelParts.map((x, j) => (j === i ? { ...x, h: Number(e.target.value) } : x));
-                        patch({ panelParts });
-                      }}
-                    />
-                    <input
-                      className="cut-part-input w-10"
-                      type="number"
-                      value={p.qty}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => {
-                        const panelParts = doc.panelParts.map((x, j) => (j === i ? { ...x, qty: Number(e.target.value) } : x));
-                        patch({ panelParts });
-                      }}
-                    />
+                    +
                   </button>
-                ))}
-              </div>
-            </section>
-          )}
+                </div>
+                <p className="text-[11px] text-neya-muted mb-2">
+                  Entrez les longueurs, puis <b>Optimiser</b> — ou posez à la main sur les planches.
+                </p>
+                <div className="space-y-2">
+                  {doc.linearParts.map((p, i) => (
+                    <div key={p.id} className="cut-part-row">
+                      <span className="cut-swatch" style={{ background: p.color }} />
+                      <input
+                        className="cut-part-input flex-[1.2]"
+                        placeholder="Label"
+                        value={p.label}
+                        onChange={(e) => {
+                          const linearParts = doc.linearParts.map((x, j) => (j === i ? { ...x, label: e.target.value } : x));
+                          patch({ linearParts });
+                        }}
+                      />
+                      <input
+                        className="cut-part-input w-14"
+                        type="number"
+                        title="Longueur ″"
+                        value={p.length}
+                        onChange={(e) => {
+                          const length = Number(e.target.value);
+                          const linearParts = doc.linearParts.map((x, j) => (
+                            j === i ? { ...x, length, color: x.color } : x
+                          ));
+                          patch({ linearParts });
+                        }}
+                      />
+                      <input
+                        className="cut-part-input w-12"
+                        type="number"
+                        title="Qty"
+                        value={p.qty}
+                        onChange={(e) => {
+                          const linearParts = doc.linearParts.map((x, j) => (j === i ? { ...x, qty: Number(e.target.value) } : x));
+                          patch({ linearParts });
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="text-neya-muted hover:text-red-600 text-sm"
+                        onClick={() => patch({ linearParts: doc.linearParts.filter((_, j) => j !== i) })}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : (
+              <section className="cut-side-block">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <h3 className="!mb-0">Pièces panneau</h3>
+                  <button
+                    type="button"
+                    className="cut-icon-btn"
+                    onClick={() => patch({ panelParts: [...doc.panelParts, emptyPanelPart()] })}
+                  >
+                    +
+                  </button>
+                </div>
+                <p className="text-[11px] text-neya-muted mb-2">
+                  Cliquez une pièce pour la charger, puis le panneau pour la poser. Ou Optimiser.
+                </p>
+                <div className="space-y-2">
+                  {doc.panelParts.map((p, i) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      className={`cut-part-row cut-part-row--btn ${placePartId === p.id ? 'is-active' : ''}`}
+                      onClick={() => setPlacePartId(placePartId === p.id ? null : p.id)}
+                    >
+                      <span className="cut-swatch" style={{ background: p.color }} />
+                      <input
+                        className="cut-part-input flex-1"
+                        placeholder="Label"
+                        value={p.label}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          const panelParts = doc.panelParts.map((x, j) => (j === i ? { ...x, label: e.target.value } : x));
+                          patch({ panelParts });
+                        }}
+                      />
+                      <input
+                        className="cut-part-input w-12"
+                        type="number"
+                        value={p.w}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          const panelParts = doc.panelParts.map((x, j) => (j === i ? { ...x, w: Number(e.target.value) } : x));
+                          patch({ panelParts });
+                        }}
+                      />
+                      <span className="text-neya-muted text-xs">×</span>
+                      <input
+                        className="cut-part-input w-12"
+                        type="number"
+                        value={p.h}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          const panelParts = doc.panelParts.map((x, j) => (j === i ? { ...x, h: Number(e.target.value) } : x));
+                          patch({ panelParts });
+                        }}
+                      />
+                      <input
+                        className="cut-part-input w-10"
+                        type="number"
+                        value={p.qty}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          const panelParts = doc.panelParts.map((x, j) => (j === i ? { ...x, qty: Number(e.target.value) } : x));
+                          patch({ panelParts });
+                        }}
+                      />
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
 
-          <div className="mt-auto pt-3">
+          <div className="cut-studio__sidebar-foot">
             <button type="button" className="btn-primary w-full" disabled={busy} onClick={runOptimize}>
               Optimiser le placement
             </button>
-            <p className="text-[10px] text-neya-muted mt-2 text-center">
-              Algorithme local + Python si dispo · vous pouvez ensuite ajuster à la main
+            <p className="text-[10px] text-neya-muted mt-1.5 text-center">
+              Local + Python si dispo · ajustable à la main
             </p>
           </div>
         </aside>

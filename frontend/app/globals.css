@@ -1752,11 +1752,22 @@ h1, h2, h3, h4, h5, h6 {
   @apply flex flex-1 min-h-0;
 }
 .cut-studio__sidebar {
-  @apply hidden w-full sm:w-[300px] shrink-0 border-r border-neya-border bg-white p-3 sm:p-4 flex-col gap-3 overflow-y-auto max-h-[calc(100vh-8rem)];
+  @apply hidden w-full sm:w-[300px] shrink-0 border-r border-neya-border bg-white p-3 sm:p-4 flex-col gap-2
+    max-h-[calc(100vh-8rem)] min-h-0 overflow-hidden;
 }
 .cut-studio__sidebar.is-open { @apply flex flex-col; }
 @media (min-width: 640px) {
   .cut-studio__sidebar { @apply flex flex-col; }
+}
+/* Réglages (Larg./Haut.) restent visibles ; seule la liste pièces défile */
+.cut-side-block--pinned {
+  @apply shrink-0 pb-2 border-b border-neya-border;
+}
+.cut-studio__sidebar-scroll {
+  @apply flex-1 min-h-0 overflow-y-auto overscroll-contain pr-0.5;
+}
+.cut-studio__sidebar-foot {
+  @apply shrink-0 pt-2 border-t border-neya-border bg-white;
 }
 .cut-studio__canvas {
   @apply hidden flex-1 p-3 sm:p-5 overflow-y-auto max-h-[calc(100vh-8rem)];
