@@ -16,6 +16,8 @@ export const PERMISSION_AREAS = {
   clients: { label: 'Clients', group: 'Commercial' },
   standards: { label: 'Standards', group: 'Commercial' },
   web: { label: 'Site web', group: 'Commercial' },
+  marketplace: { label: 'Marketplace', group: 'Commercial' },
+  social: { label: 'Réseaux sociaux', group: 'Commercial' },
   settings: { label: 'Paramètres', group: 'Système' },
   users: { label: 'Gestion utilisateurs', group: 'Système', adminOnly: true },
 };
@@ -41,6 +43,8 @@ export const PATH_PERMISSION = [
   { prefix: '/clients', permission: 'clients' },
   { prefix: '/standards', permission: 'standards' },
   { prefix: '/web', permission: 'web' },
+  { prefix: '/marketplace', permission: 'marketplace' },
+  { prefix: '/social', permission: 'social' },
   { prefix: '/settings', permission: 'settings' },
 ];
 

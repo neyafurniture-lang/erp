@@ -70,6 +70,27 @@ export async function searchFiles(query, pageToken = null) {
   return { files: (data.files || []).map(formatFile), nextPageToken: data.nextPageToken || null };
 }
 
+/** Photos récentes du Drive (pour propositions de posts). */
+export async function listRecentImages({ pageSize = 24, pageToken = null, query = null } = {}) {
+  const parts = [`mimeType contains 'image/'`, 'trashed=false'];
+  if (query) {
+    const safe = String(query).replace(/'/g, "\\'");
+    parts.push(`(name contains '${safe}' or fullText contains '${safe}')`);
+  }
+  const params = new URLSearchParams({
+    q: parts.join(' and '),
+    fields: FIELDS,
+    pageSize: String(Math.min(Number(pageSize) || 24, 50)),
+    orderBy: 'modifiedTime desc',
+  });
+  if (pageToken) params.set('pageToken', pageToken);
+  const data = await driveFetch(`/files?${params}`);
+  return {
+    files: (data.files || []).map(formatFile),
+    nextPageToken: data.nextPageToken || null,
+  };
+}
+
 export async function getFile(fileId) {
   const data = await driveFetch(`/files/${fileId}?fields=id,name,mimeType,size,webViewLink,webContentLink,parents,modifiedTime`);
   return formatFile(data);
