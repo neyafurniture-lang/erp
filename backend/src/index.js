@@ -38,7 +38,7 @@ import uiRoutes from './routes/ui.js';
 import cursorAgentRoutes from './routes/cursor-agent.js';
 import manualRoutes from './routes/manual.js';
 import atelierHabitsRoutes from './routes/atelier-habits.js';
-import integrationsRoutes, { handleGoogleCallback } from './routes/integrations.js';
+import integrationsRoutes, { handleGoogleCallback, handleMetaCallback, handlePinterestCallback } from './routes/integrations.js';
 import googleDriveRoutes from './routes/google-drive.js';
 import googleGmailRoutes from './routes/google-gmail.js';
 import emailThreadsRoutes from './routes/email-threads.js';
@@ -99,8 +99,10 @@ app.use('/uploads', uploadAuth, express.static(path.join(__dirname, '../uploads'
 
 app.use('/api/auth', authRoutes);
 
-// OAuth Google — callback public (sans JWT)
+// OAuth Google / Meta / Pinterest — callbacks publics (sans JWT)
 app.get('/api/integrations/google/callback', handleGoogleCallback);
+app.get('/api/integrations/meta/callback', handleMetaCallback);
+app.get('/api/integrations/pinterest/callback', handlePinterestCallback);
 
 const protectedRouter = express.Router();
 protectedRouter.use(authMiddleware);

@@ -60,6 +60,12 @@ function SettingsContent() {
     google_client_id: '',
     google_client_secret: '',
     google_redirect_uri: '',
+    meta_app_id: '',
+    meta_app_secret: '',
+    meta_redirect_uri: '',
+    pinterest_app_id: '',
+    pinterest_app_secret: '',
+    pinterest_redirect_uri: '',
     project_admin_pin: '',
   });
   const [passwordForm, setPasswordForm] = useState({ current_password: '', new_password: '', confirm: '' });
@@ -117,12 +123,18 @@ function SettingsContent() {
         smtp_from: s.smtp_from || '',
         google_client_id: s.google_client_id || '',
         google_redirect_uri: s.google_redirect_uri || '',
+        meta_app_id: s.meta_app_id || '',
+        meta_redirect_uri: s.meta_redirect_uri || '',
+        pinterest_app_id: s.pinterest_app_id || '',
+        pinterest_redirect_uri: s.pinterest_redirect_uri || '',
         anthropic_api_key: '',
         openai_api_key: '',
         woocommerce_key: '',
         woocommerce_secret: '',
         smtp_pass: '',
         google_client_secret: '',
+        meta_app_secret: '',
+        pinterest_app_secret: '',
       }));
     } catch (e) {
       setErr(e.message);
@@ -137,6 +149,9 @@ function SettingsContent() {
       const payload = { ...form, ...extra };
       if (!payload.anthropic_api_key) delete payload.anthropic_api_key;
       if (!payload.openai_api_key) delete payload.openai_api_key;
+      if (!payload.google_client_secret) delete payload.google_client_secret;
+      if (!payload.meta_app_secret) delete payload.meta_app_secret;
+      if (!payload.pinterest_app_secret) delete payload.pinterest_app_secret;
       if (!payload.woocommerce_key) delete payload.woocommerce_key;
       if (!payload.woocommerce_secret) delete payload.woocommerce_secret;
       if (!payload.smtp_pass) delete payload.smtp_pass;
@@ -566,6 +581,56 @@ function SettingsContent() {
                 </div>
               </>
             )}
+          </section>
+
+          <section className="card rounded-2xl">
+            <h2 className="font-display font-semibold text-lg mb-2">Réseaux sociaux (Meta + Pinterest)</h2>
+            <p className="text-sm text-neya-muted mb-4">
+              Comme Buffer / Later : connectez Instagram, Facebook Page et Pinterest.
+              <Link href="/social" className="text-neya-orange hover:underline ml-1">Ouvrir le pôle social →</Link>
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2 mb-4">
+              <div className="sm:col-span-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-neya-muted mb-2">Meta (Instagram + Facebook)</p>
+              </div>
+              <div>
+                <label className="label">Meta App ID</label>
+                <input className="input font-mono text-sm" value={form.meta_app_id} onChange={e => setForm({ ...form, meta_app_id: e.target.value })} placeholder="App ID Facebook Developers" />
+              </div>
+              <div>
+                <label className="label">Meta App Secret</label>
+                <input className="input font-mono text-sm" type="password" value={form.meta_app_secret} onChange={e => setForm({ ...form, meta_app_secret: e.target.value })} placeholder={settings?.meta_app_secret_preview || 'Secret'} />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="label">URI redirect Meta</label>
+                <input className="input font-mono text-xs" value={form.meta_redirect_uri} onChange={e => setForm({ ...form, meta_redirect_uri: e.target.value })} placeholder="https://qg.neyafurniture.ca/api/integrations/meta/callback" />
+              </div>
+              <div className="sm:col-span-2 mt-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-neya-muted mb-2">Pinterest</p>
+              </div>
+              <div>
+                <label className="label">Pinterest App ID</label>
+                <input className="input font-mono text-sm" value={form.pinterest_app_id} onChange={e => setForm({ ...form, pinterest_app_id: e.target.value })} />
+              </div>
+              <div>
+                <label className="label">Pinterest App Secret</label>
+                <input className="input font-mono text-sm" type="password" value={form.pinterest_app_secret} onChange={e => setForm({ ...form, pinterest_app_secret: e.target.value })} placeholder={settings?.pinterest_app_secret_preview || 'Secret'} />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="label">URI redirect Pinterest</label>
+                <input className="input font-mono text-xs" value={form.pinterest_redirect_uri} onChange={e => setForm({ ...form, pinterest_redirect_uri: e.target.value })} placeholder="https://qg.neyafurniture.ca/api/integrations/pinterest/callback" />
+              </div>
+            </div>
+            <button type="button" onClick={() => saveSettings()} disabled={saving} className="btn-primary">
+              {saving ? '…' : 'Enregistrer Meta / Pinterest'}
+            </button>
+            <p className="text-[11px] text-neya-muted mt-3">
+              Créez une app sur{' '}
+              <a href="https://developers.facebook.com/" target="_blank" rel="noopener noreferrer" className="text-neya-orange hover:underline">developers.facebook.com</a>
+              {' '}et{' '}
+              <a href="https://developers.pinterest.com/" target="_blank" rel="noopener noreferrer" className="text-neya-orange hover:underline">developers.pinterest.com</a>
+              , puis reconnectez depuis /social → Comptes.
+            </p>
           </section>
         </div>
       )}

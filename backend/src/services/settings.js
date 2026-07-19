@@ -37,6 +37,12 @@ const DEFAULTS = {
   google_client_id: '',
   google_client_secret: '',
   google_redirect_uri: '',
+  meta_app_id: '',
+  meta_app_secret: '',
+  meta_redirect_uri: '',
+  pinterest_app_id: '',
+  pinterest_app_secret: '',
+  pinterest_redirect_uri: '',
   project_admin_pin: '3125',
 };
 
@@ -49,6 +55,7 @@ function maskSecret(value) {
 const SECRET_KEYS = [
   'anthropic_api_key', 'openai_api_key', 'woocommerce_key', 'woocommerce_secret',
   'smtp_pass', 'cursor_api_key', 'google_client_secret', 'project_admin_pin',
+  'meta_app_secret', 'pinterest_app_secret',
 ];
 
 export async function getSetting(key) {
@@ -118,6 +125,24 @@ export async function getPublicSettings() {
     google_configured: Boolean(
       (all.google_client_id || process.env.GOOGLE_CLIENT_ID)
       && (all.google_client_secret || process.env.GOOGLE_CLIENT_SECRET)
+    ),
+    meta_app_id: all.meta_app_id || process.env.META_APP_ID || '',
+    meta_app_secret_preview: (all.meta_app_secret || process.env.META_APP_SECRET)
+      ? maskSecret(String(all.meta_app_secret || process.env.META_APP_SECRET))
+      : '',
+    meta_redirect_uri: all.meta_redirect_uri || process.env.META_REDIRECT_URI || '',
+    meta_configured: Boolean(
+      (all.meta_app_id || process.env.META_APP_ID)
+      && (all.meta_app_secret || process.env.META_APP_SECRET)
+    ),
+    pinterest_app_id: all.pinterest_app_id || process.env.PINTEREST_APP_ID || '',
+    pinterest_app_secret_preview: (all.pinterest_app_secret || process.env.PINTEREST_APP_SECRET)
+      ? maskSecret(String(all.pinterest_app_secret || process.env.PINTEREST_APP_SECRET))
+      : '',
+    pinterest_redirect_uri: all.pinterest_redirect_uri || process.env.PINTEREST_REDIRECT_URI || '',
+    pinterest_configured: Boolean(
+      (all.pinterest_app_id || process.env.PINTEREST_APP_ID)
+      && (all.pinterest_app_secret || process.env.PINTEREST_APP_SECRET)
     ),
   };
 }

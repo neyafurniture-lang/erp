@@ -1,6 +1,12 @@
 import { Router } from 'express';
 import pool from '../db/pool.js';
-import { proposePostsFromDrive, PLATFORMS } from '../services/social-propose.js';
+import { proposePostsFromDrive, listAnalyzedMedia, PLATFORMS } from '../services/social-propose.js';
+import {
+  getSocialStatusSummary,
+  buildMetaAuthUrl,
+  buildPinterestAuthUrl,
+  disconnectSocial,
+} from '../services/social-accounts.js';
 
 const router = Router();
 
@@ -41,6 +47,53 @@ function normalizePlatforms(raw) {
   }
   return ['instagram'];
 }
+
+/** Comptes connectés (Meta / Pinterest / …) */
+router.get('/accounts', async (_req, res) => {
+  try {
+    res.json(await getSocialStatusSummary());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/accounts/:provider/authorize', async (req, res) => {
+  try {
+    const provider = String(req.params.provider || '').toLowerCase();
+    let result;
+    if (provider === 'instagram' || provider === 'facebook') {
+      result = await buildMetaAuthUrl(provider, req.user?.id);
+    } else if (provider === 'pinterest') {
+      result = await buildPinterestAuthUrl(req.user?.id);
+    } else {
+      return res.status(400).json({ error: `Connexion ${provider} pas encore disponible` });
+    }
+    if (req.query.redirect === '1') return res.redirect(result.url);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/accounts/:provider/disconnect', async (req, res) => {
+  try {
+    await disconnectSocial(String(req.params.provider || '').toLowerCase());
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Médiathèque : photos produit analysées (factures exclues). */
+router.get('/media', async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 24, 48);
+    const data = await listAnalyzedMedia(req, { limit, query: req.query.q || null });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 /** Semaine type planifiée (templates locaux, sans Drive). */
 router.post('/seed-week', async (req, res) => {
@@ -84,7 +137,7 @@ router.get('/platforms', (_req, res) => {
   })));
 });
 
-/** Propositions auto depuis les belles photos Drive */
+/** Propositions auto depuis photos produit Drive (docs/factures exclus) */
 router.get('/propose', async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 6, 12);
@@ -135,12 +188,15 @@ router.get('/analytics', async (req, res) => {
       }
     }
 
+    const social = await getSocialStatusSummary().catch(() => ({ connected_count: 0 }));
     res.json({
       totals: { posts: posts.length, published, scheduled, drafts, likes, reach, comments },
       by_platform: Object.values(byPlatform),
       recent: posts.slice(0, 20),
-      meta_connected: false,
-      note: 'Les analytics Meta/IG/Pinterest se synchroniseront quand OAuth sera connecté. En attendant, saisissez les métriques sur chaque post publié.',
+      meta_connected: (social.connected_count || 0) > 0,
+      note: social.connected_count
+        ? 'Comptes connectés — la sync analytics Graph API arrive ensuite.'
+        : 'Connectez Instagram / Facebook / Pinterest dans l’onglet Comptes. En attendant, saisissez les métriques manuellement.',
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

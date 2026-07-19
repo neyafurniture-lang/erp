@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   CalendarClock,
   BarChart3,
@@ -10,13 +11,18 @@ import {
   Check,
   Image as ImageIcon,
   Share2,
+  Link2,
+  Unlink,
+  Images,
 } from 'lucide-react';
 import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
 import { api, formatDate } from '../../lib/api';
 
 const TABS = [
-  { id: 'propose', label: 'Propositions Drive', Icon: Sparkles },
+  { id: 'accounts', label: 'Comptes', Icon: Link2 },
+  { id: 'media', label: 'Médias', Icon: Images },
+  { id: 'propose', label: 'À publier', Icon: Sparkles },
   { id: 'plan', label: 'Calendrier', Icon: CalendarClock },
   { id: 'analytics', label: 'Analytics', Icon: BarChart3 },
 ];
@@ -33,6 +39,9 @@ const STATUS_LABEL = {
   draft: 'Brouillon',
   scheduled: 'Planifié',
   published: 'Publié',
+  needs_credentials: 'Configurer',
+  ready: 'Prêt à connecter',
+  connected: 'Connecté',
 };
 
 function PlatformChips({ platforms = [] }) {
@@ -47,18 +56,34 @@ function PlatformChips({ platforms = [] }) {
   );
 }
 
+function ScoreBadge({ analysis }) {
+  if (!analysis) return null;
+  const score = analysis.score ?? 0;
+  const tone = score >= 70 ? 'bg-emerald-100 text-emerald-800' : score >= 45 ? 'bg-amber-100 text-amber-900' : 'bg-red-100 text-red-800';
+  return (
+    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md ${tone}`}>
+      {score}/100 · {analysis.verdict || '—'}
+    </span>
+  );
+}
+
 export default function SocialPage() {
-  const [tab, setTab] = useState('propose');
+  const [tab, setTab] = useState('accounts');
   const [posts, setPosts] = useState([]);
   const [proposals, setProposals] = useState([]);
   const [proposeMeta, setProposeMeta] = useState(null);
+  const [media, setMedia] = useState([]);
+  const [mediaMeta, setMediaMeta] = useState(null);
+  const [accountsData, setAccountsData] = useState(null);
   const [analytics, setAnalytics] = useState(null);
   const [platforms, setPlatforms] = useState([]);
   const [loadingPropose, setLoadingPropose] = useState(false);
+  const [loadingMedia, setLoadingMedia] = useState(false);
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [busyKey, setBusyKey] = useState('');
+  const [mediaQuery, setMediaQuery] = useState('');
   const [form, setForm] = useState({
     title: '',
     caption: '',
@@ -77,6 +102,27 @@ export default function SocialPage() {
     setAnalytics(a);
   }, []);
 
+  const loadAccounts = useCallback(async () => {
+    const data = await api('/social/accounts').catch(() => null);
+    setAccountsData(data);
+  }, []);
+
+  const loadMedia = useCallback(async (q = '') => {
+    setLoadingMedia(true);
+    try {
+      const qs = new URLSearchParams({ limit: '24' });
+      if (q) qs.set('q', q);
+      const data = await api(`/social/media?${qs}`);
+      setMedia(data.items || []);
+      setMediaMeta(data);
+    } catch (e) {
+      setMedia([]);
+      setMediaMeta({ error: e.message });
+    } finally {
+      setLoadingMedia(false);
+    }
+  }, []);
+
   const loadPropose = useCallback(async () => {
     setLoadingPropose(true);
     setErr('');
@@ -84,7 +130,7 @@ export default function SocialPage() {
       const data = await api('/social/propose?limit=6');
       setProposals(data.proposals || []);
       setProposeMeta(data);
-      if (data.error) setErr(data.error);
+      if (data.error && !(data.proposals || []).length) setErr(data.error);
     } catch (e) {
       setErr(e.message || 'Propositions indisponibles');
       setProposals([]);
@@ -97,13 +143,16 @@ export default function SocialPage() {
     api('/social/platforms').then(setPlatforms).catch(() => setPlatforms([]));
     loadPosts();
     loadAnalytics();
-  }, [loadPosts, loadAnalytics]);
+    loadAccounts();
+  }, [loadPosts, loadAnalytics, loadAccounts]);
 
   useEffect(() => {
     if (tab === 'propose') loadPropose();
     if (tab === 'analytics') loadAnalytics();
     if (tab === 'plan') loadPosts();
-  }, [tab, loadPropose, loadAnalytics, loadPosts]);
+    if (tab === 'media') loadMedia(mediaQuery);
+    if (tab === 'accounts') loadAccounts();
+  }, [tab, loadPropose, loadAnalytics, loadPosts, loadMedia, loadAccounts, mediaQuery]);
 
   const scheduled = useMemo(
     () => posts.filter(p => p.status === 'scheduled' || p.status === 'draft'),
@@ -120,6 +169,34 @@ export default function SocialPage() {
       const next = has ? f.platforms.filter(p => p !== value) : [...f.platforms, value];
       return { ...f, platforms: next.length ? next : [value] };
     });
+  }
+
+  async function connectAccount(provider) {
+    setBusyKey(`connect-${provider}`);
+    setErr('');
+    try {
+      const data = await api(`/social/accounts/${provider}/authorize`);
+      if (data?.url) window.location.href = data.url;
+      else throw new Error('URL OAuth manquante — configurez l’App ID dans Paramètres');
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusyKey('');
+    }
+  }
+
+  async function disconnectAccount(provider) {
+    if (!confirm(`Déconnecter ${PLATFORM_LABEL[provider] || provider} ?`)) return;
+    setBusyKey(`disc-${provider}`);
+    try {
+      await api(`/social/accounts/${provider}/disconnect`, { method: 'POST', body: '{}' });
+      setMsg(`${PLATFORM_LABEL[provider] || provider} déconnecté.`);
+      loadAccounts();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusyKey('');
+    }
   }
 
   async function createManual(e) {
@@ -171,13 +248,28 @@ export default function SocialPage() {
     }
   }
 
-  async function planAll() {
-    setBusyKey('all');
+  async function planFromMedia(item) {
+    setBusyKey(`media-${item.id}`);
     try {
-      for (const p of proposals) {
-        await api('/social/from-proposal', { method: 'POST', body: JSON.stringify(p) });
-      }
-      setMsg(`${proposals.length} posts planifiés en un clic.`);
+      await api('/social/from-proposal', {
+        method: 'POST',
+        body: JSON.stringify({
+          title: item.name?.replace(/\.[^.]+$/, '') || 'Photo NEYA',
+          caption: `Pièce d’atelier NEYA\n\n#NeyaFurniture #FaitMain`,
+          platforms: item.analysis?.platforms_ok?.length ? item.analysis.platforms_ok : ['instagram', 'facebook'],
+          scheduled_at: new Date(Date.now() + 86400000).toISOString(),
+          media: [{
+            drive_file_id: item.id,
+            name: item.name,
+            thumbnailLink: item.thumbnailLink,
+            webViewLink: item.webViewLink,
+            mimeType: item.mimeType,
+            analysis: item.analysis,
+          }],
+          source: 'media_library',
+        }),
+      });
+      setMsg('Photo ajoutée au calendrier.');
       await loadPosts();
       setTab('plan');
     } catch (e) {
@@ -209,17 +301,21 @@ export default function SocialPage() {
     loadAnalytics();
   }
 
+  const accounts = accountsData?.accounts || [];
+
   return (
     <AuthGuard>
       <AppShell
         title="Réseaux sociaux"
-        subtitle="Pôle contenu — planifier Instagram / Facebook / Pinterest, légendes et calendrier"
+        subtitle="Comme Buffer / Later — comptes, médiathèque photo, planning et analytics"
         wide
       >
         <div className="rounded-2xl border border-neya-border bg-white px-4 py-3 mb-5 text-sm text-neya-muted">
-          <strong className="text-neya-ink font-medium">Pôle réseaux sociaux</strong>
-          {' — '}propositions (Drive ou semaine type), calendrier de posts, analytics locales.
-          La publication Meta/Pinterest OAuth arrive ensuite ; en attendant, planifiez ici et marquez « Publié ».
+          <strong className="text-neya-ink font-medium">Pôle social NEYA</strong>
+          {' — '}connectez Instagram, Facebook et Pinterest, analysez vos photos produit (les factures et documents sont exclus),
+          puis planifiez. Publication auto Graph API dès que les App ID Meta/Pinterest sont renseignés.
+          {' '}
+          <Link href="/settings?tab=integrations" className="text-neya-orange hover:underline">Paramètres → Intégrations</Link>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 mb-5">
@@ -240,31 +336,10 @@ export default function SocialPage() {
           ))}
           <button
             type="button"
-            onClick={async () => {
-              setBusyKey('seed');
-              setErr('');
-              try {
-                const r = await api('/social/seed-week', { method: 'POST', body: '{}' });
-                setMsg(`${r.created} posts planifiés (semaine type).`);
-                await loadPosts();
-                setTab('plan');
-              } catch (e) {
-                setErr(e.message);
-              } finally {
-                setBusyKey('');
-              }
-            }}
-            disabled={busyKey === 'seed'}
-            className="btn-secondary text-sm h-9 ml-auto"
-          >
-            {busyKey === 'seed' ? '…' : 'Générer semaine type'}
-          </button>
-          <button
-            type="button"
             onClick={() => { setTab('plan'); setShowForm(true); }}
-            className="btn-primary gap-1.5 text-sm h-9"
+            className="btn-primary gap-1.5 text-sm h-9 ml-auto"
           >
-            <Plus className="h-4 w-4" /> Nouveau post
+            <Plus className="h-4 w-4" /> Composer
           </button>
         </div>
 
@@ -275,251 +350,357 @@ export default function SocialPage() {
           <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{msg}</div>
         )}
 
+        {tab === 'accounts' && (
+          <section className="space-y-4">
+            <p className="text-sm text-neya-muted max-w-2xl">
+              Connectez vos comptes professionnels pour programmer et (bientôt) publier.
+              Même logique que Meta Business Suite / Buffer : un compte = un canal.
+            </p>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {accounts.map(acc => (
+                <div key={acc.id} className="rounded-2xl border border-neya-border bg-white p-4 flex flex-col gap-3">
+                  <div className="flex items-start gap-3">
+                    <span
+                      className="w-10 h-10 rounded-xl shrink-0 grid place-items-center text-white text-xs font-bold"
+                      style={{ background: acc.color || '#333' }}
+                    >
+                      {(acc.label || '?').slice(0, 2).toUpperCase()}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-neya-ink">{acc.label}</p>
+                      <p className="text-xs text-neya-muted mt-0.5">{acc.description}</p>
+                      <p className="text-[11px] mt-1.5">
+                        <span className={`px-2 py-0.5 rounded-full font-medium ${
+                          acc.connected ? 'bg-emerald-100 text-emerald-800'
+                            : acc.configured ? 'bg-amber-100 text-amber-900'
+                              : 'bg-neya-surface text-neya-muted'
+                        }`}>
+                          {STATUS_LABEL[acc.status] || acc.status}
+                        </span>
+                        {acc.account_name && (
+                          <span className="ml-2 text-neya-muted">{acc.account_name}</span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2 mt-auto">
+                    {acc.connected ? (
+                      <button
+                        type="button"
+                        className="btn-secondary text-xs gap-1"
+                        disabled={busyKey === `disc-${acc.id}`}
+                        onClick={() => disconnectAccount(acc.id)}
+                      >
+                        <Unlink className="h-3.5 w-3.5" /> Déconnecter
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn-primary text-xs gap-1"
+                        disabled={busyKey === `connect-${acc.id}` || !['instagram', 'facebook', 'pinterest'].includes(acc.id)}
+                        onClick={() => connectAccount(acc.id)}
+                      >
+                        <Link2 className="h-3.5 w-3.5" />
+                        {acc.configured ? 'Connecter' : 'Configurer puis connecter'}
+                      </button>
+                    )}
+                  </div>
+                  {!acc.configured && ['instagram', 'facebook', 'pinterest'].includes(acc.id) && (
+                    <p className="text-[11px] text-neya-muted">
+                      Ajoutez App ID / Secret dans{' '}
+                      <Link href="/settings?tab=integrations" className="text-neya-orange hover:underline">Intégrations</Link>.
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {tab === 'media' && (
+          <section className="space-y-4">
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="flex-1 min-w-[200px]">
+                <label className="label">Chercher une photo produit</label>
+                <input
+                  className="input"
+                  placeholder="ex. banc, table, showroom…"
+                  value={mediaQuery}
+                  onChange={e => setMediaQuery(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') loadMedia(mediaQuery); }}
+                />
+              </div>
+              <button type="button" className="btn-secondary text-sm" onClick={() => loadMedia(mediaQuery)} disabled={loadingMedia}>
+                {loadingMedia ? 'Analyse…' : 'Analyser Drive'}
+              </button>
+            </div>
+            {mediaMeta?.hint && (
+              <p className="text-xs text-neya-muted rounded-xl bg-neya-surface px-3 py-2">{mediaMeta.hint}</p>
+            )}
+            {mediaMeta?.error && (
+              <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                {mediaMeta.error} —{' '}
+                <Link href="/settings?tab=integrations" className="text-neya-orange hover:underline">connecter Google Drive</Link>
+              </p>
+            )}
+            {!loadingMedia && media.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-neya-border px-6 py-10 text-center text-sm text-neya-muted">
+                Aucune photo produit. Placez vos photos finales dans Drive (pas les dossiers Factures / Admin).
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                {media.map(item => (
+                  <article key={item.id} className="rounded-2xl border border-neya-border bg-white overflow-hidden flex flex-col">
+                    <div className="aspect-square bg-neya-surface relative">
+                      {item.thumbnailLink ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={item.thumbnailLink} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full grid place-items-center text-neya-muted">
+                          <ImageIcon className="h-8 w-8" />
+                        </div>
+                      )}
+                      <div className="absolute top-2 left-2">
+                        <ScoreBadge analysis={item.analysis} />
+                      </div>
+                    </div>
+                    <div className="p-3 flex flex-col gap-2 flex-1">
+                      <p className="text-xs font-medium text-neya-ink truncate" title={item.name}>{item.name}</p>
+                      <PlatformChips platforms={item.analysis?.platforms_ok || []} />
+                      <button
+                        type="button"
+                        className="btn-primary text-xs mt-auto"
+                        disabled={busyKey === `media-${item.id}`}
+                        onClick={() => planFromMedia(item)}
+                      >
+                        Planifier
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
         {tab === 'propose' && (
           <section className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm text-neya-muted max-w-xl">
-                L’ERP parcourt le Drive, sélectionne les plus belles photos produit et propose des légendes
-                multi-réseaux. Un clic = post planifié.
+                Suggestions depuis vos photos produit analysées — factures, reçus et documents exclus automatiquement.
               </p>
-              <div className="flex gap-2">
-                <button type="button" onClick={loadPropose} disabled={loadingPropose} className="btn-secondary text-sm">
-                  {loadingPropose ? 'Recherche…' : 'Relancer la recherche'}
-                </button>
-                {proposals.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={planAll}
-                    disabled={busyKey === 'all'}
-                    className="btn-primary text-sm gap-1.5"
-                  >
-                    <Sparkles className="h-4 w-4" />
-                    Tout planifier ({proposals.length})
-                  </button>
-                )}
-              </div>
+              <button type="button" onClick={loadPropose} disabled={loadingPropose} className="btn-secondary text-sm">
+                {loadingPropose ? 'Analyse…' : 'Relancer'}
+              </button>
             </div>
-
-            {proposeMeta?.hint && !proposals.length && (
-              <div className="rounded-2xl border border-dashed border-neya-border bg-neya-surface/40 px-5 py-8 text-center">
-                <ImageIcon className="h-8 w-8 mx-auto text-neya-muted mb-2" />
-                <p className="text-sm font-medium text-neya-ink">Aucune photo proposée</p>
-                <p className="text-xs text-neya-muted mt-1">{proposeMeta.hint}</p>
-              </div>
+            {proposeMeta?.hint && (
+              <p className="text-xs text-neya-muted bg-neya-surface rounded-xl px-3 py-2">{proposeMeta.hint}</p>
             )}
-
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {proposals.map(p => {
-                const thumb = p.media?.[0]?.thumbnailLink;
-                return (
-                  <article key={p.key} className="rounded-2xl border border-neya-border bg-white shadow-sm overflow-hidden flex flex-col">
-                    <div className="aspect-[4/3] bg-neya-surface relative">
-                      {thumb ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={thumb} alt={p.title || ''} className="absolute inset-0 h-full w-full object-cover" />
-                      ) : (
-                        <div className="absolute inset-0 grid place-items-center text-neya-muted text-xs">Pas d’aperçu</div>
-                      )}
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {proposals.map(p => (
+                <article key={p.key} className="rounded-2xl border border-neya-border bg-white overflow-hidden flex flex-col">
+                  {p.media?.[0]?.thumbnailLink ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={p.media[0].thumbnailLink} alt="" className="h-40 w-full object-cover" />
+                  ) : (
+                    <div className="h-28 bg-neya-surface grid place-items-center text-neya-muted text-xs">
+                      {p.source === 'local_template' ? 'Modèle' : 'Sans aperçu'}
                     </div>
-                    <div className="p-4 flex flex-col gap-2 flex-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <h3 className="font-display text-[15px] font-semibold text-neya-ink leading-snug">{p.title}</h3>
-                        <PlatformChips platforms={p.platforms} />
-                      </div>
-                      <p className="text-[12.5px] text-neya-ink-light whitespace-pre-wrap line-clamp-4 flex-1">{p.caption}</p>
-                      <p className="text-[11px] text-neya-muted tabular-nums">
-                        Créneau suggéré : {p.scheduled_at ? new Date(p.scheduled_at).toLocaleString('fr-CA') : '—'}
-                      </p>
-                      <button
-                        type="button"
-                        disabled={busyKey === p.key}
-                        onClick={() => planProposal(p)}
-                        className="btn-primary w-full text-sm gap-1.5 mt-1"
-                      >
-                        <Check className="h-4 w-4" />
-                        {busyKey === p.key ? 'Planification…' : 'Planifier en 1 clic'}
-                      </button>
+                  )}
+                  <div className="p-3 space-y-2 flex-1 flex flex-col">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="font-medium text-sm text-neya-ink">{p.title}</p>
+                      <ScoreBadge analysis={p.analysis} />
                     </div>
-                  </article>
-                );
-              })}
+                    <PlatformChips platforms={p.platforms} />
+                    <p className="text-xs text-neya-muted whitespace-pre-wrap line-clamp-4">{p.caption}</p>
+                    <p className="text-[11px] text-neya-muted">
+                      {p.scheduled_at ? formatDate(p.scheduled_at) : '—'}
+                    </p>
+                    <button
+                      type="button"
+                      className="btn-primary text-xs mt-auto"
+                      disabled={busyKey === p.key}
+                      onClick={() => planProposal(p)}
+                    >
+                      Planifier
+                    </button>
+                  </div>
+                </article>
+              ))}
             </div>
           </section>
         )}
 
         {tab === 'plan' && (
-          <section className="space-y-4">
+          <section className="space-y-5">
             {showForm && (
-              <form onSubmit={createManual} className="card rounded-2xl grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="md:col-span-2">
+              <form onSubmit={createManual} className="rounded-2xl border border-neya-border bg-white p-4 space-y-3">
+                <p className="font-medium text-neya-ink">Composer un post</p>
+                <div>
                   <label className="label">Titre</label>
-                  <input className="input" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Ex. Table chêne — détail plateau" />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="label">Légende (cross-platform)</label>
-                  <textarea
-                    className="input min-h-[120px]"
-                    value={form.caption}
-                    onChange={e => setForm({ ...form, caption: e.target.value })}
-                    required
-                  />
+                  <input className="input" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} />
                 </div>
                 <div>
-                  <label className="label">Planifié pour</label>
-                  <input
-                    type="datetime-local"
-                    className="input"
-                    value={form.scheduled_at}
-                    onChange={e => setForm({ ...form, scheduled_at: e.target.value })}
-                  />
+                  <label className="label">Légende</label>
+                  <textarea className="input min-h-[100px]" value={form.caption} onChange={e => setForm({ ...form, caption: e.target.value })} required />
                 </div>
-                <div>
-                  <label className="label">Statut</label>
-                  <select className="input" value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>
-                    <option value="draft">Brouillon</option>
-                    <option value="scheduled">Planifié</option>
-                    <option value="published">Publié</option>
-                  </select>
+                <div className="flex flex-wrap gap-2">
+                  {(platforms.length ? platforms.map(p => p.value || p) : Object.keys(PLATFORM_LABEL)).map(p => {
+                    const value = typeof p === 'string' ? p : p.value;
+                    const active = form.platforms.includes(value);
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => togglePlatform(value)}
+                        className={`cf-chip ${active ? 'bg-neya-ink text-white border-neya-ink' : ''}`}
+                      >
+                        {PLATFORM_LABEL[value] || value}
+                      </button>
+                    );
+                  })}
                 </div>
-                <div className="md:col-span-2">
-                  <label className="label">Plateformes</label>
-                  <div className="flex flex-wrap gap-2 mt-1">
-                    {(platforms.length ? platforms : Object.keys(PLATFORM_LABEL).map(value => ({ value, label: PLATFORM_LABEL[value] }))).map(p => {
-                      const active = form.platforms.includes(p.value);
-                      return (
-                        <button
-                          key={p.value}
-                          type="button"
-                          onClick={() => togglePlatform(p.value)}
-                          className={`rounded-full border px-3 py-1 text-xs font-medium ${
-                            active ? 'border-neya-orange bg-neya-orange/10 text-neya-ink' : 'border-neya-border text-neya-muted'
-                          }`}
-                        >
-                          {p.label}
-                        </button>
-                      );
-                    })}
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="label">Programmation</label>
+                    <input
+                      type="datetime-local"
+                      className="input"
+                      value={form.scheduled_at}
+                      onChange={e => setForm({ ...form, scheduled_at: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Statut</label>
+                    <select className="input" value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>
+                      <option value="draft">Brouillon</option>
+                      <option value="scheduled">Planifié</option>
+                      <option value="published">Publié</option>
+                    </select>
                   </div>
                 </div>
-                <div className="md:col-span-2 flex gap-2">
-                  <button type="submit" disabled={busyKey === 'manual'} className="btn-primary">Enregistrer</button>
-                  <button type="button" className="btn-secondary" onClick={() => setShowForm(false)}>Annuler</button>
+                <div className="flex gap-2">
+                  <button type="submit" className="btn-primary text-sm" disabled={busyKey === 'manual'}>
+                    {busyKey === 'manual' ? '…' : 'Enregistrer'}
+                  </button>
+                  <button type="button" className="btn-secondary text-sm" onClick={() => setShowForm(false)}>Annuler</button>
                 </div>
               </form>
             )}
 
             <div>
-              <h3 className="font-display text-[15px] font-semibold text-neya-ink mb-3 inline-flex items-center gap-1.5">
-                <Share2 className="h-4 w-4 text-neya-orange" /> À publier
-              </h3>
-              <div className="space-y-2">
-                {scheduled.map(p => (
-                  <div key={p.id} className="rounded-xl border border-neya-border bg-white px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2 mb-1">
-                        <span className="text-[11px] font-semibold uppercase tracking-wider text-neya-orange">
-                          {STATUS_LABEL[p.status] || p.status}
-                        </span>
-                        <PlatformChips platforms={p.platforms} />
+              <h3 className="font-display font-semibold text-neya-ink mb-2">À publier ({scheduled.length})</h3>
+              {scheduled.length === 0 ? (
+                <p className="text-sm text-neya-muted rounded-xl border border-dashed border-neya-border px-4 py-6">
+                  Rien en file. Utilisez Médias ou Composer.
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {scheduled.map(p => (
+                    <li key={p.id} className="rounded-xl border border-neya-border bg-white px-4 py-3 flex flex-wrap gap-3 items-start">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-neya-ink">{p.title || 'Sans titre'}</p>
+                        <p className="text-xs text-neya-muted mt-0.5 line-clamp-2 whitespace-pre-wrap">{p.caption}</p>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                          <PlatformChips platforms={p.platforms} />
+                          <span className="text-[11px] text-neya-muted">
+                            {STATUS_LABEL[p.status]} · {p.scheduled_at ? formatDate(p.scheduled_at) : '—'}
+                          </span>
+                        </div>
                       </div>
-                      <p className="font-medium text-neya-ink truncate">{p.title || 'Sans titre'}</p>
-                      <p className="text-xs text-neya-muted line-clamp-2 mt-0.5 whitespace-pre-wrap">{p.caption}</p>
-                      <p className="text-[11px] text-neya-muted mt-1 tabular-nums">
-                        {p.scheduled_at ? new Date(p.scheduled_at).toLocaleString('fr-CA') : 'Pas de créneau'}
-                        {p.source === 'drive_auto' ? ' · Drive auto' : ''}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2 shrink-0">
-                      <button type="button" className="btn-secondary text-xs" onClick={() => markPublished(p.id)}>
-                        Marquer publié
-                      </button>
-                      <button type="button" className="btn-secondary text-xs text-red-600 border-red-200" onClick={() => removePost(p.id)}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                {scheduled.length === 0 && (
-                  <p className="text-sm text-neya-muted rounded-xl border border-dashed border-neya-border px-4 py-8 text-center">
-                    Aucun post planifié — allez dans « Propositions Drive » ou créez-en un.
-                  </p>
-                )}
-              </div>
+                      <div className="flex gap-1.5 shrink-0">
+                        <button type="button" className="btn-secondary text-xs gap-1" onClick={() => markPublished(p.id)}>
+                          <Check className="h-3.5 w-3.5" /> Publié
+                        </button>
+                        <button type="button" className="btn-secondary text-xs text-red-600" onClick={() => removePost(p.id)}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
 
             {published.length > 0 && (
               <div>
-                <h3 className="font-display text-[15px] font-semibold text-neya-ink mb-3">Publiés récemment</h3>
-                <div className="space-y-2">
-                  {published.slice(0, 10).map(p => (
-                    <div key={p.id} className="rounded-xl border border-neya-border bg-neya-surface/30 px-4 py-3">
-                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                <h3 className="font-display font-semibold text-neya-ink mb-2">Publiés ({published.length})</h3>
+                <ul className="space-y-2">
+                  {published.slice(0, 12).map(p => (
+                    <li key={p.id} className="rounded-xl border border-neya-border bg-white px-4 py-3">
+                      <div className="flex flex-wrap justify-between gap-2">
+                        <p className="text-sm font-medium">{p.title || 'Sans titre'}</p>
                         <PlatformChips platforms={p.platforms} />
-                        <span className="text-[11px] text-neya-muted tabular-nums">
-                          {p.published_at ? formatDate(p.published_at) : ''}
-                        </span>
                       </div>
-                      <p className="text-sm font-medium">{p.title || 'Sans titre'}</p>
-                      <MetricsInline post={p} onSave={saveMetrics} />
-                    </div>
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                        <label className="flex items-center gap-1 text-neya-muted">
+                          Likes
+                          <input
+                            type="number"
+                            className="input w-20 min-h-[32px] py-1"
+                            defaultValue={p.metrics?.likes || ''}
+                            onBlur={e => saveMetrics(p.id, { ...p.metrics, likes: Number(e.target.value) || 0 })}
+                          />
+                        </label>
+                        <label className="flex items-center gap-1 text-neya-muted">
+                          Reach
+                          <input
+                            type="number"
+                            className="input w-20 min-h-[32px] py-1"
+                            defaultValue={p.metrics?.reach || ''}
+                            onBlur={e => saveMetrics(p.id, { ...p.metrics, reach: Number(e.target.value) || 0 })}
+                          />
+                        </label>
+                      </div>
+                    </li>
                   ))}
-                </div>
+                </ul>
               </div>
             )}
           </section>
         )}
 
         {tab === 'analytics' && (
-          <section className="space-y-5">
-            <p className="text-sm text-neya-muted">
-              {analytics?.note || 'Vue d’ensemble des posts et métriques.'}
-              {!analytics?.meta_connected && (
-                <span className="block mt-1 text-neya-orange">
-                  Connexion Meta / Pinterest OAuth prévue ensuite — pour l’instant saisissez likes / reach sur les posts publiés.
-                </span>
-              )}
-            </p>
-
+          <section className="space-y-4">
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               {[
-                { label: 'Posts', value: analytics?.totals?.posts ?? 0 },
-                { label: 'Publiés', value: analytics?.totals?.published ?? 0 },
+                { label: 'Posts', value: analytics?.totals?.posts ?? posts.length },
+                { label: 'Publiés', value: analytics?.totals?.published ?? published.length },
                 { label: 'Likes', value: analytics?.totals?.likes ?? 0 },
                 { label: 'Reach', value: analytics?.totals?.reach ?? 0 },
               ].map(c => (
-                <div key={c.label} className="rounded-2xl border border-neya-border bg-white px-4 py-3 shadow-sm">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-neya-muted">{c.label}</p>
-                  <p className="mt-1 font-display text-xl font-semibold tabular-nums">{c.value}</p>
+                <div key={c.label} className="rounded-2xl border border-neya-border bg-white px-4 py-3">
+                  <p className="text-[11px] uppercase tracking-wider text-neya-muted font-semibold">{c.label}</p>
+                  <p className="font-display text-2xl font-semibold tabular-nums mt-1">{c.value}</p>
                 </div>
               ))}
             </div>
-
-            <div className="cf-table-wrap overflow-x-auto">
+            {analytics?.note && (
+              <p className="text-xs text-neya-muted">{analytics.note}</p>
+            )}
+            <div className="rounded-2xl border border-neya-border bg-white overflow-hidden">
               <table className="w-full text-sm">
-                <thead>
+                <thead className="bg-neya-surface text-left text-xs text-neya-muted">
                   <tr>
-                    <th className="px-4 py-3">Plateforme</th>
-                    <th className="px-4 py-3 text-right">Posts</th>
-                    <th className="px-4 py-3 text-right">Likes</th>
-                    <th className="px-4 py-3 text-right">Reach</th>
-                    <th className="px-4 py-3 text-right">Commentaires</th>
+                    <th className="px-4 py-2 font-medium">Plateforme</th>
+                    <th className="px-4 py-2 font-medium">Posts</th>
+                    <th className="px-4 py-2 font-medium">Likes</th>
+                    <th className="px-4 py-2 font-medium">Reach</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(analytics?.by_platform || []).map(row => (
-                    <tr key={row.platform}>
-                      <td className="px-4 py-3 font-medium">{PLATFORM_LABEL[row.platform] || row.platform}</td>
-                      <td className="px-4 py-3 text-right tabular-nums">{row.posts}</td>
-                      <td className="px-4 py-3 text-right tabular-nums">{row.likes}</td>
-                      <td className="px-4 py-3 text-right tabular-nums">{row.reach}</td>
-                      <td className="px-4 py-3 text-right tabular-nums">{row.comments}</td>
+                    <tr key={row.platform} className="border-t border-neya-border">
+                      <td className="px-4 py-2">{PLATFORM_LABEL[row.platform] || row.platform}</td>
+                      <td className="px-4 py-2 tabular-nums">{row.posts}</td>
+                      <td className="px-4 py-2 tabular-nums">{row.likes}</td>
+                      <td className="px-4 py-2 tabular-nums">{row.reach}</td>
                     </tr>
                   ))}
                   {!(analytics?.by_platform || []).length && (
                     <tr>
-                      <td colSpan={5} className="px-4 py-10 text-center text-neya-muted">
-                        Pas encore de données — planifiez ou publiez des posts.
-                      </td>
+                      <td colSpan={4} className="px-4 py-6 text-neya-muted text-center">Pas encore de données</td>
                     </tr>
                   )}
                 </tbody>
@@ -529,44 +710,5 @@ export default function SocialPage() {
         )}
       </AppShell>
     </AuthGuard>
-  );
-}
-
-function MetricsInline({ post, onSave }) {
-  const [likes, setLikes] = useState(String(post.metrics?.likes ?? ''));
-  const [reach, setReach] = useState(String(post.metrics?.reach ?? ''));
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    setLikes(String(post.metrics?.likes ?? ''));
-    setReach(String(post.metrics?.reach ?? ''));
-  }, [post.id, post.metrics]);
-
-  async function save() {
-    setSaving(true);
-    try {
-      await onSave(post.id, {
-        likes: Number(likes) || 0,
-        reach: Number(reach) || 0,
-      });
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="mt-2 flex flex-wrap items-end gap-2">
-      <div>
-        <label className="text-[10px] uppercase tracking-wider text-neya-muted">Likes</label>
-        <input type="number" className="input h-8 text-xs w-24" value={likes} onChange={e => setLikes(e.target.value)} />
-      </div>
-      <div>
-        <label className="text-[10px] uppercase tracking-wider text-neya-muted">Reach</label>
-        <input type="number" className="input h-8 text-xs w-24" value={reach} onChange={e => setReach(e.target.value)} />
-      </div>
-      <button type="button" onClick={save} disabled={saving} className="btn-secondary text-xs h-8">
-        {saving ? '…' : 'Sauver metrics'}
-      </button>
-    </div>
   );
 }
