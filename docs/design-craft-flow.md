@@ -16,7 +16,7 @@ Référence visuelle officielle pour **toute** l’app ERP.
 | Projets / Production | Fait |
 | Factures / Dépenses / Stock / Achats | Fait |
 | Settings / Admin / Sauna / Web / Drive / Roadmap / Manuel | Fait |
-| Courriel (CSS Craft Flow) | Fait (APIs Gmail inchangées) |
+| Courriel | Fait (parity Lovable : flush 3–4 col, chips, preview, compose card ; APIs Gmail inchangées) |
 | Plans de coupe | Shell aligné |
 
 ## Fichiers clés

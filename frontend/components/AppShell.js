@@ -8,7 +8,15 @@ import NavigationBackSupport from './NavigationBackSupport';
 import NeyaMark from './NeyaMark';
 import { Bell, Plus, Search } from 'lucide-react';
 
-export default function AppShell({ children, title, subtitle, wide = false, flushMobile = false }) {
+export default function AppShell({
+  children,
+  title,
+  subtitle,
+  wide = false,
+  flushMobile = false,
+  /** Plein écran sans padding (ex. Courriel Craft Flow) */
+  flush = false,
+}) {
   return (
     <div className="min-h-screen min-h-[100dvh] bg-[var(--background)]">
       <NavigationBackSupport />
@@ -20,8 +28,10 @@ export default function AppShell({ children, title, subtitle, wide = false, flus
         {title && <h1 className="text-sm font-display font-semibold text-neya-ink truncate flex-1">{title}</h1>}
       </div>
 
-      <main className={`lg:ml-[var(--sidebar-w)] min-h-screen min-h-[100dvh] ${flushMobile ? 'pb-mail' : 'pb-shell'}`}>
-        <header className="hidden lg:flex sticky top-0 z-30 bg-white/85 backdrop-blur-md border-b border-neya-border px-8 h-16 items-center gap-3">
+      <main className={`lg:ml-[var(--sidebar-w)] min-h-screen min-h-[100dvh] ${
+        flush || flushMobile ? 'pb-mail' : 'pb-shell'
+      } ${flush ? 'flex flex-col' : ''}`}>
+        <header className="hidden lg:flex sticky top-0 z-30 bg-white/85 backdrop-blur-md border-b border-neya-border px-8 h-16 items-center gap-3 shrink-0">
           <div className="min-w-0 flex-1">
             {title && (
               <h1 className="truncate font-display text-[19px] font-semibold text-neya-ink">{title}</h1>
@@ -61,11 +71,15 @@ export default function AppShell({ children, title, subtitle, wide = false, flus
             <Link href="/settings" className="btn-ghost text-xs">Paramètres</Link>
           </div>
         </header>
-        <div className={`mx-auto w-full ${wide ? 'max-w-[1400px]' : 'max-w-6xl'} ${
-          flushMobile
-            ? 'p-0 sm:p-6 lg:px-8 lg:py-8'
-            : 'p-4 sm:p-6 lg:px-8 lg:py-8'
-        }`}>
+        <div className={
+          flush
+            ? 'flex-1 min-h-0 w-full overflow-hidden'
+            : `mx-auto w-full ${wide ? 'max-w-[1400px]' : 'max-w-6xl'} ${
+              flushMobile
+                ? 'p-0 sm:p-6 lg:px-8 lg:py-8'
+                : 'p-4 sm:p-6 lg:px-8 lg:py-8'
+            }`
+        }>
           {children}
         </div>
       </main>
