@@ -8,6 +8,7 @@ import {
   createProjectFromStandard,
   isDayPlanMessage,
   runSkillAction,
+  wantsUnlinkFromProject,
 } from './skill-actions.js';
 
 export { ACTION_TYPES };
@@ -450,9 +451,22 @@ export async function processMessage(message, attachments = [], rawContext = nul
     return studied;
   }
 
+  // Correction « pas lié à ce projet » avant le LLM (évite de recréer la tâche dans le projet ouvert)
+  if (wantsUnlinkFromProject(message)) {
+    const unlinkResult = await runSkillAction('unlink_task', message, pageContext);
+    await pool.query(
+      'INSERT INTO assistant_messages (role, content, actions_taken) VALUES ($1,$2,$3)',
+      ['assistant', unlinkResult.reply, JSON.stringify(unlinkResult.actions || [])]
+    );
+    return unlinkResult;
+  }
+
   async function runKeywordActions(msg = message) {
     if (isDayPlanMessage(msg)) {
       return runSkillAction('plan_day', msg, pageContext);
+    }
+    if (wantsUnlinkFromProject(msg)) {
+      return runSkillAction('unlink_task', msg, pageContext);
     }
     const skill = await matchSkill(msg);
     if (skill) return executeSkill(skill, msg, pageContext);
@@ -462,7 +476,7 @@ export async function processMessage(message, attachments = [], rawContext = nul
     if (/supprimer|retirer|effacer/i.test(msg) && /tâche|étape/i.test(msg)) {
       return runSkillAction('delete_task', msg, pageContext);
     }
-    if (/ajouter|ajoute|étape|checklist|nouvelle tâche|créer tâche/i.test(msg)) {
+    if (/ajouter|ajoute|étape|checklist|nouvelle tâche|créer tâche|t[aâ]che\s+admin/i.test(msg)) {
       return runSkillAction('create_task', msg, pageContext);
     }
     if (/descriptif|description|note(s)? (du )?projet|modifier (le )?projet|deadline|budget|renommer projet/i.test(msg)) {

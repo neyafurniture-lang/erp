@@ -93,6 +93,9 @@ async function buildErpContextSnapshot(pageContext) {
   if (pageContext?.type === 'project') {
     const allTasks = pageContext.tasks || [];
     lines.push(`Projet OUVERT maintenant : #${pageContext.id} « ${pageContext.label} »`);
+    lines.push('HINT page : utilise ce projet pour les tâches ATELIER (finition, débitage, assemblage…).');
+    lines.push('NE PAS y mettre les tâches admin / transfert / paiement / remboursement / « sans projet » → create_task avec {"project_id":null}.');
+    lines.push('Si l\'utilisateur dit que ce n\'est pas lié au projet ouvert → unlink_task (ne PAS recréer la tâche).');
     if (pageContext.project?.notes) {
       lines.push(`Descriptif/notes : ${String(pageContext.project.notes).slice(0, 300)}`);
     }
@@ -189,6 +192,10 @@ AUTONOMIE — tu DOIS agir seule sans demander de cliquer dans l'ERP :
 6. Pour le statut projet : update_project {"status":"done"|"active","project_id":…}.
 7. Mémoire atelier : search_memory {"query":"…"}. L'utilisateur peut aussi dire « retiens que … ».
 8. list_project_tasks {"project_name":"Olive"} pour lister les tâches d'un projet non ouvert.
+8b. TÂCHES ADMIN / HORS PROJET — si le message contient « admin », transfert, paiement, remboursement, ou « sans projet »,
+    crée avec create_task {"title":"…","type":"admin","project_id":null}. N'utilise PAS le projet ouvert juste parce qu'il est dans le contexte.
+8c. CORRECTION PROJET — si l'utilisateur dit « ce n'est pas en rapport / pas lié / pas pour ce projet »,
+    appelle unlink_task (détache la dernière tâche concernée). Ne recrée JAMAIS la même tâche dans le projet ouvert.
 9. COURRIEL — tu as accès à Gmail. Ne dis JAMAIS que tu n'as pas accès au mail.
    - list_emails {"max":15} ou {"category":"clients"|"fournisseurs"|"a_repondre"|"projets"}
    - search_emails {"query":"from:client@… OR facture"}
@@ -211,6 +218,8 @@ AUTONOMIE — tu DOIS agir seule sans demander de cliquer dans l'ERP :
 
 Exemples params :
 - {"type":"complete_task","params":{"project_name":"Banc Olive","task_title":"finition"}}
+- {"type":"create_task","params":{"title":"Admin – Transfert bancaire remboursement + paiement","type":"admin","project_id":null}}
+- {"type":"unlink_task","params":{}}
 - {"type":"update_project","params":{"project_id":12,"notes":"Livraison semaine prochaine"}}
 - {"type":"search_projects","params":{"query":"olive"}}
 - {"type":"get_project","params":{"project_id":12}}
