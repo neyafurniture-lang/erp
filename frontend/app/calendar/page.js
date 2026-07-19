@@ -1,7 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -16,6 +15,7 @@ import {
 import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
 import WeeklyPlanner from '../../components/WeeklyPlanner';
+import CalendarTaskModal from '../../components/CalendarTaskModal';
 import { api } from '../../lib/api';
 
 const MONTHS_FR = [
@@ -121,6 +121,11 @@ function formatDayLabel(isoDate) {
   return `${DAYS_FR[d.getDay()]} ${d.getDate()} ${MONTHS_FR[d.getMonth()].toLowerCase()}`;
 }
 
+function taskIdFromEvent(ev) {
+  if (!ev || ev.category === 'conge') return null;
+  return ev.raw?.extendedProps?.taskId || ev.raw?.id || null;
+}
+
 function CraftCalendar() {
   const today = useMemo(() => new Date(), []);
   const [view, setView] = useState(() => new Date());
@@ -131,6 +136,11 @@ function CraftCalendar() {
   const [err, setErr] = useState('');
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState({ title: '', start: '09:00', end: '10:00', type: 'assemblage' });
+  const [editTaskId, setEditTaskId] = useState(null);
+  const [dragOverDate, setDragOverDate] = useState(null);
+  const dragPayloadRef = useRef(null);
+  /** Ignore le click fantôme qui suit parfois un drag HTML5 */
+  const suppressClickRef = useRef(false);
 
   const gridStart = useMemo(() => startOfMonthGrid(view), [view]);
   const days = useMemo(() => Array.from({ length: 42 }, (_, i) => addDays(gridStart, i)), [gridStart]);
@@ -149,6 +159,9 @@ function CraftCalendar() {
         const start = t.start ? new Date(t.start) : null;
         const end = t.end ? new Date(t.end) : null;
         const date = start ? iso(start) : null;
+        const projectName = t.extendedProps?.projectId
+          ? (t.title.match(/\(([^)]+)\)/)?.[1] || null)
+          : null;
         return {
           id: `t-${t.id}`,
           title: t.title,
@@ -156,8 +169,7 @@ function CraftCalendar() {
           start: hhmm(start),
           end: hhmm(end),
           category: categorizeTask(t),
-          project: t.extendedProps?.projectId ? t.title.match(/\(([^)]+)\)/)?.[1] : null,
-          href: t.extendedProps?.projectId ? `/projects/${t.extendedProps.projectId}` : null,
+          project: projectName,
           raw: t,
         };
       }).filter(e => e.date);
@@ -234,8 +246,91 @@ function CraftCalendar() {
     load();
   }
 
+  function openTask(ev) {
+    const id = taskIdFromEvent(ev);
+    if (id) setEditTaskId(String(id));
+  }
+
+  function onTaskDragStart(e, ev) {
+    const id = taskIdFromEvent(ev);
+    if (!id) {
+      e.preventDefault();
+      return;
+    }
+    dragPayloadRef.current = {
+      taskId: String(id),
+      start: ev.raw?.start || null,
+      end: ev.raw?.end || null,
+    };
+    e.dataTransfer.setData('text/plain', String(id));
+    e.dataTransfer.setData('text/task-id', String(id));
+    e.dataTransfer.effectAllowed = 'move';
+  }
+
+  function onTaskDragEnd() {
+    setDragOverDate(null);
+    suppressClickRef.current = true;
+    setTimeout(() => { suppressClickRef.current = false; }, 300);
+  }
+
+  async function moveTaskToDate(taskId, dateKey, startIso, endIso) {
+    const baseStart = startIso ? new Date(startIso) : new Date(`${dateKey}T09:00:00`);
+    const baseEnd = endIso ? new Date(endIso) : new Date(baseStart.getTime() + 60 * 60 * 1000);
+    if (Number.isNaN(baseStart.getTime())) return;
+
+    const [y, m, d] = dateKey.split('-').map(Number);
+    const newStart = new Date(baseStart);
+    newStart.setFullYear(y, m - 1, d);
+    const duration = Math.max(15 * 60 * 1000, baseEnd - baseStart);
+    const newEnd = new Date(newStart.getTime() + duration);
+
+    await api(`/tasks/${taskId}/schedule`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        start_time: newStart.toISOString(),
+        end_time: newEnd.toISOString(),
+      }),
+    });
+    setSelected(dateKey);
+    await load();
+  }
+
+  async function onDayDrop(e, dateKey) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverDate(null);
+    const taskId = e.dataTransfer.getData('text/task-id')
+      || e.dataTransfer.getData('text/plain')
+      || dragPayloadRef.current?.taskId;
+    if (!taskId) return;
+    suppressClickRef.current = true;
+    try {
+      await moveTaskToDate(
+        taskId,
+        dateKey,
+        dragPayloadRef.current?.start,
+        dragPayloadRef.current?.end
+      );
+    } catch (errMove) {
+      setErr(errMove.message || 'Impossible de déplacer la tâche');
+    } finally {
+      dragPayloadRef.current = null;
+    }
+  }
+
+  function onTaskClick(e, ev) {
+    e.stopPropagation();
+    e.preventDefault();
+    if (suppressClickRef.current) return;
+    openTask(ev);
+  }
+
   return (
     <div className="space-y-4">
+      <p className="text-[12px] text-neya-muted">
+        <strong className="text-neya-ink font-medium">Clic</strong> pour modifier une tâche ·{' '}
+        <strong className="text-neya-ink font-medium">glisser-déposer</strong> pour la déplacer à un autre jour.
+      </p>
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="inline-flex items-center rounded-lg border border-neya-border bg-white p-0.5">
@@ -301,16 +396,37 @@ function CraftCalendar() {
               const inMonth = d.getMonth() === view.getMonth();
               const isToday = key === todayIso;
               const isSelected = key === selected;
+              const isDropTarget = dragOverDate === key;
               const evts = eventsByDate.get(key) || [];
               return (
-                <button
+                <div
                   key={key + i}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setSelected(key)}
+                  onKeyDown={ev => {
+                    if (ev.key === 'Enter' || ev.key === ' ') {
+                      ev.preventDefault();
+                      setSelected(key);
+                    }
+                  }}
+                  onDragOver={e => {
+                    if (!dragPayloadRef.current && !e.dataTransfer.types.includes('text/task-id')) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    if (dragOverDate !== key) setDragOverDate(key);
+                  }}
+                  onDragLeave={e => {
+                    if (!e.currentTarget.contains(e.relatedTarget)) {
+                      setDragOverDate(prev => (prev === key ? null : prev));
+                    }
+                  }}
+                  onDrop={e => onDayDrop(e, key)}
                   className={[
-                    'group relative flex min-h-[86px] flex-col gap-1 border-b border-r border-neya-border p-2 text-left transition-colors lg:min-h-[104px]',
+                    'group relative flex min-h-[86px] flex-col gap-1 border-b border-r border-neya-border p-2 text-left transition-colors lg:min-h-[104px] cursor-pointer',
                     !inMonth ? 'bg-neya-surface/30 text-neya-muted' : 'bg-white',
                     isSelected ? 'bg-neya-orange/[0.06] ring-1 ring-inset ring-neya-orange/30' : 'hover:bg-neya-surface/50',
+                    isDropTarget ? 'bg-neya-orange/10 ring-2 ring-inset ring-neya-orange/50' : '',
                     (i + 1) % 7 === 0 ? 'border-r-0' : '',
                     i >= 35 ? 'border-b-0' : '',
                   ].join(' ')}
@@ -323,11 +439,27 @@ function CraftCalendar() {
                   <div className="flex flex-col gap-0.5 w-full min-w-0">
                     {evts.slice(0, 3).map(e => {
                       const meta = CATEGORY_META[e.category] || CATEGORY_META.production;
+                      const canDrag = !!taskIdFromEvent(e);
                       return (
                         <span
                           key={e.id}
-                          className={`truncate rounded px-1 py-0.5 text-[10px] font-medium border ${meta.chip}`}
-                          title={`${e.start} ${e.title}`}
+                          role={canDrag ? 'button' : undefined}
+                          tabIndex={canDrag ? 0 : undefined}
+                          draggable={canDrag}
+                          onDragStart={ev => onTaskDragStart(ev, e)}
+                          onDragEnd={onTaskDragEnd}
+                          onClick={ev => onTaskClick(ev, e)}
+                          onKeyDown={ev => {
+                            if (canDrag && (ev.key === 'Enter' || ev.key === ' ')) {
+                              ev.preventDefault();
+                              ev.stopPropagation();
+                              openTask(e);
+                            }
+                          }}
+                          className={`truncate rounded px-1 py-0.5 text-[10px] font-medium border ${meta.chip} ${
+                            canDrag ? 'cursor-grab active:cursor-grabbing hover:brightness-95' : ''
+                          }`}
+                          title={canDrag ? `${e.start} ${e.title} — glisser pour déplacer, clic pour modifier` : `${e.start} ${e.title}`}
                         >
                           <span className="hidden sm:inline">{e.start} · </span>{e.title}
                         </span>
@@ -337,7 +469,7 @@ function CraftCalendar() {
                       <span className="text-[10px] text-neya-muted font-medium">+{evts.length - 3} de plus</span>
                     )}
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>
@@ -401,8 +533,23 @@ function CraftCalendar() {
             {selectedEvents.map(e => {
               const meta = CATEGORY_META[e.category] || CATEGORY_META.production;
               const Icon = meta.Icon;
-              const body = (
-                <div className={`rounded-xl border border-neya-border border-l-4 px-3 py-2.5 ${meta.bar}`}>
+              const canEdit = !!taskIdFromEvent(e);
+              return (
+                <button
+                  key={e.id}
+                  type="button"
+                  draggable={canEdit}
+                  onDragStart={ev => onTaskDragStart(ev, e)}
+                  onDragEnd={onTaskDragEnd}
+                  onClick={ev => {
+                    if (suppressClickRef.current) return;
+                    if (canEdit) openTask(e);
+                  }}
+                  className={`w-full text-left rounded-xl border border-neya-border border-l-4 px-3 py-2.5 ${meta.bar} ${
+                    canEdit ? 'cursor-grab active:cursor-grabbing hover:opacity-90' : 'cursor-default'
+                  }`}
+                  title={canEdit ? 'Clic pour modifier · glisser vers un jour du calendrier' : undefined}
+                >
                   <div className="flex items-start gap-2">
                     <span className={`mt-0.5 grid h-7 w-7 place-items-center rounded-lg border ${meta.chip}`}>
                       <Icon className="h-3.5 w-3.5" />
@@ -413,19 +560,25 @@ function CraftCalendar() {
                         {e.start} – {e.end}
                         {e.project ? ` · ${e.project}` : ''}
                       </p>
+                      {canEdit && (
+                        <p className="text-[11px] text-neya-orange mt-1 font-medium">Modifier · déplacer</p>
+                      )}
                     </div>
                   </div>
-                </div>
-              );
-              return e.href ? (
-                <Link key={e.id} href={e.href} className="block hover:opacity-90">{body}</Link>
-              ) : (
-                <div key={e.id}>{body}</div>
+                </button>
               );
             })}
           </div>
         </aside>
       </div>
+
+      {editTaskId && (
+        <CalendarTaskModal
+          taskId={editTaskId}
+          onClose={() => setEditTaskId(null)}
+          onSaved={load}
+        />
+      )}
     </div>
   );
 }

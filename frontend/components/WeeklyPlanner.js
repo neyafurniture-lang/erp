@@ -5,9 +5,10 @@ import FullCalendar from '@fullcalendar/react';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import interactionPlugin, { Draggable } from '@fullcalendar/interaction';
-import { api, TASK_TYPES } from '../lib/api';
+import { api } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
 import { hasPermission, isAdmin } from '../lib/permissions';
+import CalendarTaskModal, { toDatetimeLocal, fromDatetimeLocal } from './CalendarTaskModal';
 
 const TIME_OFF_TYPES = [
   { value: 'vacation', label: 'Vacances' },
@@ -20,27 +21,8 @@ const TIME_OFF_LABELS = Object.fromEntries(TIME_OFF_TYPES.map(t => [t.value, t.l
 
 const DEFAULT_SHIFT_MS = 8 * 60 * 60 * 1000;
 
-const TASK_STATUS = [
-  { value: 'todo', label: 'À faire' },
-  { value: 'doing', label: 'En cours' },
-  { value: 'done', label: 'Terminé' },
-];
-
 function toIso(d) {
   return new Date(d).toISOString();
-}
-
-function toDatetimeLocal(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  const off = d.getTimezoneOffset();
-  const local = new Date(d.getTime() - off * 60000);
-  return local.toISOString().slice(0, 16);
-}
-
-function fromDatetimeLocal(val) {
-  if (!val) return null;
-  return new Date(val).toISOString();
 }
 
 function exclusiveEndToInclusive(endStr) {
@@ -186,8 +168,7 @@ function TimeOffModal({
   );
 }
 
-function CalendarEventModal({
-  kind,
+function ShiftEventModal({
   data,
   employees,
   projects,
@@ -207,45 +188,15 @@ function CalendarEventModal({
     setSaving(true);
     setErr('');
     try {
-      if (kind === 'shift') {
-        await api(`/shifts/${form.id}`, {
-          method: 'PATCH',
-          body: JSON.stringify({
-            employee_id: Number(form.employee_id),
-            project_id: form.project_id ? Number(form.project_id) : null,
-            start_at: fromDatetimeLocal(form.start_at),
-            end_at: fromDatetimeLocal(form.end_at),
-            notes: form.notes || null,
-          }),
-        });
-      } else {
-        await api(`/tasks/${form.id}`, {
-          method: 'PUT',
-          body: JSON.stringify({
-            ...form,
-            project_id: form.project_id || null,
-            start_time: fromDatetimeLocal(form.start_time),
-            end_time: fromDatetimeLocal(form.end_time),
-            estimated_minutes: form.estimated_minutes ? Number(form.estimated_minutes) : null,
-          }),
-        });
-      }
-      onSaved();
-      onClose();
-    } catch (e) {
-      setErr(e.message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function unscheduleTask() {
-    if (!confirm('Retirer cette tâche du calendrier ?')) return;
-    setSaving(true);
-    try {
-      await api(`/tasks/${form.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({ ...form, start_time: null, end_time: null }),
+      await api(`/shifts/${form.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          employee_id: Number(form.employee_id),
+          project_id: form.project_id ? Number(form.project_id) : null,
+          start_at: fromDatetimeLocal(form.start_at),
+          end_at: fromDatetimeLocal(form.end_at),
+          notes: form.notes || null,
+        }),
       });
       onSaved();
       onClose();
@@ -257,13 +208,10 @@ function CalendarEventModal({
   }
 
   async function remove() {
-    const msg = kind === 'shift'
-      ? 'Supprimer ce shift ?'
-      : 'Supprimer définitivement cette tâche ?';
-    if (!confirm(msg)) return;
+    if (!confirm('Supprimer ce shift ?')) return;
     setSaving(true);
     try {
-      await api(kind === 'shift' ? `/shifts/${form.id}` : `/tasks/${form.id}`, { method: 'DELETE' });
+      await api(`/shifts/${form.id}`, { method: 'DELETE' });
       onSaved();
       onClose();
     } catch (e) {
@@ -278,157 +226,72 @@ function CalendarEventModal({
       <button type="button" aria-label="Fermer" className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-xl border border-neya-border max-h-[90vh] overflow-y-auto">
         <div className="sticky top-0 bg-white border-b border-neya-border px-5 py-4 flex items-center justify-between">
-          <h3 className="font-heading text-lg">
-            {kind === 'shift' ? 'Modifier le shift' : 'Modifier la tâche'}
-          </h3>
+          <h3 className="font-heading text-lg">Modifier le shift</h3>
           <button type="button" onClick={onClose} className="text-neya-muted hover:text-neya-ink text-xl leading-none">×</button>
         </div>
 
         <div className="p-5 space-y-4">
           {err && <div className="text-sm text-red-700 bg-red-50 border border-red-200 px-3 py-2 rounded-lg">{err}</div>}
-
-          {kind === 'shift' ? (
-            <>
-              <div>
-                <label className="label">Employé</label>
-                <select
-                  className="input"
-                  value={form.employee_id || ''}
-                  onChange={e => setForm({ ...form, employee_id: e.target.value })}
-                >
-                  {employees.map(e => (
-                    <option key={e.id} value={e.id}>{e.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="label">Projet (optionnel)</label>
-                <select
-                  className="input"
-                  value={form.project_id || ''}
-                  onChange={e => setForm({ ...form, project_id: e.target.value })}
-                >
-                  <option value="">— Aucun —</option>
-                  {projects.filter(p => p.status === 'active').map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="label">Début</label>
-                  <input
-                    type="datetime-local"
-                    className="input"
-                    value={form.start_at || ''}
-                    onChange={e => setForm({ ...form, start_at: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="label">Fin</label>
-                  <input
-                    type="datetime-local"
-                    className="input"
-                    value={form.end_at || ''}
-                    onChange={e => setForm({ ...form, end_at: e.target.value })}
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="label">Notes</label>
-                <textarea
-                  className="input min-h-[72px]"
-                  value={form.notes || ''}
-                  onChange={e => setForm({ ...form, notes: e.target.value })}
-                  placeholder="Optionnel"
-                />
-              </div>
-            </>
-          ) : (
-            <>
-              <div>
-                <label className="label">Titre</label>
-                <input
-                  className="input"
-                  value={form.title || ''}
-                  onChange={e => setForm({ ...form, title: e.target.value })}
-                  required
-                />
-              </div>
-              {form.project_name && (
-                <p className="text-xs text-neya-muted -mt-2">Projet : {form.project_name}</p>
-              )}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="label">Type</label>
-                  <select className="input" value={form.type || 'admin'} onChange={e => setForm({ ...form, type: e.target.value })}>
-                    {TASK_TYPES.map(t => (
-                      <option key={t.value} value={t.value}>{t.label}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="label">Statut</label>
-                  <select className="input" value={form.status || 'todo'} onChange={e => setForm({ ...form, status: e.target.value })}>
-                    {TASK_STATUS.map(s => (
-                      <option key={s.value} value={s.value}>{s.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="label">Début</label>
-                  <input
-                    type="datetime-local"
-                    className="input"
-                    value={form.start_time || ''}
-                    onChange={e => setForm({ ...form, start_time: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="label">Fin</label>
-                  <input
-                    type="datetime-local"
-                    className="input"
-                    value={form.end_time || ''}
-                    onChange={e => setForm({ ...form, end_time: e.target.value })}
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="label">Durée estimée (min)</label>
-                <input
-                  type="number"
-                  min={15}
-                  step={15}
-                  className="input"
-                  value={form.estimated_minutes ?? ''}
-                  onChange={e => setForm({ ...form, estimated_minutes: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="label">Description</label>
-                <textarea
-                  className="input min-h-[72px]"
-                  value={form.description || ''}
-                  onChange={e => setForm({ ...form, description: e.target.value })}
-                  placeholder="Optionnel"
-                />
-              </div>
-            </>
-          )}
+          <div>
+            <label className="label">Employé</label>
+            <select
+              className="input"
+              value={form.employee_id || ''}
+              onChange={e => setForm({ ...form, employee_id: e.target.value })}
+            >
+              {employees.map(e => (
+                <option key={e.id} value={e.id}>{e.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Projet (optionnel)</label>
+            <select
+              className="input"
+              value={form.project_id || ''}
+              onChange={e => setForm({ ...form, project_id: e.target.value })}
+            >
+              <option value="">— Aucun —</option>
+              {projects.filter(p => p.status === 'active').map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Début</label>
+              <input
+                type="datetime-local"
+                className="input"
+                value={form.start_at || ''}
+                onChange={e => setForm({ ...form, start_at: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="label">Fin</label>
+              <input
+                type="datetime-local"
+                className="input"
+                value={form.end_at || ''}
+                onChange={e => setForm({ ...form, end_at: e.target.value })}
+              />
+            </div>
+          </div>
+          <div>
+            <label className="label">Notes</label>
+            <textarea
+              className="input min-h-[72px]"
+              value={form.notes || ''}
+              onChange={e => setForm({ ...form, notes: e.target.value })}
+              placeholder="Optionnel"
+            />
+          </div>
         </div>
 
         <div className="sticky bottom-0 bg-white border-t border-neya-border px-5 py-4 flex flex-wrap gap-2">
           <button type="button" onClick={save} disabled={saving} className="btn-primary flex-1 sm:flex-none">
             {saving ? 'Enregistrement…' : 'Enregistrer'}
           </button>
-          {kind === 'task' && (
-            <button type="button" onClick={unscheduleTask} disabled={saving} className="btn-secondary text-sm">
-              Retirer du calendrier
-            </button>
-          )}
           <button type="button" onClick={remove} disabled={saving} className="btn-secondary text-sm text-red-600 border-red-200 hover:bg-red-50">
             Supprimer
           </button>
@@ -667,16 +530,7 @@ export default function WeeklyPlanner({ showTasks = true, showShifts = true, tit
       return;
     }
     if (showTasks && info.event.id && !String(info.event.id).startsWith('shift-')) {
-      const task = await api(`/tasks/${info.event.id}`).catch(() => null);
-      if (!task) return;
-      setEditModal({
-        kind: 'task',
-        data: {
-          ...task,
-          start_time: toDatetimeLocal(task.start_time),
-          end_time: toDatetimeLocal(task.end_time),
-        },
-      });
+      setEditModal({ kind: 'task', taskId: info.event.id });
     }
   }
 
@@ -687,7 +541,7 @@ export default function WeeklyPlanner({ showTasks = true, showShifts = true, tit
       <p className="text-sm text-neya-muted mb-4">
         {title} — glissez un employé ou une tâche sur le calendrier.
         {canAddTimeOff && <> Sélectionnez une plage en haut du calendrier pour <strong className="text-neya-ink">ajouter un congé</strong>.</>}
-        <strong className="text-neya-ink"> Cliquez sur un événement</strong> pour modifier.
+        <strong className="text-neya-ink"> Glissez</strong> une tâche pour la déplacer · <strong className="text-neya-ink">cliquez</strong> pour modifier (heures, projet, notes).
       </p>
       {hint && (
         <p className="text-xs text-neya-orange bg-neya-orange/10 px-3 py-2 rounded-lg mb-4">{hint}</p>
@@ -833,11 +687,18 @@ export default function WeeklyPlanner({ showTasks = true, showShifts = true, tit
         />
       )}
 
-      {editModal && (
-        <CalendarEventModal
-          kind={editModal.kind}
+      {editModal?.kind === 'shift' && (
+        <ShiftEventModal
           data={editModal.data}
           employees={employees}
+          projects={projects}
+          onClose={() => setEditModal(null)}
+          onSaved={load}
+        />
+      )}
+      {editModal?.kind === 'task' && editModal.taskId && (
+        <CalendarTaskModal
+          taskId={editModal.taskId}
           projects={projects}
           onClose={() => setEditModal(null)}
           onSaved={load}
