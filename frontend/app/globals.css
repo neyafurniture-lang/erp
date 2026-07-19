@@ -1763,11 +1763,22 @@ h1, h2, h3, h4, h5, h6 {
   @apply flex flex-1 min-h-0;
 }
 .cut-studio__sidebar {
-  @apply hidden w-full sm:w-[300px] shrink-0 border-r border-neya-border bg-white p-3 sm:p-4 flex-col gap-3 overflow-y-auto max-h-[calc(100vh-8rem)];
+  @apply hidden w-full sm:w-[300px] shrink-0 border-r border-neya-border bg-white p-3 sm:p-4 flex-col gap-2
+    max-h-[calc(100vh-8rem)] min-h-0 overflow-hidden;
 }
 .cut-studio__sidebar.is-open { @apply flex flex-col; }
 @media (min-width: 640px) {
   .cut-studio__sidebar { @apply flex flex-col; }
+}
+/* Réglages (Larg./Haut.) restent visibles ; seule la liste pièces défile */
+.cut-side-block--pinned {
+  @apply shrink-0 pb-2 border-b border-neya-border;
+}
+.cut-studio__sidebar-scroll {
+  @apply flex-1 min-h-0 overflow-y-auto overscroll-contain pr-0.5;
+}
+.cut-studio__sidebar-foot {
+  @apply shrink-0 pt-2 border-t border-neya-border bg-white;
 }
 .cut-studio__canvas {
   @apply hidden flex-1 p-3 sm:p-5 overflow-y-auto max-h-[calc(100vh-8rem)];
@@ -1857,11 +1868,17 @@ h1, h2, h3, h4, h5, h6 {
   @apply mt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 pt-3 border-t border-neya-border;
 }
 
+.cut-sheet--drop {
+  @apply ring-2 ring-neya-orange/50 rounded-xl;
+}
 .cut-sheet__canvas {
   @apply relative w-full max-w-full rounded-lg border border-[#8a9a8a] bg-[#f7faf7] overflow-hidden touch-none;
   min-height: 160px;
 }
 .cut-sheet__canvas--place { @apply cursor-crosshair; }
+.cut-sheet__canvas--drop {
+  @apply border-neya-orange bg-orange-50/40;
+}
 .cut-sheet__grid {
   @apply absolute inset-0 w-full h-full pointer-events-none;
 }
@@ -1870,6 +1887,9 @@ h1, h2, h3, h4, h5, h6 {
 }
 .cut-sheet__rect--selected {
   @apply ring-2 ring-neya-orange z-10;
+}
+.cut-sheet__rect--dragging {
+  @apply opacity-70 z-20 pointer-events-none;
 }
 .cut-sheet__rect-label {
   @apply absolute inset-0 flex items-center justify-center text-[10px] sm:text-xs font-semibold px-1 text-center leading-tight pointer-events-none;

@@ -1,10 +1,11 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { sheetUsedArea, trimNum, uid } from '../../lib/cutting-layout';
 
 /**
  * Panneau 4×8 — rectangles glissables + redimensionnables.
+ * Glisser une pièce hors du panneau vers un autre = transfert.
  */
 export default function SheetCanvasEditor({
   sheet,
@@ -13,10 +14,15 @@ export default function SheetCanvasEditor({
   onSelect,
   onRemove,
   placePart = null,
+  dropHighlight = false,
+  onDragHoverSheet = null,
+  onTransferRect = null,
 }) {
   const canvasRef = useRef(null);
   const dragRef = useRef(null);
+  const rectsRef = useRef(sheet.rects || []);
   const [editingId, setEditingId] = useState(null);
+  const [draggingId, setDraggingId] = useState(null);
 
   const W = Number(sheet.width) || 96;
   const H = Number(sheet.height) || 48;
@@ -25,17 +31,22 @@ export default function SheetCanvasEditor({
   const used = sheetUsedArea(sheet);
   const yieldPct = area ? Math.round((used / area) * 100) : 0;
 
-  const clientToIn = useCallback((clientX, clientY) => {
-    const el = canvasRef.current;
+  useEffect(() => {
+    rectsRef.current = rects;
+  }, [rects]);
+
+  const clientToIn = useCallback((clientX, clientY, el = canvasRef.current, width = W, height = H) => {
     if (!el) return { x: 0, y: 0 };
     const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return { x: 0, y: 0 };
     return {
-      x: ((clientX - r.left) / r.width) * W,
-      y: ((clientY - r.top) / r.height) * H,
+      x: ((clientX - r.left) / r.width) * width,
+      y: ((clientY - r.top) / r.height) * height,
     };
   }, [W, H]);
 
   function patchRects(next) {
+    rectsRef.current = next;
     onChange?.({ ...sheet, rects: next });
   }
 
@@ -68,10 +79,20 @@ export default function SheetCanvasEditor({
     onSelect?.(null);
   }
 
+  function sheetCanvasUnderPoint(clientX, clientY) {
+    const stack = document.elementsFromPoint(clientX, clientY) || [];
+    for (const node of stack) {
+      const canvas = node?.closest?.('[data-sheet-canvas]');
+      if (canvas) return canvas;
+    }
+    return null;
+  }
+
   function startMove(rect, e) {
     e.preventDefault();
     e.stopPropagation();
     onSelect?.(rect.id);
+    setDraggingId(rect.id);
     const start = clientToIn(e.clientX, e.clientY);
     dragRef.current = {
       mode: 'move',
@@ -101,17 +122,34 @@ export default function SheetCanvasEditor({
     function onMove(ev) {
       const d = dragRef.current;
       if (!d) return;
+
+      if (d.mode === 'move') {
+        const over = sheetCanvasUnderPoint(ev.clientX, ev.clientY);
+        const overId = over?.getAttribute('data-sheet-id') || null;
+        onDragHoverSheet?.(overId && overId !== sheet.id ? overId : null);
+
+        // Sur le panneau d'origine : déplacer normalement
+        if (!overId || overId === sheet.id) {
+          const pt = clientToIn(ev.clientX, ev.clientY);
+          let x = pt.x - d.ox;
+          let y = pt.y - d.oy;
+          x = Math.max(0, Math.min(W - d.w, x));
+          y = Math.max(0, Math.min(H - d.h, y));
+          patchRects(
+            rectsRef.current.map((r) => (
+              r.id !== d.id
+                ? r
+                : { ...r, x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 }
+            )),
+          );
+        }
+        return;
+      }
+
       const pt = clientToIn(ev.clientX, ev.clientY);
       patchRects(
-        rects.map((r) => {
+        rectsRef.current.map((r) => {
           if (r.id !== d.id) return r;
-          if (d.mode === 'move') {
-            let x = pt.x - d.ox;
-            let y = pt.y - d.oy;
-            x = Math.max(0, Math.min(W - d.w, x));
-            y = Math.max(0, Math.min(H - d.h, y));
-            return { ...r, x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 };
-          }
           let w = Math.max(1, pt.x - d.x0);
           let h = Math.max(1, pt.y - d.y0);
           w = Math.min(w, W - d.x0);
@@ -125,11 +163,37 @@ export default function SheetCanvasEditor({
         }),
       );
     }
-    function onUp() {
+
+    function onUp(ev) {
+      const d = dragRef.current;
       dragRef.current = null;
+      setDraggingId(null);
+      onDragHoverSheet?.(null);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+
+      if (!d || d.mode !== 'move') return;
+
+      const over = sheetCanvasUnderPoint(ev.clientX, ev.clientY);
+      const toSheetId = over?.getAttribute('data-sheet-id');
+      if (!toSheetId || toSheetId === sheet.id || !onTransferRect) return;
+
+      const TW = Number(over.getAttribute('data-sheet-w')) || 96;
+      const TH = Number(over.getAttribute('data-sheet-h')) || 48;
+      const pt = clientToIn(ev.clientX, ev.clientY, over, TW, TH);
+      let x = pt.x - d.ox;
+      let y = pt.y - d.oy;
+      x = Math.max(0, Math.min(TW - d.w, x));
+      y = Math.max(0, Math.min(TH - d.h, y));
+      onTransferRect({
+        fromSheetId: sheet.id,
+        toSheetId,
+        rectId: d.id,
+        x: Math.round(x * 10) / 10,
+        y: Math.round(y * 10) / 10,
+      });
     }
+
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
   }
@@ -137,7 +201,7 @@ export default function SheetCanvasEditor({
   const selected = rects.find((r) => r.id === selectedId);
 
   return (
-    <div className="cut-sheet">
+    <div className={`cut-sheet ${dropHighlight ? 'cut-sheet--drop' : ''}`}>
       <div className="cut-board__head">
         <div className="min-w-0">
           <input
@@ -147,6 +211,7 @@ export default function SheetCanvasEditor({
           />
           <p className="cut-board__meta">
             {sheet.material || 'panneau'} · {trimNum(W)}″ × {trimNum(H)}″ · {rects.length} pièce(s) · rendement {yieldPct}%
+            {dropHighlight ? ' · déposer ici' : ''}
           </p>
         </div>
         <div className="flex items-center gap-1 shrink-0">
@@ -157,11 +222,14 @@ export default function SheetCanvasEditor({
 
       <div
         ref={canvasRef}
-        className={`cut-sheet__canvas ${placePart ? 'cut-sheet__canvas--place' : ''}`}
+        data-sheet-canvas
+        data-sheet-id={sheet.id}
+        data-sheet-w={W}
+        data-sheet-h={H}
+        className={`cut-sheet__canvas ${placePart ? 'cut-sheet__canvas--place' : ''} ${dropHighlight ? 'cut-sheet__canvas--drop' : ''}`}
         style={{ aspectRatio: `${W} / ${H}` }}
         onPointerDown={onCanvasPointerDown}
       >
-        {/* grid */}
         <svg className="cut-sheet__grid" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
           {Array.from({ length: Math.floor(W / 12) + 1 }, (_, i) => (
             <line key={`v${i}`} x1={i * 12} y1={0} x2={i * 12} y2={H} stroke="rgba(0,0,0,0.06)" strokeWidth="0.15" />
@@ -173,10 +241,11 @@ export default function SheetCanvasEditor({
 
         {rects.map((rect) => {
           const sel = selectedId === rect.id;
+          const dragging = draggingId === rect.id;
           return (
             <div
               key={rect.id}
-              className={`cut-sheet__rect ${sel ? 'cut-sheet__rect--selected' : ''}`}
+              className={`cut-sheet__rect ${sel ? 'cut-sheet__rect--selected' : ''} ${dragging ? 'cut-sheet__rect--dragging' : ''}`}
               style={{
                 left: `${(rect.x / W) * 100}%`,
                 top: `${(rect.y / H) * 100}%`,
@@ -195,7 +264,7 @@ export default function SheetCanvasEditor({
                   ? (rect.label || `${trimNum(rect.w)}×${trimNum(rect.h)}`)
                   : ''}
               </span>
-              {sel && (
+              {sel && !dragging && (
                 <span
                   className="cut-sheet__handle"
                   onPointerDown={(e) => startResize(rect, e)}
@@ -207,7 +276,8 @@ export default function SheetCanvasEditor({
 
         {!rects.length && (
           <div className="cut-sheet__hint">
-            Cliquez + ou choisissez une pièce à gauche puis cliquez sur le panneau
+            Cliquez + ou choisissez une pièce à gauche, puis cliquez ici.
+            Glissez une pièce d’un panneau à l’autre.
           </div>
         )}
       </div>
@@ -257,7 +327,7 @@ export default function SheetCanvasEditor({
       )}
 
       {editingId && selected?.id === editingId && (
-        <p className="text-[11px] text-neya-muted mt-1">Éditez W/H dans l’inspecteur ci-dessous, ou glissez la poignée coin.</p>
+        <p className="text-[11px] text-neya-muted mt-1">Éditez W/H dans l’inspecteur, glissez la poignée, ou glissez vers un autre panneau.</p>
       )}
     </div>
   );
