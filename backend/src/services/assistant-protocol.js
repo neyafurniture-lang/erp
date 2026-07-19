@@ -10,7 +10,7 @@ export const PROTOCOL_VERSION = '1.2.0';
 
 /** Métadonnées stables des actions (indépendantes du seed DB). */
 export const ACTION_CATALOG = [
-  { type: 'create_task', usage: 'Créer une tâche (project_id null = admin/hors projet ; ne pas forcer le projet ouvert)', params: { title: 'string', type: 'debitage|usinage|assemblage|finition|admin', project_name: 'string?', project_id: 'number|null?' } },
+  { type: 'create_task', usage: 'Créer une tâche (project_id null = hors checklist ; garder client_id + related_project_id pour l\'historique)', params: { title: 'string', type: 'debitage|usinage|assemblage|finition|admin', project_name: 'string?', project_id: 'number|null?', client_id: 'number?', related_project_id: 'number?' } },
   { type: 'create_project', usage: 'Créer un projet simple', params: { name: 'string', client_id: 'number?' } },
   { type: 'create_project_from_quote_email', usage: 'Devis Gmail/PDF → client + projet(s) + devis + tâches', params: { query: 'string (ex. Alexandra, The NNS)', message_id: 'string?', max: 'number?' } },
   { type: 'complete_task', usage: 'Cocher une tâche', params: { task_title: 'string', project_name: 'string?', project_id: 'number?' } },

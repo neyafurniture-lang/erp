@@ -84,6 +84,8 @@ CREATE TABLE IF NOT EXISTS web_orders (
 CREATE TABLE IF NOT EXISTS tasks (
   id SERIAL PRIMARY KEY,
   project_id INT REFERENCES projects(id) ON DELETE CASCADE,
+  client_id INT REFERENCES clients(id) ON DELETE SET NULL,
+  related_project_id INT REFERENCES projects(id) ON DELETE SET NULL,
   title TEXT NOT NULL,
   description TEXT,
   type TEXT NOT NULL DEFAULT 'admin',
@@ -97,6 +99,11 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS sort_order INT NOT NULL DEFAULT 0;
+-- Soft-contexte : admin hors checklist projet, mais lien client / projet d'origine conservé
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS client_id INT REFERENCES clients(id) ON DELETE SET NULL;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS related_project_id INT REFERENCES projects(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_tasks_client ON tasks(client_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_related_project ON tasks(related_project_id);
 
 -- QUOTES (devis)
 CREATE TABLE IF NOT EXISTS quotes (
