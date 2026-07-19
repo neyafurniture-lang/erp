@@ -705,13 +705,24 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .mail-reading-header {
-    @apply px-4 sm:px-6 py-4 shrink-0;
+    @apply px-4 sm:px-6 py-3 sm:py-3.5 shrink-0;
     border-bottom: 1px solid rgba(10, 10, 10, 0.06);
     background: linear-gradient(180deg, #fff, rgba(250,249,247,0.5));
   }
 
   .mail-reading-subject {
-    @apply text-lg sm:text-xl font-semibold text-neya-ink leading-snug break-words tracking-tight;
+    @apply text-base sm:text-lg font-semibold text-neya-ink leading-snug tracking-tight;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+  .mail-reading-subject.is-expanded {
+    display: block;
+    -webkit-line-clamp: unset;
+    overflow: visible;
   }
 
   .mail-body {

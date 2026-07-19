@@ -327,6 +327,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
   const [mobileDetail, setMobileDetail] = useState(false);
   /** Mobile: fermé (sheet). Desktop lg: panneau latéral toujours visible via CSS. */
   const [erpOpen, setErpOpen] = useState(false);
+  const [subjectExpanded, setSubjectExpanded] = useState(false);
   const [threadWarn, setThreadWarn] = useState('');
   const [activeFolder, setActiveFolder] = useState('inbox');
   const [sections, setSections] = useState(
@@ -963,7 +964,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                     <button
                       type="button"
                       className="mail-icon-btn md:hidden -ml-1 shrink-0"
-                      onClick={() => { setMobileDetail(false); setSelected(null); setErpOpen(false); }}
+                      onClick={() => { setMobileDetail(false); setSelected(null); setErpOpen(false); setSubjectExpanded(false); }}
                       aria-label="Retour"
                     >
                       <IconBack />
@@ -975,23 +976,35 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                       {getInitials(selected.from || selected.from_email)}
                     </span>
                     <div className="flex-1 min-w-0">
-                      <h2 className="mail-reading-subject">
+                      <h2
+                        className={`mail-reading-subject ${subjectExpanded ? 'is-expanded' : ''}`}
+                        title={selected.subject || '(sans objet)'}
+                      >
                         {selected.subject || '(sans objet)'}
                       </h2>
+                      {(selected.subject || '').length > 90 && (
+                        <button
+                          type="button"
+                          className="text-[11px] font-medium text-neya-orange hover:underline mt-0.5"
+                          onClick={() => setSubjectExpanded(v => !v)}
+                        >
+                          {subjectExpanded ? 'Réduire' : 'Voir le sujet entier'}
+                        </button>
+                      )}
                       <p className="text-sm text-neya-muted mt-1 truncate">
                         <span className="font-medium text-neya-ink">{selectedSender.name}</span>
                         {selectedSender.email && (
                           <span className="text-neya-muted hidden sm:inline"> &lt;{selectedSender.email}&gt;</span>
                         )}
+                        {selected.date && (
+                          <span className="text-neya-muted"> · {formatMailDate(selected.date)}</span>
+                        )}
                       </p>
                       {isSent && selected.to && (
-                        <p className="text-xs text-neya-muted mt-0.5">À : {selected.to}</p>
-                      )}
-                      {selected.date && (
-                        <p className="text-xs text-neya-muted mt-0.5">{selected.date}</p>
+                        <p className="text-xs text-neya-muted mt-0.5 truncate">À : {selected.to}</p>
                       )}
                     </div>
-                    <div className="flex items-center gap-0.5 shrink-0">
+                    <div className="flex items-center gap-0.5 shrink-0 self-start">
                       {!isSent && (
                         <button type="button" onClick={archive} className="mail-icon-btn" title="Archiver">
                           <IconArchive />
