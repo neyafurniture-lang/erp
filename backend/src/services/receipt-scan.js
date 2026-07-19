@@ -4,8 +4,9 @@ import { getOpenAIKey, getAnthropicKey, getAnthropicModel, getSetting } from './
 
 const CATEGORY_HINT = 'materiaux|outils|transport|atelier|admin';
 
+/** Prompt compact — pas de raw_text OCR (évite JSON tronqué / Unterminated string). */
 const SCAN_PROMPT = `Tu analyses un ticket de caisse / reçu d'achat (Québec, français ou anglais).
-Extrais les données et réponds UNIQUEMENT en JSON valide :
+Extrais les données et réponds UNIQUEMENT avec un objet JSON valide, sans markdown :
 {
   "vendor": "nom du magasin",
   "amount": 0.00,
@@ -13,12 +14,16 @@ Extrais les données et réponds UNIQUEMENT en JSON valide :
   "tax_tvq": null,
   "date": "YYYY-MM-DD ou null",
   "category": "${CATEGORY_HINT}",
-  "description": "résumé court des articles principaux",
+  "description": "résumé court des articles (max 120 caractères)",
   "payment_method": "carte|comptant|autre|null",
-  "raw_text": "texte OCR brut du ticket",
   "confidence": 0.0
 }
-Règles : amount = total TTC payé ; category parmi materiaux|outils|transport|atelier|admin ; confidence entre 0 et 1.`;
+Règles :
+- amount = total TTC payé (nombre)
+- category parmi materiaux|outils|transport|atelier|admin
+- description courte, sans sauts de ligne ni guillemets non échappés
+- confidence entre 0 et 1
+- N'inclus PAS le texte OCR brut`;
 
 function guessMime(filePath) {
   const ext = path.extname(filePath).toLowerCase();
@@ -35,18 +40,19 @@ function normalizeCategory(raw) {
   if (['outil', 'tools', 'equipment'].some(k => c.includes(k))) return 'outils';
   if (['transport', 'essence', 'gas', 'carburant', 'parking'].some(k => c.includes(k))) return 'transport';
   if (['atelier', 'shop', 'location'].some(k => c.includes(k))) return 'atelier';
+  if (['admin', 'bureau', 'fourniture'].some(k => c.includes(k))) return 'admin';
   return 'materiaux';
 }
 
 function normalizeParsed(parsed) {
   return {
     vendor: parsed.vendor?.trim() || null,
-    amount: parsed.amount != null ? Number(parsed.amount) : null,
-    tax_tps: parsed.tax_tps != null ? Number(parsed.tax_tps) : null,
-    tax_tvq: parsed.tax_tvq != null ? Number(parsed.tax_tvq) : null,
+    amount: parsed.amount != null && !Number.isNaN(Number(parsed.amount)) ? Number(parsed.amount) : null,
+    tax_tps: parsed.tax_tps != null && !Number.isNaN(Number(parsed.tax_tps)) ? Number(parsed.tax_tps) : null,
+    tax_tvq: parsed.tax_tvq != null && !Number.isNaN(Number(parsed.tax_tvq)) ? Number(parsed.tax_tvq) : null,
     date: parsed.date || null,
     category: normalizeCategory(parsed.category),
-    description: parsed.description?.trim() || parsed.vendor || 'Ticket de caisse',
+    description: String(parsed.description || parsed.vendor || 'Ticket de caisse').trim().slice(0, 240),
     payment_method: parsed.payment_method || null,
     raw_text: parsed.raw_text || '',
     confidence: parsed.confidence != null ? Number(parsed.confidence) : null,
@@ -54,12 +60,93 @@ function normalizeParsed(parsed) {
   };
 }
 
+/** Répare un JSON tronqué (souvent mid-string après max_tokens). */
+function repairTruncatedJson(text) {
+  let s = String(text || '').trim();
+  if (!s) throw new Error('Réponse IA vide');
+
+  const fenced = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced) s = fenced[1].trim();
+
+  const start = s.indexOf('{');
+  if (start >= 0) s = s.slice(start);
+
+  try {
+    return JSON.parse(s);
+  } catch {
+    /* continue repair */
+  }
+
+  // Coupe au dernier champ complet plausible
+  let cut = s;
+  const lastGood = Math.max(
+    cut.lastIndexOf('",'),
+    cut.lastIndexOf('null,'),
+    cut.lastIndexOf('true,'),
+    cut.lastIndexOf('false,'),
+    cut.lastIndexOf('},'),
+    cut.search(/,\s*\d+(\.\d+)?\s*$/) >= 0 ? cut.length : -1,
+  );
+  if (lastGood > 20) {
+    cut = cut.slice(0, lastGood + 1);
+  }
+
+  // Ferme les chaînes / objets ouverts
+  let inString = false;
+  let escape = false;
+  let braces = 0;
+  let brackets = 0;
+  for (let i = 0; i < cut.length; i++) {
+    const ch = cut[i];
+    if (inString) {
+      if (escape) escape = false;
+      else if (ch === '\\') escape = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === '{') braces++;
+    else if (ch === '}') braces--;
+    else if (ch === '[') brackets++;
+    else if (ch === ']') brackets--;
+  }
+  if (inString) cut += '"';
+  // Enlève virgule traînante
+  cut = cut.replace(/,\s*$/, '');
+  while (brackets > 0) { cut += ']'; brackets--; }
+  while (braces > 0) { cut += '}'; braces--; }
+
+  try {
+    return JSON.parse(cut);
+  } catch (err) {
+    // Dernier recours : champs clés via regex
+    const pick = (key) => {
+      const m = s.match(new RegExp(`"${key}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`));
+      if (m) return m[1].replace(/\\"/g, '"');
+      const n = s.match(new RegExp(`"${key}"\\s*:\\s*(-?\\d+(?:\\.\\d+)?)`));
+      return n ? Number(n[1]) : null;
+    };
+    const vendor = pick('vendor');
+    const amount = pick('amount');
+    if (vendor || amount != null) {
+      return {
+        vendor: typeof vendor === 'string' ? vendor : null,
+        amount,
+        tax_tps: pick('tax_tps'),
+        tax_tvq: pick('tax_tvq'),
+        date: typeof pick('date') === 'string' ? pick('date') : null,
+        category: typeof pick('category') === 'string' ? pick('category') : 'materiaux',
+        description: typeof pick('description') === 'string' ? pick('description') : (vendor || 'Ticket de caisse'),
+        payment_method: typeof pick('payment_method') === 'string' ? pick('payment_method') : null,
+        confidence: pick('confidence'),
+      };
+    }
+    throw new Error(`JSON ticket illisible (${err.message}). Réessayez avec une photo plus nette.`);
+  }
+}
+
 function extractJsonObject(text) {
-  const raw = String(text || '').trim();
-  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = fenced ? fenced[1].trim() : raw;
-  const match = candidate.match(/\{[\s\S]*\}/);
-  return JSON.parse(match ? match[0] : candidate);
+  return repairTruncatedJson(text);
 }
 
 async function scanWithOpenAI(filePath, mimeType) {
@@ -79,6 +166,7 @@ async function scanWithOpenAI(filePath, mimeType) {
     body: JSON.stringify({
       model,
       temperature: 0.1,
+      max_tokens: 800,
       messages: [
         {
           role: 'user',
@@ -98,7 +186,8 @@ async function scanWithOpenAI(filePath, mimeType) {
   }
 
   const data = await res.json();
-  return normalizeParsed(JSON.parse(data.choices[0].message.content));
+  const content = data.choices?.[0]?.message?.content || '';
+  return normalizeParsed(extractJsonObject(content));
 }
 
 async function scanWithClaude(filePath, mimeType) {
@@ -118,7 +207,7 @@ async function scanWithClaude(filePath, mimeType) {
     },
     body: JSON.stringify({
       model,
-      max_tokens: 1200,
+      max_tokens: 1024,
       messages: [
         {
           role: 'user',
@@ -131,7 +220,7 @@ async function scanWithClaude(filePath, mimeType) {
                 data: b64,
               },
             },
-            { type: 'text', text: `${SCAN_PROMPT}\nRéponds uniquement avec le JSON, sans markdown.` },
+            { type: 'text', text: `${SCAN_PROMPT}\nRéponds uniquement avec le JSON, sans markdown ni texte autour.` },
           ],
         },
       ],
@@ -153,6 +242,11 @@ async function scanWithClaude(filePath, mimeType) {
  */
 export async function scanReceiptImage(filePath, mimeType = null) {
   const type = mimeType || guessMime(filePath);
+  if (/heic|heif/i.test(type)) {
+    throw new Error(
+      'Format HEIC non supporté. Utilisez l’appareil photo (« Scanner un ticket ») pour un JPG.'
+    );
+  }
   if (!type.startsWith('image/')) {
     throw new Error('Pour l\'instant, scannez une photo du ticket (PDF bientôt disponible)');
   }
