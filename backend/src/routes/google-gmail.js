@@ -245,6 +245,26 @@ router.post('/messages/:id/labels', async (req, res) => {
   }
 });
 
+router.post('/messages/:id/read', async (req, res) => {
+  try {
+    const threadId = req.body?.threadId || req.body?.thread_id || null;
+    await gmail.markMessageRead(req.params.id, { threadId });
+    res.json({ ok: true, isUnread: false });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/messages/:id/unread', async (req, res) => {
+  try {
+    const threadId = req.body?.threadId || req.body?.thread_id || null;
+    await gmail.markMessageUnread(req.params.id, { threadId });
+    res.json({ ok: true, isUnread: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.post('/link-project', async (req, res) => {
   try {
     const { message_id, project_id } = req.body;

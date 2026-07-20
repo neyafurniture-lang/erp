@@ -304,6 +304,22 @@ export async function modifyLabels(messageId, addLabelIds = [], removeLabelIds =
   return { ok: true };
 }
 
+/** Marque un message (ou fil entier) comme lu. */
+export async function markMessageRead(messageId, { threadId } = {}) {
+  if (threadId) {
+    return modifyThreadLabels(threadId, [], ['UNREAD']);
+  }
+  return modifyLabels(messageId, [], ['UNREAD']);
+}
+
+/** Marque un message (ou fil entier) comme non lu. */
+export async function markMessageUnread(messageId, { threadId } = {}) {
+  if (threadId) {
+    return modifyThreadLabels(threadId, ['UNREAD'], []);
+  }
+  return modifyLabels(messageId, ['UNREAD'], []);
+}
+
 export async function listLabels() {
   const data = await gmailFetch('/labels');
   return data.labels || [];

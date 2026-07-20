@@ -264,6 +264,24 @@ function IconArchive() {
   );
 }
 
+function IconMailRead() {
+  return (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M22 12v6a2 2 0 01-2 2H4a2 2 0 01-2-2v-6" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="m22 7-8.97 5.7a2 2 0 01-2.06 0L2 7" />
+    </svg>
+  );
+}
+
+function IconMailUnread() {
+  return (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4h16a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="m22 6-10 7L2 6" />
+    </svg>
+  );
+}
+
 function IconBack() {
   return (
     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -692,6 +710,65 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
     return /404|introuvable|not found/i.test(String(err?.message || ''));
   }
 
+  function patchReadState(messageId, threadId, isUnread) {
+    setMessages(prev => prev.map(m => {
+      const mid = m.id || m.gmail_message_id;
+      const sameThread = threadId && m.threadId === threadId;
+      if (mid === messageId || sameThread) {
+        return { ...m, isUnread, unread: isUnread };
+      }
+      return m;
+    }));
+    setSelected(prev => {
+      if (!prev) return prev;
+      const pid = prev.id || prev.gmail_message_id;
+      if (pid === messageId || (threadId && prev.threadId === threadId)) {
+        return { ...prev, isUnread, unread: isUnread };
+      }
+      return prev;
+    });
+  }
+
+  async function setMessageRead(messageId, threadId, { silent = false } = {}) {
+    if (!messageId) return;
+    patchReadState(messageId, threadId, false);
+    try {
+      await api(`/gmail/messages/${messageId}/read`, {
+        method: 'POST',
+        body: JSON.stringify({ threadId }),
+      });
+      if (!silent) showUndo('Marqué comme lu', null);
+    } catch (e) {
+      patchReadState(messageId, threadId, true);
+      if (!silent) setErr(e.message);
+    }
+  }
+
+  async function setMessageUnread(messageId, threadId) {
+    if (!messageId) return;
+    patchReadState(messageId, threadId, true);
+    try {
+      await api(`/gmail/messages/${messageId}/unread`, {
+        method: 'POST',
+        body: JSON.stringify({ threadId }),
+      });
+      showUndo('Marqué comme non lu', null);
+    } catch (e) {
+      patchReadState(messageId, threadId, false);
+      setErr(e.message);
+    }
+  }
+
+  async function toggleRead() {
+    if (!selected?.id) return;
+    const unread = selected.isUnread || selected.unread;
+    if (unread) {
+      await setMessageRead(selected.id, selected.threadId);
+    } else {
+      await setMessageUnread(selected.id, selected.threadId);
+    }
+  }
+
   async function openMessage(m) {
     const id = m.id || m.gmail_message_id;
     if (!id) return;
@@ -707,6 +784,11 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
       // Toujours recharger le message complet (corps + pièces jointes)
       const full = await api(`/gmail/messages/${id}`);
       setSelected(full);
+
+      // Comportement Gmail : ouvrir = marquer comme lu
+      if (activeFolder !== 'sent' && (full.isUnread || m.isUnread || m.unread)) {
+        setMessageRead(id, full.threadId || m.threadId, { silent: true });
+      }
     } catch (e) {
       setErr(e.message);
       setSelected(null);
@@ -1274,7 +1356,18 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                           <span className="text-[11px] tabular-nums text-neya-muted">
                             {formatMailDate(m.date)}
                           </span>
-                          {unread && <span className="mail-unread-dot" aria-hidden />}
+                          {unread && (
+                            <button
+                              type="button"
+                              className="mail-unread-dot"
+                              title="Marquer comme lu"
+                              aria-label="Marquer comme lu"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setMessageRead(id, m.threadId, { silent: true });
+                              }}
+                            />
+                          )}
                         </span>
                       </button>
                     );
@@ -1339,6 +1432,17 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                       )}
                     </div>
                     <div className="flex items-center gap-0.5 shrink-0 self-start">
+                      {!isSent && (
+                        <button
+                          type="button"
+                          onClick={toggleRead}
+                          className="mail-icon-btn"
+                          title={(selected.isUnread || selected.unread) ? 'Marquer comme lu' : 'Marquer comme non lu'}
+                          aria-label={(selected.isUnread || selected.unread) ? 'Marquer comme lu' : 'Marquer comme non lu'}
+                        >
+                          {(selected.isUnread || selected.unread) ? <IconMailUnread /> : <IconMailRead />}
+                        </button>
+                      )}
                       {!isSent && (
                         <button type="button" onClick={archive} className="mail-icon-btn" title="Archiver">
                           <IconArchive />

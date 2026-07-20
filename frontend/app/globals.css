@@ -685,6 +685,13 @@ h1, h2, h3, h4, h5, h6 {
     height: 0.5rem;
     border-radius: 999px;
     background: #D86B30;
+    cursor: pointer;
+    border: none;
+    padding: 0;
+    transition: transform 0.15s ease;
+  }
+  .mail-unread-dot:hover {
+    transform: scale(1.25);
   }
 
   .mail-avatar {
