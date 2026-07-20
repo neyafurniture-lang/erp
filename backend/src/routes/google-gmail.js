@@ -93,6 +93,65 @@ router.get('/messages/:id', async (req, res) => {
   }
 });
 
+/** Ouvrir / télécharger une pièce jointe (proxy Gmail, auth ERP). */
+router.get('/messages/:id/attachments/:attachmentId', async (req, res) => {
+  try {
+    const att = await gmail.getAttachment(req.params.id, req.params.attachmentId);
+    const inline = req.query.inline === '1' || req.query.inline === 'true';
+    const safeName = String(att.filename || 'piece-jointe').replace(/"/g, '');
+    res.setHeader('Content-Type', att.mimeType || 'application/octet-stream');
+    res.setHeader(
+      'Content-Disposition',
+      `${inline ? 'inline' : 'attachment'}; filename="${encodeURIComponent(safeName)}"`
+    );
+    res.setHeader('Cache-Control', 'private, max-age=120');
+    res.send(att.buffer);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/** Classer une PJ dans un projet (local + Drive si dispo). */
+router.post('/messages/:id/attachments/:attachmentId/file-to-project', async (req, res) => {
+  try {
+    const projectId = req.body?.project_id || req.body?.projectId;
+    if (!projectId) return res.status(400).json({ error: 'project_id requis' });
+    const { fileAttachmentToProject } = await import('../services/mail-attachments.js');
+    const result = await fileAttachmentToProject({
+      messageId: req.params.id,
+      attachmentId: req.params.attachmentId,
+      projectId,
+      uploadDrive: req.body?.upload_drive !== false,
+    });
+    await logAgentAction({
+      agent: 'mail',
+      action: 'file_attachment_to_project',
+      resource: String(projectId),
+      details: { message_id: req.params.id, filename: result.file?.name },
+    });
+    res.status(201).json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/** Classer toutes les PJ du message vers un projet. */
+router.post('/messages/:id/file-attachments-to-project', async (req, res) => {
+  try {
+    const projectId = req.body?.project_id || req.body?.projectId;
+    if (!projectId) return res.status(400).json({ error: 'project_id requis' });
+    const { fileMessageAttachmentsToProject } = await import('../services/mail-attachments.js');
+    const result = await fileMessageAttachmentsToProject({
+      messageId: req.params.id,
+      projectId,
+      uploadDrive: req.body?.upload_drive !== false,
+    });
+    res.status(201).json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.get('/messages/:id/summary', async (req, res) => {
   try {
     res.json(await gmail.summarizeForAi(req.params.id));

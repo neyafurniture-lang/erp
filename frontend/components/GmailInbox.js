@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { api } from '../lib/api';
+import { api, getApiUrl, getToken } from '../lib/api';
 import { threadApi } from '../lib/mail-threads';
 import { connectGoogle, getGoogleStatus } from '../lib/google';
 
@@ -96,6 +96,24 @@ function formatMailDate(dateStr) {
     month: 'short',
     ...(sameYear ? {} : { year: 'numeric' }),
   });
+}
+
+function formatAttSize(n) {
+  const size = Number(n) || 0;
+  if (!size) return '';
+  if (size < 1024) return `${size} o`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} Ko`;
+  return `${(size / (1024 * 1024)).toFixed(1)} Mo`;
+}
+
+function attIcon(mime = '', name = '') {
+  const m = `${mime} ${name}`.toLowerCase();
+  if (/pdf/.test(m)) return '📄';
+  if (/image|png|jpe?g|gif|webp|heic/.test(m)) return '🖼️';
+  if (/sheet|excel|xls|csv/.test(m)) return '📊';
+  if (/word|doc/.test(m)) return '📝';
+  if (/zip|rar|7z/.test(m)) return '📦';
+  return '📎';
 }
 
 /** Affiche un corps mail lisible même si Gmail renvoie du HTML brut. */
@@ -313,6 +331,215 @@ function UndoToast({ toast, onUndo, onDismiss }) {
   );
 }
 
+function MailAttachments({
+  messageId,
+  attachments = [],
+  projects = [],
+  defaultProjectId = '',
+  defaultProjectName = '',
+  onFiled,
+  onError,
+}) {
+  const [filingId, setFilingId] = useState(null);
+  const [pickFor, setPickFor] = useState(null);
+  const [pickProjectId, setPickProjectId] = useState(defaultProjectId || '');
+  const [busyAll, setBusyAll] = useState(false);
+
+  useEffect(() => {
+    setPickProjectId(defaultProjectId || '');
+  }, [defaultProjectId, messageId]);
+
+  if (!attachments.length) return null;
+
+  async function openAttachment(att, { download = false } = {}) {
+    try {
+      const token = getToken();
+      const q = download ? '' : '?inline=1';
+      const res = await fetch(
+        `${getApiUrl()}/gmail/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(att.id)}${q}`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Erreur ${res.status}`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      if (download) {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = att.filename || 'piece-jointe';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } else {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 120000);
+    } catch (e) {
+      onError?.(e.message);
+    }
+  }
+
+  async function fileOne(att, projectId) {
+    if (!projectId) {
+      setPickFor(att.id);
+      setPickProjectId(defaultProjectId || '');
+      return;
+    }
+    setFilingId(att.id);
+    try {
+      const result = await api(
+        `/gmail/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(att.id)}/file-to-project`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ project_id: Number(projectId), upload_drive: true }),
+        }
+      );
+      setPickFor(null);
+      onFiled?.(result);
+    } catch (e) {
+      onError?.(e.message);
+    } finally {
+      setFilingId(null);
+    }
+  }
+
+  async function fileAll(projectId) {
+    const pid = projectId || defaultProjectId;
+    if (!pid) {
+      setPickFor('__all__');
+      setPickProjectId('');
+      return;
+    }
+    setBusyAll(true);
+    try {
+      const result = await api(
+        `/gmail/messages/${encodeURIComponent(messageId)}/file-attachments-to-project`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ project_id: Number(pid), upload_drive: true }),
+        }
+      );
+      setPickFor(null);
+      onFiled?.(result);
+    } catch (e) {
+      onError?.(e.message);
+    } finally {
+      setBusyAll(false);
+    }
+  }
+
+  const projectLabel = defaultProjectName
+    || projects.find(p => String(p.id) === String(defaultProjectId))?.name
+    || '';
+
+  return (
+    <div className="mail-attachments">
+      <div className="mail-attachments__head">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-neya-muted">
+          Pièces jointes ({attachments.length})
+        </p>
+        <button
+          type="button"
+          disabled={busyAll}
+          onClick={() => fileAll(defaultProjectId)}
+          className="text-[11.5px] font-semibold text-neya-orange hover:underline disabled:opacity-40"
+        >
+          {busyAll
+            ? 'Classement…'
+            : projectLabel
+              ? `Tout classer → ${projectLabel}`
+              : 'Tout classer dans un projet'}
+        </button>
+      </div>
+
+      <ul className="mail-attachments__list">
+        {attachments.map(att => (
+          <li key={att.id} className="mail-attachments__item">
+            <button
+              type="button"
+              className="mail-attachments__open"
+              onClick={() => openAttachment(att)}
+              title="Ouvrir"
+            >
+              <span className="text-base leading-none" aria-hidden>{attIcon(att.mimeType, att.filename)}</span>
+              <span className="min-w-0 flex-1 text-left">
+                <span className="block truncate text-[13px] font-medium text-neya-ink">{att.filename}</span>
+                <span className="block text-[11px] text-neya-muted">
+                  {[att.mimeType?.split(';')[0], formatAttSize(att.size)].filter(Boolean).join(' · ')}
+                </span>
+              </span>
+            </button>
+            <div className="mail-attachments__actions">
+              <button
+                type="button"
+                className="mail-icon-btn"
+                title="Télécharger"
+                aria-label="Télécharger"
+                onClick={() => openAttachment(att, { download: true })}
+              >
+                ↓
+              </button>
+              <button
+                type="button"
+                className="mail-icon-btn"
+                title={projectLabel ? `Classer dans ${projectLabel}` : 'Classer dans un projet'}
+                aria-label="Classer dans un projet"
+                disabled={filingId === att.id}
+                onClick={() => fileOne(att, defaultProjectId)}
+              >
+                {filingId === att.id ? '…' : '↗'}
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+
+      {pickFor && (
+        <div className="mail-attachments__picker">
+          <label className="label mb-1">
+            {pickFor === '__all__' ? 'Classer toutes les PJ dans' : 'Classer dans le projet'}
+          </label>
+          <div className="flex gap-2">
+            <select
+              className="input text-sm min-h-[36px] flex-1"
+              value={pickProjectId}
+              onChange={e => setPickProjectId(e.target.value)}
+            >
+              <option value="">— Choisir un projet —</option>
+              {projects.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="btn-primary text-xs min-h-[36px] shrink-0"
+              disabled={!pickProjectId || busyAll || !!filingId}
+              onClick={() => {
+                if (pickFor === '__all__') fileAll(pickProjectId);
+                else {
+                  const att = attachments.find(a => a.id === pickFor);
+                  if (att) fileOne(att, pickProjectId);
+                }
+              }}
+            >
+              Classer
+            </button>
+            <button
+              type="button"
+              className="btn-secondary text-xs min-h-[36px] shrink-0"
+              onClick={() => setPickFor(null)}
+            >
+              Annuler
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function GmailInbox({ projectId = null, linkProjectId = null }) {
   const [connected, setConnected] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -477,7 +704,8 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
     setShowDraftInstr(false);
 
     try {
-      const full = (m.body || m.bodyHtml) ? m : await api(`/gmail/messages/${id}`);
+      // Toujours recharger le message complet (corps + pièces jointes)
+      const full = await api(`/gmail/messages/${id}`);
       setSelected(full);
     } catch (e) {
       setErr(e.message);
@@ -505,7 +733,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
       });
       setThread(processed);
       setLinkClientId(processed.client_id ? String(processed.client_id) : '');
-      setLinkProjId(processed.project_id ? String(processed.project_id) : '');
+      setLinkProjId(processed.project_id ? String(processed.project_id) : (linkProjectId || projectId ? String(linkProjectId || projectId) : ''));
       if (processed.latest_synthesis?.suggested_reply || processed.synthesis?.suggested_reply) {
         setReply(processed.latest_synthesis?.suggested_reply || processed.synthesis.suggested_reply);
       }
@@ -629,7 +857,31 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
         }),
       });
       setThread(updated);
-      showUndo('Liens enregistrés', null);
+
+      // Si le fil est lié à un projet et le message a des PJ → proposer le classement auto
+      const atts = selected?.attachments || [];
+      if (linkProjId && atts.length > 0 && selected?.id) {
+        try {
+          const result = await api(
+            `/gmail/messages/${encodeURIComponent(selected.id)}/file-attachments-to-project`,
+            {
+              method: 'POST',
+              body: JSON.stringify({ project_id: Number(linkProjId), upload_drive: true }),
+            }
+          );
+          const n = result.count || result.filed?.length || 0;
+          showUndo(
+            n > 0
+              ? `Liens enregistrés — ${n} pièce(s) classée(s) dans le projet`
+              : 'Liens enregistrés',
+            null
+          );
+        } catch {
+          showUndo('Liens enregistrés (pièces jointes non classées)', null);
+        }
+      } else {
+        showUndo('Liens enregistrés', null);
+      }
     } catch (e) {
       setErr(e.message);
     }
@@ -1123,6 +1375,34 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                     <div className="mail-body-text">
                       {readableMailBody(selected.body || selected.snippet)}
                     </div>
+                  )}
+
+                  {!!selected.attachments?.length && (
+                    <MailAttachments
+                      messageId={selected.id}
+                      attachments={selected.attachments}
+                      projects={projects}
+                      defaultProjectId={
+                        linkProjId
+                        || (thread?.project_id ? String(thread.project_id) : '')
+                        || (linkProjectId || projectId ? String(linkProjectId || projectId) : '')
+                      }
+                      defaultProjectName={thread?.project_name || ''}
+                      onFiled={(result) => {
+                        const n = result.count || (result.file ? 1 : result.filed?.length) || 0;
+                        const name = result.project?.name || thread?.project_name || 'projet';
+                        showUndo(
+                          n > 1
+                            ? `${n} pièces classées dans « ${name} »`
+                            : `Pièce classée dans « ${name} »`,
+                          null
+                        );
+                        if (result.project?.id) {
+                          setLinkProjId(String(result.project.id));
+                        }
+                      }}
+                      onError={(msg) => setErr(msg)}
+                    />
                   )}
                 </div>
 
