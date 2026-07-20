@@ -157,11 +157,16 @@ function buildMailSrcDoc(html) {
   const safe = sanitizeEmailHtml(html);
   // Si le mail est déjà un document complet, injecter base + CSS sans double html
   const hasDoc = /<html[\s>]/i.test(safe);
-  const baseCss = `html,body{margin:0;padding:0;background:#fff;color:#0d0b09;font:15px/1.55 system-ui,-apple-system,sans-serif;word-wrap:break-word;overflow-wrap:anywhere;-webkit-text-size-adjust:100%}
+  const baseCss = `html,body{margin:0;padding:20px 24px;background:#fff;color:#0d0b09;font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;word-wrap:break-word;overflow-wrap:anywhere;-webkit-text-size-adjust:100%;box-sizing:border-box}
+*,*:before,*:after{box-sizing:border-box}
 img,video{max-width:100%!important;height:auto!important}
 a{color:#D86B30}
 table{max-width:100%!important}
-blockquote{margin:0.5em 0;padding-left:0.75em;border-left:3px solid #e6e4e2;color:#666}`;
+blockquote{margin:0.75em 0;padding-left:1em;border-left:3px solid #e6e4e2;color:#666}
+pre,code{white-space:pre-wrap;word-break:break-word}
+p{margin:0 0 0.85em}
+@media (min-width:640px){html,body{padding:24px 40px}}
+@media (min-width:1024px){html,body{padding:28px 48px}}`;
   if (hasDoc) {
     let doc = safe;
     if (!/<base[\s>]/i.test(doc)) {
