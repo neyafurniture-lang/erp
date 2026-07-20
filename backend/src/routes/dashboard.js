@@ -2,10 +2,163 @@ import { Router } from 'express';
 import pool from '../db/pool.js';
 import { getWebStatus } from '../services/wordpress.js';
 import { computeProjectCostsBatch } from '../services/project-costs.js';
-import { syncAdminTasksFromModules } from '../services/admin-task-sync.js';
+import { syncAdminTasksFromModules, seedOpsLiveTasks } from '../services/admin-task-sync.js';
 import { scanInboxForSupplierInvoices } from '../services/invoice-email-router.js';
+import { syncProjectStatusFromTasks } from '../services/project-status-sync.js';
 
 const router = Router();
+
+const TIER_RANK = { p1: 0, p2: 1, p3: 2 };
+const SOURCE_LABEL = {
+  admin: 'Admin',
+  atelier: 'Atelier',
+  rdv: 'RDV',
+  todo: 'Perso',
+};
+
+/**
+ * Todo live Dashboard : fusion admin + ops atelier + RDV du jour + todos manuels.
+ */
+async function buildLiveTodo() {
+  await seedOpsLiveTasks().catch(() => {});
+
+  const [adminOpen, atelierOpen, rdvToday, manualTodos] = await Promise.all([
+    pool.query(`
+      SELECT *
+      FROM admin_tasks
+      WHERE status != 'done'
+      ORDER BY
+        CASE priority_tier WHEN 'p1' THEN 0 WHEN 'p2' THEN 1 WHEN 'p3' THEN 2 ELSE 3 END,
+        CASE status WHEN 'doing' THEN 0 WHEN 'todo' THEN 1 ELSE 2 END,
+        sort_order ASC,
+        due_date NULLS LAST,
+        id ASC
+      LIMIT 20
+    `),
+    pool.query(`
+      SELECT t.id, t.title, t.status, t.type, t.start_time, t.project_id,
+             p.name AS project_name
+      FROM tasks t
+      INNER JOIN projects p ON p.id = t.project_id AND p.status = 'active'
+      WHERE t.status != 'done'
+      ORDER BY
+        CASE t.status WHEN 'doing' THEN 0 WHEN 'todo' THEN 1 ELSE 2 END,
+        t.start_time NULLS LAST,
+        t.sort_order NULLS LAST,
+        t.id ASC
+      LIMIT 12
+    `),
+    pool.query(`
+      SELECT t.id, t.title, t.status, t.type, t.start_time, t.project_id,
+             p.name AS project_name
+      FROM tasks t
+      LEFT JOIN projects p ON p.id = t.project_id
+      WHERE t.status != 'done'
+        AND t.start_time IS NOT NULL
+        AND t.start_time >= CURRENT_DATE
+        AND t.start_time < CURRENT_DATE + INTERVAL '1 day'
+      ORDER BY t.start_time ASC
+      LIMIT 8
+    `),
+    listVisibleTodos('main'),
+  ]);
+
+  const atelierIds = new Set(atelierOpen.rows.map(r => r.id));
+  const items = [];
+
+  for (const t of adminOpen.rows) {
+    const isOps = String(t.source_key || '').startsWith('ops_')
+      || /atelier|matériel|materiel|nettoyage/i.test(`${t.title} ${t.notes || ''}`);
+    items.push({
+      key: `admin:${t.id}`,
+      source: isOps ? 'atelier' : 'admin',
+      id: t.id,
+      title: t.title,
+      subtitle: isOps ? 'Opération atelier' : (SOURCE_LABEL.admin + (t.category ? ` · ${t.category}` : '')),
+      href: t.link_href || '/admin',
+      priority: t.priority_tier || null,
+      status: t.status,
+      done: false,
+      due_date: t.due_date || null,
+      start_time: null,
+    });
+  }
+
+  for (const t of atelierOpen.rows) {
+    items.push({
+      key: `atelier:${t.id}`,
+      source: 'atelier',
+      id: t.id,
+      title: t.title,
+      subtitle: t.project_name ? `Projet · ${t.project_name}` : 'Atelier',
+      href: t.project_id ? `/projects/${t.project_id}` : '/production',
+      priority: t.status === 'doing' ? 'p1' : 'p2',
+      status: t.status,
+      done: false,
+      due_date: null,
+      start_time: t.start_time || null,
+    });
+  }
+
+  for (const t of rdvToday.rows) {
+    if (atelierIds.has(t.id)) continue;
+    items.push({
+      key: `rdv:${t.id}`,
+      source: 'rdv',
+      id: t.id,
+      title: t.title,
+      subtitle: t.project_name ? `RDV · ${t.project_name}` : 'Rendez-vous',
+      href: t.project_id ? `/projects/${t.project_id}` : '/calendar',
+      priority: 'p1',
+      status: t.status,
+      done: false,
+      due_date: null,
+      start_time: t.start_time || null,
+    });
+  }
+
+  for (const t of manualTodos) {
+    if (t.done) continue;
+    items.push({
+      key: `todo:${t.id}`,
+      source: 'todo',
+      id: t.id,
+      title: t.title,
+      subtitle: 'À faire',
+      href: null,
+      priority: null,
+      status: 'todo',
+      done: false,
+      due_date: null,
+      start_time: null,
+    });
+  }
+
+  items.sort((a, b) => {
+    const ta = TIER_RANK[a.priority] ?? 3;
+    const tb = TIER_RANK[b.priority] ?? 3;
+    if (ta !== tb) return ta - tb;
+    const sa = a.status === 'doing' ? 0 : 1;
+    const sb = b.status === 'doing' ? 0 : 1;
+    if (sa !== sb) return sa - sb;
+    const da = a.start_time ? new Date(a.start_time).getTime() : Number.MAX_SAFE_INTEGER;
+    const db = b.start_time ? new Date(b.start_time).getTime() : Number.MAX_SAFE_INTEGER;
+    if (da !== db) return da - db;
+    return String(a.title).localeCompare(String(b.title), 'fr');
+  });
+
+  const open = items.filter(i => !i.done).length;
+  return {
+    items: items.slice(0, 24),
+    open,
+    bySource: {
+      admin: items.filter(i => i.source === 'admin').length,
+      atelier: items.filter(i => i.source === 'atelier').length,
+      rdv: items.filter(i => i.source === 'rdv').length,
+      todo: items.filter(i => i.source === 'todo').length,
+    },
+  };
+}
 
 async function purgeExpiredTodos() {
   await pool.query(`
@@ -237,6 +390,8 @@ router.get('/', async (req, res) => {
     syncAdminTasksFromModules().catch(() => {});
     scanInboxForSupplierInvoices().catch(() => {});
 
+    const liveTodo = await buildLiveTodo().catch(() => ({ items: [], open: 0, bySource: {} }));
+
     res.json({
       stats: {
         activeProjects: ps.active,
@@ -255,6 +410,7 @@ router.get('/', async (req, res) => {
         revenueDeltaPct,
         quotesPending: pendingQuotes.rows.length,
         quotesPendingTotal: Number(quotesPendingTotal.rows[0]?.total || 0),
+        liveTodoOpen: liveTodo.open,
       },
       alerts,
       tasksToday: tasksToday.rows,
@@ -269,8 +425,68 @@ router.get('/', async (req, res) => {
       web: webStatus,
       todos,
       adminTasks: adminTasks.rows,
+      liveTodo,
       activeProjectsCount: ps.active,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/live-todo', async (_req, res) => {
+  try {
+    res.json(await buildLiveTodo());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Coche / décoche un item de la todo live (délègue à la source). */
+router.patch('/live-todo', async (req, res) => {
+  try {
+    const rawKey = String(req.body?.key || '');
+    const [source, idStr] = rawKey.split(':');
+    const id = Number(idStr);
+    if (!source || !Number.isFinite(id)) {
+      return res.status(400).json({ error: 'Clé invalide' });
+    }
+    const done = req.body?.done === true || req.body?.status === 'done';
+    const nextStatus = done ? 'done' : 'todo';
+
+    if (source === 'admin') {
+      const { rows } = await pool.query(
+        `UPDATE admin_tasks
+         SET status = $1, completed_at = CASE WHEN $1 = 'done' THEN NOW() ELSE NULL END
+         WHERE id = $2 RETURNING *`,
+        [nextStatus, id]
+      );
+      if (!rows[0]) return res.status(404).json({ error: 'Tâche admin introuvable' });
+    } else if (source === 'atelier' || source === 'rdv') {
+      const { rows: existing } = await pool.query('SELECT * FROM tasks WHERE id = $1', [id]);
+      if (!existing[0]) return res.status(404).json({ error: 'Tâche atelier introuvable' });
+      const { rows } = await pool.query(
+        'UPDATE tasks SET status = $1 WHERE id = $2 RETURNING *',
+        [nextStatus, id]
+      );
+      if (rows[0]?.project_id) {
+        await syncProjectStatusFromTasks(rows[0].project_id, {
+          fromStatus: existing[0].status,
+          toStatus: nextStatus,
+        }).catch(() => {});
+      }
+    } else if (source === 'todo') {
+      const { rows } = await pool.query(
+        `UPDATE dashboard_todos
+         SET done = $1, completed_at = CASE WHEN $1 THEN NOW() ELSE NULL END
+         WHERE id = $2 RETURNING *`,
+        [done, id]
+      );
+      if (!rows[0]) return res.status(404).json({ error: 'Todo introuvable' });
+    } else {
+      return res.status(400).json({ error: 'Source inconnue' });
+    }
+
+    res.json(await buildLiveTodo());
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

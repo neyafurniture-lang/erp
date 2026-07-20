@@ -140,7 +140,7 @@ export const PRIORITY_TASKS = [
   { source_key: 'prio_p1_internet_new', title: 'Trouver et souscrire un nouvel abonnement Internet', category: 'gestion', priority_tier: 'p1', sort_order: 2 },
   { source_key: 'prio_p1_etel', title: 'Refaire la facture pour Etel', category: 'facturation', priority_tier: 'p1', sort_order: 3, link_href: '/invoices' },
   { source_key: 'prio_p1_aem', title: "Envoyer la facture pour l'AEM", category: 'facturation', priority_tier: 'p1', sort_order: 4, link_href: '/invoices' },
-  { source_key: 'prio_p1_olive', title: "Payer la facture d'Olive", category: 'facturation', priority_tier: 'p1', sort_order: 5, link_href: '/expenses' },
+  { source_key: 'prio_p1_olive', title: 'Payer Olive', category: 'facturation', priority_tier: 'p1', sort_order: 5, link_href: '/expenses' },
   { source_key: 'prio_p2_anne', title: 'Faire la facture Anne', category: 'facturation', priority_tier: 'p2', sort_order: 6, link_href: '/invoices' },
   { source_key: 'prio_p2_son', title: 'Faire la facture Son', category: 'facturation', priority_tier: 'p2', sort_order: 7, link_href: '/invoices' },
   { source_key: 'prio_p2_enns_relance', title: 'Relancer ENNS pour le paiement', category: 'facturation', priority_tier: 'p2', sort_order: 8, link_href: '/invoices' },
@@ -151,21 +151,56 @@ export const PRIORITY_TASKS = [
   { source_key: 'prio_p3_site', title: 'Finir le site web', category: 'site_web', priority_tier: 'p3', sort_order: 13, link_href: '/web' },
 ];
 
+/** Ops atelier / live todo dashboard (complète les priorités admin). */
+export const OPS_LIVE_TASKS = [
+  {
+    source_key: 'ops_materiel_semaine',
+    title: 'Liste matériel pour demain · planification semaine',
+    category: 'gestion',
+    priority_tier: 'p1',
+    sort_order: 20,
+    link_href: '/calendar',
+    notes: 'Opération atelier — préparer la semaine',
+  },
+  {
+    source_key: 'ops_nettoyage_nouvel_atelier',
+    title: 'Nettoyage nouvel atelier',
+    category: 'gestion',
+    priority_tier: 'p1',
+    sort_order: 21,
+    link_href: '/production',
+    notes: 'Opération atelier',
+  },
+];
+
+async function upsertSeedTask(t) {
+  const { rows } = await pool.query('SELECT id, status FROM admin_tasks WHERE source_key = $1', [t.source_key]);
+  if (!rows[0]) {
+    await pool.query(
+      `INSERT INTO admin_tasks (title, category, priority_tier, sort_order, link_href, source_key, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [t.title, t.category, t.priority_tier, t.sort_order, t.link_href || null, t.source_key, t.notes || null]
+    );
+    return;
+  }
+  if (rows[0].status === 'done') return;
+  await pool.query(
+    `UPDATE admin_tasks SET title = $1, category = $2, priority_tier = $3, sort_order = $4,
+     link_href = COALESCE($5, link_href), notes = COALESCE($6, notes) WHERE source_key = $7`,
+    [t.title, t.category, t.priority_tier, t.sort_order, t.link_href || null, t.notes || null, t.source_key]
+  );
+}
+
 export async function seedPriorityTasks() {
   for (const t of PRIORITY_TASKS) {
-    const { rows } = await pool.query('SELECT id, status FROM admin_tasks WHERE source_key = $1', [t.source_key]);
-    if (!rows[0]) {
-      await pool.query(
-        `INSERT INTO admin_tasks (title, category, priority_tier, sort_order, link_href, source_key, notes)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [t.title, t.category, t.priority_tier, t.sort_order, t.link_href || null, t.source_key, t.notes || null]
-      );
-    } else if (rows[0].status !== 'done') {
-      await pool.query(
-        `UPDATE admin_tasks SET title = $1, category = $2, priority_tier = $3, sort_order = $4,
-         link_href = COALESCE($5, link_href) WHERE source_key = $6`,
-        [t.title, t.category, t.priority_tier, t.sort_order, t.link_href || null, t.source_key]
-      );
-    }
+    await upsertSeedTask(t);
+  }
+  await seedOpsLiveTasks();
+}
+
+/** Seeds ops pour la todo live (idempotent). */
+export async function seedOpsLiveTasks() {
+  for (const t of OPS_LIVE_TASKS) {
+    await upsertSeedTask(t);
   }
 }

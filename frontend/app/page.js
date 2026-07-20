@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import AppShell from '../components/AppShell';
 import AuthGuard from '../components/AuthGuard';
+import DashboardLiveTodo from '../components/DashboardLiveTodo';
 import { api, formatMoney, formatDate } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
 
@@ -235,6 +236,8 @@ export default function DashboardPage() {
             href="/invoices"
           />
         </div>
+
+        <DashboardLiveTodo initial={data?.liveTodo} />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
           {/* Production en cours */}
