@@ -11,7 +11,7 @@ export const ACTION_TYPES = [
   'complete_task', 'update_task', 'delete_task', 'unlink_task', 'list_project_tasks',
   'update_project', 'update_client', 'list_projects', 'list_clients', 'list_expenses',
   'search_projects', 'search_memory', 'get_project',
-  'list_emails', 'search_emails', 'get_email', 'list_mail_threads',
+  'list_emails', 'search_emails', 'get_email', 'import_email_attachment', 'list_mail_threads',
   'create_fabrication_plan',
   'list_skills', 'create_skill', 'update_skill',
   'create_quote', 'create_invoice', 'convert_quote', 'send_quote', 'send_invoice',
@@ -1198,14 +1198,30 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
             from: full.from,
             date: full.date,
             snippet: full.snippet,
+            attachments: full.attachments || [],
           },
         });
+        const attNote = full.attachments?.length
+          ? `\nPièces jointes (${full.attachments.length}) : ${full.attachments.map(a => a.filename).join(', ')}\n→ Dites « rentre cette facture du mail » pour importer automatiquement.`
+          : '';
         return {
-          reply: `De : ${full.from}\nObjet : ${full.subject}\nDate : ${full.date || '—'}${erpHint}\n\n${body || '(corps vide)'}`,
+          reply: `De : ${full.from}\nObjet : ${full.subject}\nDate : ${full.date || '—'}${erpHint}${attNote}\n\n${body || '(corps vide)'}`,
           actions,
         };
       } catch (err) {
         return { reply: `Lecture du courriel impossible : ${err.message}`, actions };
+      }
+    }
+
+    case 'import_email_attachment': {
+      try {
+        const { importAttachmentFromEmail } = await import('./mail-invoice-import.js');
+        return await importAttachmentFromEmail(msg, pageContext, params);
+      } catch (err) {
+        return {
+          reply: `Import depuis Gmail impossible : ${err.message}. Vérifiez la connexion Google et reformulez (ex. « facture du mail de Olive »).`,
+          actions,
+        };
       }
     }
 

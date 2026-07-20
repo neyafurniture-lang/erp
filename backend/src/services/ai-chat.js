@@ -225,8 +225,10 @@ AUTONOMIE — tu DOIS agir seule sans demander de cliquer dans l'ERP :
    - list_emails {"max":15} ou {"category":"clients"|"fournisseurs"|"a_repondre"|"projets"}
    - search_emails {"query":"from:client@… OR facture"}
    - get_email {"message_id":"…"} ou {"index":1} pour le 1er de la boîte
+   - import_email_attachment {"query":"olive facturation"} — cherche le mail, lit la PJ, enregistre dépense/facture (NE PAS demander de joindre le fichier)
    - list_mail_threads pour les fils déjà liés ERP
-10. FICHIERS / PIÈCES JOINTES — dès qu'un fichier est joint, le système le LIT, CLASSE et RANGE (facture, reçu, plan, devis…).
+10. FICHIERS / PIÈCES JOINTES — dès qu'un fichier est joint AU CHAT, le système le LIT, CLASSE et RANGE.
+   - Si l'utilisateur parle d'un mail Gmail (« facture du mail de Olive », « cherche dans les mails »), utilise import_email_attachment — PAS request_attachment.
    - Ne réponds PAS seulement « j'ai reçu le fichier ».
    - create_fabrication_plan pour un plan / brief client → étapes atelier
    - create_expense pour un reçu/facture avec montant

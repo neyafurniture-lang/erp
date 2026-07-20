@@ -321,6 +321,11 @@ export function detectAttachmentIntent(message, attachments = []) {
   if (attachments.length > 0) return null;
   const m = message.toLowerCase();
 
+  // L'utilisateur parle d'un mail déjà reçu — ne pas demander de joindre via le trombone
+  if (/mail|courriel|gmail|envoi|envoy[eé]|bo[iî]te|cherche.*facture|facture.*mail|celle du mail|du mail de|dans les mail/i.test(m)) {
+    return null;
+  }
+
   if (/(?:joindre|pi[eè]ce jointe|attacher|envoyer (?:un |le |la |les )?(?:fichier|photo|plan|pdf|reçu|recu|document|image))/i.test(m)) {
     return { hint: 'votre fichier (photo, PDF, plan…)' };
   }
@@ -331,6 +336,22 @@ export function detectAttachmentIntent(message, attachments = []) {
     return { hint: 'le reçu ou la facture' };
   }
   return null;
+}
+
+export function wantsEmailAttachmentImport(message, history = []) {
+  const m = String(message || '').toLowerCase();
+  if (/mail|courriel|gmail|envoi|envoy/i.test(m) && /facture|re[cç]u|invoice|facturation|document|pdf|pi[eè]ce jointe|pj\b/i.test(m)) {
+    return true;
+  }
+  if (/cherche|trouve|ouvre|lis|montre|rentre|entre|saisir|classer|ranger|importer/i.test(m) && /mail|courriel|gmail/i.test(m)) {
+    return true;
+  }
+  if (/celle du mail|du mail de|mail de/i.test(m)) return true;
+  if (/rentre|entre|saisir|importer/i.test(m) && /facture|re[cç]u|invoice/i.test(m)) {
+    const recent = (history || []).slice(-6).map(h => String(h.content || '')).join(' ').toLowerCase();
+    if (/mail|courriel|gmail|olive|envoi|facturation/i.test(recent)) return true;
+  }
+  return false;
 }
 
 function needsHistoryContext(message) {
@@ -453,6 +474,16 @@ export async function processMessage(message, attachments = [], rawContext = nul
     return memoryResult;
   }
 
+  // Facture / doc dans un mail Gmail — chercher et importer sans demander le trombone
+  if (!attachments.length && wantsEmailAttachmentImport(message, chronHistory)) {
+    const mailImport = await runSkillAction('import_email_attachment', contextualMessage, pageContext);
+    await pool.query(
+      'INSERT INTO assistant_messages (role, content, actions_taken, attachments) VALUES ($1,$2,$3,$4)',
+      ['assistant', mailImport.reply, JSON.stringify(mailImport.actions || []), JSON.stringify(mailImport.attachments || [])]
+    );
+    return mailImport;
+  }
+
   const attachIntent = detectAttachmentIntent(message, attachments);
   if (attachIntent) {
     const attachResult = {
@@ -543,6 +574,9 @@ export async function processMessage(message, attachments = [], rawContext = nul
       if (/ajoute|ajouter|ligne|prix|change|modifie|titre|note|supprime|retire|status|statut|brouillon|accept/i.test(msg)) {
         return runSkillAction('update_quote', msg, pageContext);
       }
+    }
+    if (wantsEmailAttachmentImport(msg)) {
+      return runSkillAction('import_email_attachment', msg, pageContext);
     }
     return null;
   }
@@ -890,6 +924,15 @@ export async function seedDefaultSkills() {
         'montre le mail', 'détail mail', 'ouvre le courriel',
       ],
       action: 'get_email',
+    },
+    {
+      name: 'import_email_attachment',
+      description: 'Importer une facture/PJ depuis Gmail (sans joindre au chat)',
+      triggers: [
+        'facture du mail', 'cherche la facture', 'rentre cette facture', 'mail de olive',
+        'dans les mails', 'pièce jointe du mail', 'importer depuis gmail',
+      ],
+      action: 'import_email_attachment',
     },
     {
       name: 'list_mail_threads',
