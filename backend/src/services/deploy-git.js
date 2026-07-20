@@ -420,7 +420,7 @@ export async function getDeploySyncStatus() {
       wouldUpdateNow: Boolean(git.updateAvailable && activity.isIdle),
       skipReasons: [
         ...(!git.isRepo ? ['Dépôt Git introuvable sur le serveur'] : []),
-        ...(git.isRepo && !git.updateAvailable ? ['Déjà à jour avec GitHub'] : []),
+        ...(git.isRepo && !git.updateAvailable ? ['Git déjà aligné sur origin/main (rebuild Docker non lancé)'] : []),
         ...(git.updateAvailable && !activity.isIdle
           ? [`Activité récente (idle requis : ${idleMinutes} min)`]
           : []),
