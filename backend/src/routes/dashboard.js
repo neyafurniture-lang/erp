@@ -5,6 +5,7 @@ import { computeProjectCostsBatch } from '../services/project-costs.js';
 import { syncAdminTasksFromModules, seedOpsLiveTasks } from '../services/admin-task-sync.js';
 import { scanInboxForSupplierInvoices } from '../services/invoice-email-router.js';
 import { syncProjectStatusFromTasks } from '../services/project-status-sync.js';
+import { resolveMailTaskHref } from '../services/mail-deep-link.js';
 
 const router = Router();
 
@@ -75,7 +76,7 @@ async function buildLiveTodo() {
       id: t.id,
       title: t.title,
       subtitle: isOps ? 'Opération atelier' : (SOURCE_LABEL.admin + (t.category ? ` · ${t.category}` : '')),
-      href: t.link_href || '/admin',
+      href: resolveMailTaskHref(t) || t.link_href || '/admin',
       priority: t.priority_tier || null,
       status: t.status,
       done: false,
