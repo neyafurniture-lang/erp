@@ -4,7 +4,9 @@ import { syncAdminTasksFromModules, ADMIN_CATEGORIES, seedPriorityTasks } from '
 import {
   scanMailInvoicesToAdminTasks,
   cleanupClientMailPayableTodos,
+  backfillMailTodoDeepLinks,
 } from '../services/mail-invoice-todos.js';
+import { resolveMailTaskHref } from '../services/mail-deep-link.js';
 
 const router = Router();
 
@@ -13,6 +15,7 @@ const VALID_STATUS = ['todo', 'doing', 'done'];
 router.get('/', async (req, res) => {
   try {
     await cleanupClientMailPayableTodos().catch(() => {});
+    await backfillMailTodoDeepLinks().catch(() => {});
     const { category, status } = req.query;
     let query = 'SELECT * FROM admin_tasks WHERE 1=1';
     const params = [];
@@ -31,7 +34,10 @@ router.get('/', async (req, res) => {
       due_date NULLS LAST,
       created_at ASC`;
     const { rows } = await pool.query(query, params);
-    res.json(rows);
+    res.json(rows.map(t => ({
+      ...t,
+      link_href: resolveMailTaskHref(t) || t.link_href,
+    })));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

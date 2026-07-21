@@ -8,6 +8,7 @@ import {
   guessPersonFromMessage,
   parseDisplayName,
 } from './mail-invoice-classify.js';
+import { mailMessageHref, resolveMailTaskHref } from './mail-deep-link.js';
 
 const OWN = new Set(['neyafurniture@gmail.com']);
 
@@ -128,5 +129,27 @@ describe('mail-invoice-classify', () => {
 
   it('parse le nom affiché', () => {
     assert.equal(parseDisplayName('Olive <olive@x.com>'), 'Olive');
+  });
+});
+
+describe('mail deep links', () => {
+  it('construit /mail?message=…', () => {
+    assert.equal(mailMessageHref('abc123'), '/mail?message=abc123');
+    assert.equal(mailMessageHref(null), '/mail');
+  });
+
+  it('résout le lien depuis source_key même si link_href est /mail', () => {
+    assert.equal(
+      resolveMailTaskHref({ source_key: 'mail_payable_xyz789', link_href: '/mail' }),
+      '/mail?message=xyz789'
+    );
+    assert.equal(
+      resolveMailTaskHref({ source_key: 'mail_receivable_aaa', link_href: null }),
+      '/mail?message=aaa'
+    );
+    assert.equal(
+      resolveMailTaskHref({ source_key: 'invoice_receivable_1', link_href: '/invoices/1' }),
+      '/invoices/1'
+    );
   });
 });
