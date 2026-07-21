@@ -98,13 +98,15 @@ router.get('/messages/:id/attachments/:attachmentId', async (req, res) => {
   try {
     const att = await gmail.getAttachment(req.params.id, req.params.attachmentId);
     const inline = req.query.inline === '1' || req.query.inline === 'true';
-    const safeName = String(att.filename || 'piece-jointe').replace(/"/g, '');
+    const safeName = String(att.filename || 'piece-jointe').replace(/[\\"\r\n]/g, '_');
+    const asciiName = safeName.replace(/[^\x20-\x7E]/g, '_') || 'piece-jointe';
     res.setHeader('Content-Type', att.mimeType || 'application/octet-stream');
     res.setHeader(
       'Content-Disposition',
-      `${inline ? 'inline' : 'attachment'}; filename="${encodeURIComponent(safeName)}"`
+      `${inline ? 'inline' : 'attachment'}; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(safeName)}`
     );
     res.setHeader('Cache-Control', 'private, max-age=120');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.send(att.buffer);
   } catch (err) {
     res.status(400).json({ error: err.message });

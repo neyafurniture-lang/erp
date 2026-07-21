@@ -207,9 +207,38 @@ export async function getMessage(messageId) {
 
 /** Télécharge une pièce jointe fichier (par attachmentId Gmail). */
 export async function getAttachment(messageId, attachmentId) {
+  const rawId = String(attachmentId || '');
+  const candidates = [...new Set([
+    rawId,
+    (() => { try { return decodeURIComponent(rawId); } catch { return null; } })(),
+  ].filter(Boolean))];
+
   const msg = await gmailFetch(`/messages/${messageId}?format=full`);
-  const part = findAttachmentPart(msg?.payload, attachmentId);
-  if (!part) throw new Error('Pièce jointe introuvable');
+  let part = null;
+  for (const id of candidates) {
+    part = findAttachmentPart(msg?.payload, id);
+    if (part) {
+      attachmentId = id;
+      break;
+    }
+  }
+  if (!part) {
+    const listed = extractFileAttachments(msg?.payload);
+    const match = listed.find(a => candidates.includes(a.id));
+    if (match) {
+      attachmentId = match.id;
+      part = findAttachmentPart(msg?.payload, match.id);
+    }
+  }
+  if (!part) {
+    const names = extractFileAttachments(msg?.payload).map(a => a.filename).filter(Boolean);
+    throw new Error(
+      names.length
+        ? `Pièce jointe introuvable (disponibles : ${names.join(', ')})`
+        : 'Pièce jointe introuvable sur ce message'
+    );
+  }
+
   const att = await gmailFetch(`/messages/${messageId}/attachments/${encodeURIComponent(attachmentId)}`);
   if (!att?.data) throw new Error('Contenu pièce jointe vide');
   const buffer = decodeAttachmentData(att.data);

@@ -375,6 +375,8 @@ function MailAttachments({
   if (!attachments.length) return null;
 
   async function openAttachment(att, { download = false } = {}) {
+    // Ouvrir la fenêtre tout de suite (sinon bloqué après le fetch async)
+    const previewWin = !download ? window.open('about:blank', '_blank') : null;
     try {
       const token = getToken();
       const q = download ? '' : '?inline=1';
@@ -388,18 +390,31 @@ function MailAttachments({
       }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
-      if (download) {
+
+      if (download || !previewWin || previewWin.closed) {
+        if (previewWin && !previewWin.closed) previewWin.close();
         const a = document.createElement('a');
         a.href = url;
         a.download = att.filename || 'piece-jointe';
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
         document.body.appendChild(a);
         a.click();
         a.remove();
       } else {
-        window.open(url, '_blank', 'noopener,noreferrer');
+        try {
+          previewWin.location.href = url;
+          previewWin.document.title = att.filename || 'Pièce jointe';
+        } catch {
+          previewWin.close();
+          window.open(url, '_blank', 'noopener,noreferrer');
+        }
       }
-      setTimeout(() => URL.revokeObjectURL(url), 120000);
+      setTimeout(() => URL.revokeObjectURL(url), 180000);
     } catch (e) {
+      if (previewWin && !previewWin.closed) {
+        try { previewWin.close(); } catch { /* ignore */ }
+      }
       onError?.(e.message);
     }
   }
