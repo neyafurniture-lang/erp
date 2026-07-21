@@ -49,6 +49,7 @@ import saunaCloudRoutes from './routes/sauna-cloud.js';
 import cuttingPlansRoutes from './routes/cutting-plans.js';
 import marketplaceRoutes from './routes/marketplace.js';
 import socialRoutes from './routes/social.js';
+import payrollRoutes from './routes/payroll.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -143,6 +144,7 @@ protectedRouter.use('/sauna-cloud', saunaCloudRoutes);
 protectedRouter.use('/cutting-plans', cuttingPlansRoutes);
 protectedRouter.use('/marketplace', marketplaceRoutes);
 protectedRouter.use('/social', socialRoutes);
+protectedRouter.use('/payroll', payrollRoutes);
 
 app.use('/api', protectedRouter);
 
