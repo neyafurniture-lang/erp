@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { api, formatMoney, formatDate, TASK_TYPES, resolveUploadUrl } from '../lib/api';
@@ -28,12 +28,24 @@ const MODULES = [
   { id: 'notes', label: 'Notes' },
 ];
 
+/** Date locale YYYY-MM-DD (évite le décalage UTC qui bascule le jour). */
+function localISODate(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function parseMetaObj(project) {
   return typeof project.meta === 'string' ? JSON.parse(project.meta || '{}') : (project.meta || {});
 }
 
 function parseHoursLogbook(project) {
   return parseMetaObj(project).hours_logbook || null;
+}
+
+function parseHoursLogbookPrev(project) {
+  return parseMetaObj(project).hours_logbook_prev || null;
 }
 
 function normalizeHoursPeople(log) {
@@ -69,7 +81,7 @@ function emptyHoursRow(people) {
   const hours = {};
   for (const p of people) hours[p] = '';
   return {
-    dateKey: new Date().toISOString().slice(0, 10),
+    dateKey: localISODate(),
     label: '',
     planned_hours: '',
     start: '',
@@ -87,6 +99,10 @@ function sumPersonHours(rows, person) {
   }, 0);
 }
 
+function hoursSnapshot(people, rows) {
+  return JSON.stringify({ people, rows });
+}
+
 export default function ProjectWorkspace({ project, costs, materials, quoteSource, purchases, onReload }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -100,9 +116,18 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
   const [taskBusy, setTaskBusy] = useState(false);
   const [statusBusy, setStatusBusy] = useState(false);
   const [hoursBusy, setHoursBusy] = useState(false);
+  const [hoursDirty, setHoursDirty] = useState(false);
+  const [hoursSaveMsg, setHoursSaveMsg] = useState('');
   const hoursLog = parseHoursLogbook(project);
+  const hoursLogPrev = parseHoursLogbookPrev(project);
   const [hoursPeople, setHoursPeople] = useState(() => normalizeHoursPeople(hoursLog));
   const [hoursRows, setHoursRows] = useState(() => normalizeHoursRows(hoursLog?.rows || [], normalizeHoursPeople(hoursLog)));
+  const hoursDirtyRef = useRef(false);
+  const hoursAutosaveRef = useRef(null);
+  const savedHoursSnapRef = useRef(hoursSnapshot(
+    normalizeHoursPeople(hoursLog),
+    normalizeHoursRows(hoursLog?.rows || [], normalizeHoursPeople(hoursLog))
+  ));
   const [clients, setClients] = useState([]);
   const [clientId, setClientId] = useState(project.client_id ? String(project.client_id) : '');
   const [clientBusy, setClientBusy] = useState(false);
@@ -127,18 +152,56 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
     setClientId(project.client_id ? String(project.client_id) : '');
   }, [project.id, project.client_id]);
 
+  // Recharge le carnet depuis le serveur uniquement si pas de saisie locale non sauvée
   useEffect(() => {
+    if (hoursDirtyRef.current) return;
     const log = parseHoursLogbook(project);
     const people = normalizeHoursPeople(log);
+    const rows = normalizeHoursRows(log?.rows || [], people);
     setHoursPeople(people);
-    setHoursRows(normalizeHoursRows(log?.rows || [], people));
+    setHoursRows(rows);
+    savedHoursSnapRef.current = hoursSnapshot(people, rows);
+    setHoursDirty(false);
   }, [project.id, project.meta]);
+
+  useEffect(() => {
+    hoursDirtyRef.current = hoursDirty;
+  }, [hoursDirty]);
 
   useEffect(() => {
     const t = searchParams.get('tab');
     if (t && MODULES.some(m => m.id === t)) setTab(t);
     else if (!t) setTab('overview');
   }, [searchParams]);
+
+  useEffect(() => {
+    function onBeforeUnload(e) {
+      if (!hoursDirtyRef.current) return;
+      e.preventDefault();
+      e.returnValue = '';
+    }
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
+
+  useEffect(() => () => {
+    if (hoursAutosaveRef.current) clearTimeout(hoursAutosaveRef.current);
+  }, []);
+
+  function markHoursDirty(nextPeople, nextRows) {
+    const snap = hoursSnapshot(nextPeople ?? hoursPeople, nextRows ?? hoursRows);
+    const dirty = snap !== savedHoursSnapRef.current;
+    setHoursDirty(dirty);
+    hoursDirtyRef.current = dirty;
+    if (dirty) scheduleHoursAutosave();
+  }
+
+  function scheduleHoursAutosave() {
+    if (hoursAutosaveRef.current) clearTimeout(hoursAutosaveRef.current);
+    hoursAutosaveRef.current = setTimeout(() => {
+      saveHoursLogbook({ silent: true });
+    }, 1800);
+  }
 
   function changeTab(id) {
     if (id === tab) return;
@@ -229,46 +292,105 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
   }
 
   function updateHourRow(idx, field, value) {
-    setHoursRows(rows => rows.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
+    setHoursRows(rows => {
+      const next = rows.map((r, i) => (i === idx ? { ...r, [field]: value } : r));
+      queueMicrotask(() => markHoursDirty(hoursPeople, next));
+      return next;
+    });
   }
 
   function updatePersonHours(idx, person, value) {
-    setHoursRows(rows => rows.map((r, i) => {
-      if (i !== idx) return r;
-      return { ...r, hours: { ...r.hours, [person]: value } };
-    }));
+    setHoursRows(rows => {
+      const next = rows.map((r, i) => {
+        if (i !== idx) return r;
+        return { ...r, hours: { ...r.hours, [person]: value } };
+      });
+      queueMicrotask(() => markHoursDirty(hoursPeople, next));
+      return next;
+    });
   }
 
   function addHoursRow() {
-    setHoursRows(rows => [...rows, emptyHoursRow(hoursPeople)]);
+    setHoursRows(rows => {
+      const next = [...rows, emptyHoursRow(hoursPeople)];
+      queueMicrotask(() => markHoursDirty(hoursPeople, next));
+      return next;
+    });
   }
 
   function removeHoursRow(idx) {
-    setHoursRows(rows => rows.filter((_, i) => i !== idx));
+    setHoursRows(rows => {
+      const next = rows.filter((_, i) => i !== idx);
+      queueMicrotask(() => markHoursDirty(hoursPeople, next));
+      return next;
+    });
   }
 
-  async function saveHoursLogbook(e) {
-    e?.preventDefault?.();
+  async function saveHoursLogbook(opts = {}) {
+    const silent = opts.silent === true;
+    const confirmClear = opts.confirmClear === true;
+    if (hoursBusy) return;
     setHoursBusy(true);
+    if (!silent) setHoursSaveMsg('');
     try {
       const totals = {};
       for (const p of hoursPeople) totals[p] = sumPersonHours(hoursRows, p);
-      await api(`/projects/${project.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          hours_logbook: {
-            ...(hoursLog || {}),
-            source: hoursLog?.source || 'manuel',
-            people: hoursPeople,
-            rows: hoursRows,
-            totals,
-            updated_at: new Date().toISOString(),
-          },
-        }),
+      const payload = {
+        source: hoursLog?.source || 'manuel',
+        people: hoursPeople,
+        rows: hoursRows,
+        totals,
+        updated_at: new Date().toISOString(),
+      };
+      if (confirmClear) payload.confirm_clear = true;
+
+      const result = await api(`/projects/${project.id}/hours-logbook`, {
+        method: 'PATCH',
+        body: JSON.stringify({ hours_logbook: payload }),
       });
+      savedHoursSnapRef.current = hoursSnapshot(hoursPeople, hoursRows);
+      setHoursDirty(false);
+      hoursDirtyRef.current = false;
+      setHoursSaveMsg(silent ? 'Enregistré automatiquement' : 'Enregistré');
+      setTimeout(() => setHoursSaveMsg(''), 2000);
+      if (result?.project) {
+        // Recharge pour sync meta (prev inclus) sans perdre l’état local propre
+        onReload();
+      } else {
+        onReload();
+      }
+    } catch (err) {
+      if (err?.code === 'HOURS_CLEAR_BLOCKED' || /effacer le carnet/i.test(err.message || '')) {
+        const ok = window.confirm(
+          `${err.message}\n\nVoulez-vous vraiment effacer toutes les heures ?`
+        );
+        if (ok) {
+          setHoursBusy(false);
+          return saveHoursLogbook({ ...opts, confirmClear: true, silent: false });
+        }
+        setHoursSaveMsg('Effacement annulé — heures conservées');
+      } else if (!silent) {
+        window.alert(err.message || 'Impossible d’enregistrer le carnet');
+      } else {
+        setHoursSaveMsg(err.message || 'Auto-save échoué');
+      }
+    } finally {
+      setHoursBusy(false);
+    }
+  }
+
+  async function restoreHoursLogbook() {
+    if (!hoursLogPrev?.rows?.length) return;
+    if (!window.confirm(`Restaurer ${hoursLogPrev.rows.length} ligne(s) de la sauvegarde précédente ?`)) return;
+    setHoursBusy(true);
+    try {
+      await api(`/projects/${project.id}/hours-logbook/restore`, { method: 'POST' });
+      hoursDirtyRef.current = false;
+      setHoursDirty(false);
+      setHoursSaveMsg('Heures restaurées');
       onReload();
     } catch (err) {
-      window.alert(err.message || 'Impossible d’enregistrer le carnet');
+      window.alert(err.message || 'Restauration impossible');
     } finally {
       setHoursBusy(false);
     }
@@ -743,19 +865,47 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
                 {hoursPeople.join(' · ')}
                 {hoursLog?.source ? ` · source ${hoursLog.source}` : ''}
                 {hoursLog?.updated_at ? ` · maj ${formatDate(hoursLog.updated_at)}` : ''}
+                {hoursDirty ? ' · non enregistré' : ''}
               </p>
+              {hoursSaveMsg && (
+                <p className="text-[11px] text-neya-muted mt-0.5">{hoursSaveMsg}</p>
+              )}
             </div>
             <div className="flex flex-wrap gap-2">
+              {hoursLogPrev?.rows?.length > 0 && (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={hoursBusy}
+                  onClick={restoreHoursLogbook}
+                  title="Récupérer la version précédente du carnet"
+                >
+                  Restaurer ({hoursLogPrev.rows.length})
+                </button>
+              )}
               <button type="button" className="btn-secondary" onClick={addHoursRow}>+ Ligne</button>
-              <button type="button" className="btn-primary" disabled={hoursBusy} onClick={saveHoursLogbook}>
-                {hoursBusy ? 'Enregistrement…' : 'Enregistrer'}
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={hoursBusy || !hoursDirty}
+                onClick={() => saveHoursLogbook()}
+              >
+                {hoursBusy ? 'Enregistrement…' : hoursDirty ? 'Enregistrer' : 'À jour'}
               </button>
             </div>
           </div>
 
+          {!hoursRows.length && hoursLogPrev?.rows?.length > 0 && (
+            <p className="text-sm text-amber-800 bg-amber-50 px-3 py-2 rounded-lg">
+              Carnet vide — une sauvegarde précédente existe ({hoursLogPrev.rows.length} ligne(s)).
+              Cliquez sur « Restaurer » pour récupérer les heures.
+            </p>
+          )}
+
           {!hoursRows.length ? (
             <p className="text-sm text-neya-muted">
               Aucune ligne — cliquez sur « + Ligne » pour commencer le comptage.
+              L’enregistrement est automatique après saisie.
             </p>
           ) : (
             <div className="overflow-x-auto">

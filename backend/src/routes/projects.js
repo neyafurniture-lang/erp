@@ -2,6 +2,12 @@ import { Router } from 'express';
 import multer from 'multer';
 import pool from '../db/pool.js';
 import { splitPdfForProject } from '../services/project-plans.js';
+import {
+  parseProjectMeta,
+  applyHoursLogbookToMeta,
+  restoreHoursLogbookFromPrev,
+  isClearingHoursLogbook,
+} from '../services/hours-logbook.js';
 
 const router = Router();
 const planUpload = multer({
@@ -13,6 +19,17 @@ const planUpload = multer({
     cb(ok ? null : new Error('PDF requis'), ok);
   },
 });
+
+async function loadProjectFull(id) {
+  const { rows: full } = await pool.query(
+    `SELECT p.*, c.name as client_name
+     FROM projects p
+     LEFT JOIN clients c ON c.id = p.client_id
+     WHERE p.id = $1`,
+    [id]
+  );
+  return full[0] || null;
+}
 
 router.get('/', async (req, res) => {
   try {
@@ -153,19 +170,30 @@ router.put('/:id', async (req, res) => {
       : cur.budget_real;
     const notes = b.notes !== undefined ? b.notes : cur.notes;
 
-    let nextMeta = typeof cur.meta === 'string' ? JSON.parse(cur.meta || '{}') : (cur.meta || {});
+    let nextMeta = parseProjectMeta(cur.meta);
     if (b.meta && typeof b.meta === 'object') {
-      nextMeta = { ...nextMeta, ...b.meta };
+      const incomingMeta = { ...b.meta };
+      // Empêcher un meta partiel d’effacer le carnet d’heures
+      if (
+        incomingMeta.hours_logbook
+        && isClearingHoursLogbook(nextMeta.hours_logbook, incomingMeta.hours_logbook)
+      ) {
+        delete incomingMeta.hours_logbook;
+      }
+      nextMeta = { ...nextMeta, ...incomingMeta };
     }
     if (b.hours_logbook && typeof b.hours_logbook === 'object') {
-      nextMeta = {
-        ...nextMeta,
-        hours_logbook: {
-          ...(nextMeta.hours_logbook || {}),
-          ...b.hours_logbook,
-          updated_at: new Date().toISOString(),
-        },
-      };
+      const applied = applyHoursLogbookToMeta(nextMeta, b.hours_logbook, {
+        allowClear: b.hours_logbook.confirm_clear === true,
+      });
+      if (applied.blocked) {
+        return res.status(409).json({
+          error: `Refus d’effacer le carnet d’heures (${applied.existing_count} ligne(s) déjà enregistrées). Rechargez la page ou restaurez la sauvegarde.`,
+          code: 'HOURS_CLEAR_BLOCKED',
+          existing_count: applied.existing_count,
+        });
+      }
+      nextMeta = applied.meta;
     }
 
     const { rows } = await pool.query(
@@ -174,14 +202,108 @@ router.put('/:id', async (req, res) => {
       [name, clientId, status, deadline, budgetEstimated, budgetReal, notes, JSON.stringify(nextMeta), id]
     );
 
-    const { rows: full } = await pool.query(
-      `SELECT p.*, c.name as client_name
-       FROM projects p
-       LEFT JOIN clients c ON c.id = p.client_id
-       WHERE p.id = $1`,
-      [id]
-    );
-    res.json(full[0] || rows[0]);
+    const full = await loadProjectFull(id);
+    res.json(full || rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Sauvegarde atomique du carnet d’heures (évite les courses meta). */
+router.patch('/:id/hours-logbook', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const incoming = req.body?.hours_logbook || req.body;
+    if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
+      return res.status(400).json({ error: 'hours_logbook requis' });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows: existing } = await client.query(
+        'SELECT id, meta FROM projects WHERE id = $1 FOR UPDATE',
+        [id]
+      );
+      if (!existing[0]) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Projet introuvable' });
+      }
+
+      const applied = applyHoursLogbookToMeta(existing[0].meta, incoming, {
+        allowClear: incoming.confirm_clear === true,
+      });
+      if (applied.blocked) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: `Refus d’effacer le carnet d’heures (${applied.existing_count} ligne(s)).`,
+          code: 'HOURS_CLEAR_BLOCKED',
+          existing_count: applied.existing_count,
+        });
+      }
+
+      await client.query(
+        'UPDATE projects SET meta = $1::jsonb WHERE id = $2',
+        [JSON.stringify(applied.meta), id]
+      );
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    const full = await loadProjectFull(id);
+    res.json({
+      ok: true,
+      project: full,
+      hours_logbook: parseProjectMeta(full?.meta).hours_logbook || null,
+      hours_logbook_prev: parseProjectMeta(full?.meta).hours_logbook_prev || null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Restaure la dernière sauvegarde du carnet (si les heures ont disparu). */
+router.post('/:id/hours-logbook/restore', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows: existing } = await client.query(
+        'SELECT id, meta FROM projects WHERE id = $1 FOR UPDATE',
+        [id]
+      );
+      if (!existing[0]) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Projet introuvable' });
+      }
+      const restored = restoreHoursLogbookFromPrev(existing[0].meta);
+      if (!restored.ok) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: restored.error });
+      }
+      await client.query(
+        'UPDATE projects SET meta = $1::jsonb WHERE id = $2',
+        [JSON.stringify(restored.meta), id]
+      );
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    const full = await loadProjectFull(id);
+    res.json({
+      ok: true,
+      project: full,
+      hours_logbook: parseProjectMeta(full?.meta).hours_logbook || null,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

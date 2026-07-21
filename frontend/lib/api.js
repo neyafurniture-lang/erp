@@ -177,7 +177,10 @@ export async function api(path, options = {}) {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Erreur ${res.status}`);
+    const error = new Error(err.error || `Erreur ${res.status}`);
+    if (err.code) error.code = err.code;
+    if (err.existing_count != null) error.existing_count = err.existing_count;
+    throw error;
   }
 
   if (res.headers.get('content-type')?.includes('application/pdf')) {
