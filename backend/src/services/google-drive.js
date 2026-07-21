@@ -30,6 +30,7 @@ export function formatFile(f) {
   if (thumbnailLink) {
     thumbnailLink = thumbnailLink.replace(/=s\d+/, '=s800');
   }
+  const meta = f.imageMediaMetadata || {};
   return {
     id: f.id,
     name: f.name,
@@ -42,6 +43,8 @@ export function formatFile(f) {
     iconLink: f.iconLink,
     thumbnailLink,
     parents: f.parents || [],
+    imageWidth: meta.width ? Number(meta.width) : null,
+    imageHeight: meta.height ? Number(meta.height) : null,
   };
 }
 
@@ -70,16 +73,23 @@ export async function searchFiles(query, pageToken = null) {
   return { files: (data.files || []).map(formatFile), nextPageToken: data.nextPageToken || null };
 }
 
-/** Photos récentes du Drive (pour propositions de posts). */
-export async function listRecentImages({ pageSize = 24, pageToken = null, query = null } = {}) {
+/** Photos récentes du Drive (pour propositions de posts / médiathèque). */
+export async function listRecentImages({
+  pageSize = 24,
+  pageToken = null,
+  query = null,
+  nameOnly = false,
+} = {}) {
   const parts = [`mimeType contains 'image/'`, 'trashed=false'];
   if (query) {
     const safe = String(query).replace(/'/g, "\\'");
-    parts.push(`(name contains '${safe}' or fullText contains '${safe}')`);
+    // nameOnly : évite fullText/OCR qui remonte les scans de factures
+    if (nameOnly) parts.push(`name contains '${safe}'`);
+    else parts.push(`(name contains '${safe}' or fullText contains '${safe}')`);
   }
   const params = new URLSearchParams({
     q: parts.join(' and '),
-    fields: FIELDS,
+    fields: 'files(id,name,mimeType,modifiedTime,size,webViewLink,webContentLink,iconLink,thumbnailLink,parents,imageMediaMetadata(width,height)),nextPageToken',
     pageSize: String(Math.min(Number(pageSize) || 24, 50)),
     orderBy: 'modifiedTime desc',
   });

@@ -6,6 +6,7 @@ import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
 import { api, formatMoney, formatDate, EXPENSE_CATEGORIES, resolveUploadUrl } from '../../lib/api';
 import ReceiptScanner from '../../components/ReceiptScanner';
+import FinanceSyncPanel from '../../components/FinanceSyncPanel';
 
 const CATEGORY_LABELS = {
   materiaux: 'Matériaux', outils: 'Outils', transport: 'Transport', atelier: 'Atelier', admin: 'Admin',
@@ -72,6 +73,7 @@ export default function ExpensesPage() {
   return (
     <AuthGuard>
       <AppShell title="Dépenses" subtitle={`${expenses.length} entrée${expenses.length > 1 ? 's' : ''} · total ${formatMoney(total)}`}>
+        <FinanceSyncPanel year={new Date().getFullYear()} onDone={load} />
         <ReceiptScanner onChange={load} />
 
         <div className="flex flex-wrap justify-between items-center gap-3 mb-6">

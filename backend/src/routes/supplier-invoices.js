@@ -50,9 +50,11 @@ router.get('/suppliers', (_req, res) => {
   res.json(SUPPLIERS.filter(s => s.id !== 'other'));
 });
 
-router.post('/scan', async (_req, res) => {
+router.post('/scan', async (req, res) => {
   try {
-    const result = await scanInboxForSupplierInvoices();
+    const year = req.body?.year || req.query?.year || null;
+    const max = Number(req.body?.max || req.query?.max) || 40;
+    const result = await scanInboxForSupplierInvoices({ max, year });
     const { rows } = await pool.query(
       `${enrichQuery()} WHERE s.status = 'pending' ORDER BY s.created_at DESC`
     );
