@@ -38,13 +38,14 @@ import uiRoutes from './routes/ui.js';
 import cursorAgentRoutes from './routes/cursor-agent.js';
 import manualRoutes from './routes/manual.js';
 import atelierHabitsRoutes from './routes/atelier-habits.js';
-import integrationsRoutes, { handleGoogleCallback } from './routes/integrations.js';
+import integrationsRoutes, { handleGoogleCallback, handleMetaCallback, handlePinterestCallback } from './routes/integrations.js';
 import googleDriveRoutes from './routes/google-drive.js';
 import googleGmailRoutes from './routes/google-gmail.js';
 import emailThreadsRoutes from './routes/email-threads.js';
 import deployRoutes from './routes/deploy.js';
 import timeOffRoutes from './routes/time-off.js';
 import timeEntriesRoutes from './routes/time-entries.js';
+import financeSyncRoutes from './routes/finance-sync.js';
 import saunaCloudRoutes from './routes/sauna-cloud.js';
 import cuttingPlansRoutes from './routes/cutting-plans.js';
 import marketplaceRoutes from './routes/marketplace.js';
@@ -100,8 +101,10 @@ app.use('/uploads', uploadAuth, express.static(path.join(__dirname, '../uploads'
 
 app.use('/api/auth', authRoutes);
 
-// OAuth Google — callback public (sans JWT)
+// OAuth Google / Meta / Pinterest — callbacks publics (sans JWT)
 app.get('/api/integrations/google/callback', handleGoogleCallback);
+app.get('/api/integrations/meta/callback', handleMetaCallback);
+app.get('/api/integrations/pinterest/callback', handlePinterestCallback);
 
 const protectedRouter = express.Router();
 protectedRouter.use(authMiddleware);
@@ -126,6 +129,7 @@ protectedRouter.use('/employees', employeesRoutes);
 protectedRouter.use('/shifts', shiftsRoutes);
 protectedRouter.use('/time-off', timeOffRoutes);
 protectedRouter.use('/time-entries', timeEntriesRoutes);
+protectedRouter.use('/finance-sync', financeSyncRoutes);
 protectedRouter.use('/analytics', analyticsRoutes);
 protectedRouter.use('/integrations', integrationsRoutes);
 protectedRouter.use('/drive', googleDriveRoutes);

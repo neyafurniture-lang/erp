@@ -50,16 +50,20 @@ export default function MarketplacePage() {
   const [showForm, setShowForm] = useState(true);
   const [form, setForm] = useState(emptyForm);
   const [filter, setFilter] = useState('all');
+  const [year, setYear] = useState(new Date().getFullYear());
   const [err, setErr] = useState('');
   const [ok, setOk] = useState('');
   const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   const load = useCallback(async () => {
     setErr('');
     try {
+      const from = `${year}-01-01`;
+      const to = `${year}-12-31`;
       const [list, sum] = await Promise.all([
-        api('/marketplace'),
-        api('/marketplace/summary'),
+        api(`/marketplace?from=${from}&to=${to}`),
+        api(`/marketplace/summary?from=${from}&to=${to}`),
       ]);
       setSales(Array.isArray(list) ? list : []);
       setSummary(sum);
@@ -67,7 +71,7 @@ export default function MarketplacePage() {
       setErr(e.message || 'Impossible de charger les ventes');
       setSales([]);
     }
-  }, []);
+  }, [year]);
 
   useEffect(() => {
     load();
@@ -133,8 +137,8 @@ export default function MarketplacePage() {
   return (
     <AuthGuard>
       <AppShell
-        title="Marketplace"
-        subtitle="Noter une vente → facture payée pour la compta / Finance"
+        title="Ventes marketplace"
+        subtitle="Etsy, Facebook, Kijiji, site… — noter une vente et l’inscrire en compta"
         wide
       >
         {err && (
@@ -182,13 +186,53 @@ export default function MarketplacePage() {
         )}
 
         <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
-          <p className="text-sm text-neya-muted inline-flex items-center gap-1.5">
-            <Store className="h-4 w-4 text-neya-orange" />
-            Chaque vente coche « Inscrire en compta » crée une facture payée (P&amp;L Finance).
-          </p>
-          <button type="button" onClick={() => { setShowForm(v => !v); setOk(''); }} className="btn-primary gap-1.5">
-            <Plus className="h-4 w-4" /> Noter une vente
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="text-xs text-neya-muted flex items-center gap-2">
+              Année
+              <select
+                className="input min-h-[36px] py-1 w-auto"
+                value={year}
+                onChange={e => setYear(Number(e.target.value))}
+              >
+                {[2025, 2026, 2027].map(y => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            </label>
+            <p className="text-sm text-neya-muted inline-flex items-center gap-1.5">
+              <Store className="h-4 w-4 text-neya-orange" />
+              Vente → facture payée (gains Finance).
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={syncing}
+              onClick={async () => {
+                setSyncing(true);
+                setErr('');
+                setOk('');
+                try {
+                  const r = await api('/finance-sync/sync-web-orders-marketplace', {
+                    method: 'POST',
+                    body: JSON.stringify({ year, book: true }),
+                  });
+                  setOk(`Site → ${r.sales_created} ventes · ${r.booked} en compta (${r.orders_found} commandes)`);
+                  await load();
+                } catch (e) {
+                  setErr(e.message);
+                } finally {
+                  setSyncing(false);
+                }
+              }}
+              className="btn-secondary text-sm"
+            >
+              {syncing ? 'Import…' : 'Importer commandes site'}
+            </button>
+            <button type="button" onClick={() => { setShowForm(v => !v); setOk(''); }} className="btn-primary gap-1.5">
+              <Plus className="h-4 w-4" /> Noter une vente
+            </button>
+          </div>
         </div>
 
         {showForm && (

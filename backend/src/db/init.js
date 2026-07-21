@@ -104,6 +104,8 @@ export async function initDb() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS drive_access JSONB NOT NULL DEFAULT '[]'`);
   await pool.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS drive_folder_id TEXT');
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS employee_id INT REFERENCES employees(id) ON DELETE SET NULL');
+  await pool.query('ALTER TABLE supplier_invoice_emails ADD COLUMN IF NOT EXISTS received_at TIMESTAMPTZ');
+  await pool.query('ALTER TABLE supplier_invoice_emails ADD COLUMN IF NOT EXISTS suggested_amount NUMERIC(12,2)');
   await pool.query(`
     CREATE TABLE IF NOT EXISTS time_entries (
       id SERIAL PRIMARY KEY,
