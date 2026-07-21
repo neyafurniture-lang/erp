@@ -3,6 +3,7 @@ import pool from '../db/pool.js';
 import { syncAdminTasksFromModules, ADMIN_CATEGORIES, seedPriorityTasks } from '../services/admin-task-sync.js';
 import {
   scanMailInvoicesToAdminTasks,
+  cleanupClientMailPayableTodos,
   backfillMailTodoDeepLinks,
 } from '../services/mail-invoice-todos.js';
 import { resolveMailTaskHref } from '../services/mail-deep-link.js';
@@ -13,6 +14,7 @@ const VALID_STATUS = ['todo', 'doing', 'done'];
 
 router.get('/', async (req, res) => {
   try {
+    await cleanupClientMailPayableTodos().catch(() => {});
     await backfillMailTodoDeepLinks().catch(() => {});
     const { category, status } = req.query;
     let query = 'SELECT * FROM admin_tasks WHERE 1=1';

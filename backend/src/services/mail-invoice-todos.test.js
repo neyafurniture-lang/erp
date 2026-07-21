@@ -10,6 +10,8 @@ import {
 } from './mail-invoice-classify.js';
 import { mailMessageHref, resolveMailTaskHref } from './mail-deep-link.js';
 
+const OWN = new Set(['neyafurniture@gmail.com']);
+
 describe('mail-invoice-classify', () => {
   it('détecte une facture reçue', () => {
     assert.equal(
@@ -28,21 +30,67 @@ describe('mail-invoice-classify', () => {
         labelIds: ['SENT'],
         from: 'neyafurniture@gmail.com',
         to: 'client@example.com',
-        ownEmails: new Set(['neyafurniture@gmail.com']),
+        ownEmails: OWN,
       }),
       'a_recevoir'
     );
   });
 
-  it('classe inbox externe en à payer', () => {
+  it('classe employé Olive en à payer', () => {
     assert.equal(
       classifyInvoiceKind({
         labelIds: ['INBOX'],
         from: 'Olive <olive@example.com>',
         to: 'neyafurniture@gmail.com',
-        ownEmails: new Set(['neyafurniture@gmail.com']),
+        subject: 'Facture juillet',
+        ownEmails: OWN,
+        people: [{ name: 'Olive', email: 'olive@example.com', type: 'employee' }],
       }),
       'a_payer'
+    );
+  });
+
+  it('ne classe PAS une facture client (Delfine) en à payer', () => {
+    assert.equal(
+      classifyInvoiceKind({
+        labelIds: ['INBOX'],
+        from: 'Delfine <delfine@client.test>',
+        to: 'neyafurniture@gmail.com',
+        subject: 'DELFINE INVOICE',
+        snippet: 'Please find attached invoice',
+        ownEmails: OWN,
+        people: [{ name: 'Delfine', email: 'delfine@client.test', type: 'client' }],
+      }),
+      null
+    );
+  });
+
+  it('classe Home Depot en à payer', () => {
+    assert.equal(
+      classifyInvoiceKind({
+        labelIds: ['INBOX'],
+        from: 'Home Depot <orders@homedepot.ca>',
+        to: 'neyafurniture@gmail.com',
+        subject: 'Your Home Depot receipt',
+        snippet: 'Order confirmation',
+        ownEmails: OWN,
+        people: [],
+      }),
+      'a_payer'
+    );
+  });
+
+  it('ignore un mail invoice ambigu sans fournisseur ni employé', () => {
+    assert.equal(
+      classifyInvoiceKind({
+        labelIds: ['INBOX'],
+        from: 'inconnu@example.com',
+        to: 'neyafurniture@gmail.com',
+        subject: 'Invoice #12',
+        ownEmails: OWN,
+        people: [],
+      }),
+      null
     );
   });
 

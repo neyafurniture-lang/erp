@@ -11,6 +11,7 @@ import {
   classifyInvoiceKind,
   buildInvoiceTaskTitle,
   guessPersonFromMessage,
+  matchCounterparty,
   norm,
 } from './mail-invoice-classify.js';
 import { mailMessageHref, resolveMailTaskHref } from './mail-deep-link.js';
@@ -89,7 +90,51 @@ export async function backfillMailTodoDeepLinks() {
 }
 
 /**
+ * Ferme les todos « À payer » créées à tort pour des factures clients
+ * (ex. DELFINE INVOICE = argent à recevoir, pas à payer).
+ */
+export async function cleanupClientMailPayableTodos(people = null) {
+  const directory = people || await loadPeopleDirectory();
+  const clients = directory.filter(p => p.type === 'client');
+  if (!clients.length) return 0;
+
+  const { rows } = await pool.query(`
+    SELECT id, title, notes, source_key
+    FROM admin_tasks
+    WHERE status != 'done'
+      AND (
+        source_key LIKE 'mail_payable_%'
+        OR (category = 'a_payer' AND title ILIKE 'À payer — facture%')
+      )
+  `);
+
+  let closed = 0;
+  for (const t of rows) {
+    const hit = matchCounterparty({
+      haystack: `${t.title || ''} ${t.notes || ''}`,
+      people: clients,
+      includeAliases: false,
+    });
+    if (!hit) continue;
+    await pool.query(
+      `UPDATE admin_tasks
+       SET status = 'done',
+           notes = CASE
+             WHEN notes IS NULL OR BTRIM(notes) = '' THEN $2
+             ELSE notes || E'\\n' || $2
+           END
+       WHERE id = $1`,
+      [t.id, `[auto] Fermé : facture client (${hit}) — à recevoir, pas à payer.`]
+    );
+    closed += 1;
+  }
+  return closed;
+}
+
+/**
  * Crée/met à jour une todo admin pour un message facture Gmail.
+ * Ne crée PAS de todo pour les factures clients (argent à recevoir) :
+ * elles sont suivies via les factures ERP / revue projets.
  */
 export async function upsertAdminTaskFromMailMessage(msg, {
   people = null,
@@ -104,8 +149,13 @@ export async function upsertAdminTaskFromMailMessage(msg, {
     labelIds: msg.labelIds,
     from: msg.from,
     to: msg.to,
+    subject: msg.subject,
+    snippet: msg.snippet,
     ownEmails: own,
+    people: directory,
   });
+  if (!kind) return null;
+
   const person = guessPersonFromMessage(msg, kind, directory);
   const title = buildInvoiceTaskTitle(kind, person);
   const source_key = kind === 'a_recevoir'
@@ -126,7 +176,7 @@ export async function upsertAdminTaskFromMailMessage(msg, {
     link_href: mailMessageHref(msg.id),
     due_date: messageDueDate(msg),
     notes,
-    priority_tier: 'p1',
+    priority_tier: kind === 'a_payer' ? 'p1' : 'p2',
   });
 
   return {
@@ -188,6 +238,13 @@ export async function scanMailInvoicesToAdminTasks({ days = 30, max = 50 } = {})
   const ownEmails = await getOwnEmails();
   const people = await loadPeopleDirectory();
 
+  let cleaned = 0;
+  try {
+    cleaned = await cleanupClientMailPayableTodos(people);
+  } catch (err) {
+    errors.push({ stage: 'cleanup_client_payables', error: err.message });
+  }
+
   const q = `newer_than:${Math.max(1, Number(days) || 30)}d (facture OR invoice OR facturation OR receipt OR reçu OR "à payer")`;
   let messages = [];
   try {
@@ -223,6 +280,7 @@ export async function scanMailInvoicesToAdminTasks({ days = 30, max = 50 } = {})
     scanned: messages.length,
     classified: classified.length,
     created: created.length,
+    cleaned_client_payables: cleaned,
     payable,
     receivable,
     tasks: classified,
