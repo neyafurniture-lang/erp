@@ -31,23 +31,48 @@ function getHeader(headers, name) {
   return h?.value || '';
 }
 
-function htmlToReadableText(html) {
-  return String(html || '')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|tr|li|h[1-6])>/gi, '\n')
-    .replace(/<[^>]+>/g, ' ')
+function decodeHtmlEntities(raw) {
+  return String(raw || '')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
     .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .replace(/[ \t]{2,}/g, ' ')
-    .trim();
+    .replace(/&#0*39;/gi, "'")
+    .replace(/&#x0*27;/gi, "'")
+    .replace(/&#(\d+);/g, (_, n) => {
+      const code = Number(n);
+      if (!Number.isFinite(code) || code < 0 || code > 0x10ffff) return _;
+      try {
+        return String.fromCodePoint(code);
+      } catch {
+        return _;
+      }
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => {
+      const code = parseInt(h, 16);
+      if (!Number.isFinite(code) || code < 0 || code > 0x10ffff) return _;
+      try {
+        return String.fromCodePoint(code);
+      } catch {
+        return _;
+      }
+    });
+}
+
+function htmlToReadableText(html) {
+  return decodeHtmlEntities(
+    String(html || '')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(p|div|tr|li|h[1-6])>/gi, '\n')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .replace(/[ \t]{2,}/g, ' ')
+      .trim()
+  );
 }
 
 /** Extrait text/plain + text/html (multipart nested inclus). */
@@ -134,7 +159,7 @@ export function formatMessage(msg) {
     to: getHeader(headers, 'To'),
     cc: getHeader(headers, 'Cc'),
     date: getHeader(headers, 'Date'),
-    snippet: msg.snippet,
+    snippet: decodeHtmlEntities(msg.snippet),
     labelIds: msg.labelIds || [],
     body: text,
     bodyHtml: html || null,
@@ -310,7 +335,7 @@ export async function summarizeForAi(messageId) {
     subject: msg.subject,
     from: msg.from,
     date: msg.date,
-    snippet: msg.snippet,
+    snippet: decodeHtmlEntities(msg.snippet),
     bodyPreview: msg.body?.slice(0, 2000),
   };
 }
