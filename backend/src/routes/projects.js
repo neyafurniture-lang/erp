@@ -47,6 +47,175 @@ router.get('/', async (req, res) => {
   }
 });
 
+/**
+ * Revue annuelle : projets + totaux factures liées, pour marquer terminé et voir ce qui est rentré.
+ * Doit rester avant GET /:id.
+ */
+router.get('/year-review', async (req, res) => {
+  try {
+    const year = Number(req.query.year) || new Date().getFullYear();
+    if (!Number.isFinite(year) || year < 2000 || year > 2100) {
+      return res.status(400).json({ error: 'Année invalide' });
+    }
+
+    const { rows: projects } = await pool.query(
+      `
+      SELECT p.id, p.name, p.status, p.deadline, p.created_at, p.client_id,
+             c.name AS client_name,
+             COALESCE(inv.invoice_count, 0)::int AS invoice_count,
+             COALESCE(inv.invoiced_total, 0)::float AS invoiced_total,
+             COALESCE(inv.collected_total, 0)::float AS collected_total,
+             COALESCE(inv.unpaid_total, 0)::float AS unpaid_total
+      FROM projects p
+      LEFT JOIN clients c ON c.id = p.client_id
+      LEFT JOIN LATERAL (
+        SELECT
+          COUNT(*)::int AS invoice_count,
+          COALESCE(SUM(i.total), 0) AS invoiced_total,
+          COALESCE(SUM(COALESCE(i.amount_paid, 0)), 0) AS collected_total,
+          COALESCE(SUM(GREATEST(COALESCE(i.total, 0) - COALESCE(i.amount_paid, 0), 0)), 0) AS unpaid_total
+        FROM invoices i
+        WHERE i.project_id = p.id
+          AND COALESCE(i.status, '') NOT IN ('draft', 'cancelled', 'void')
+          AND EXTRACT(YEAR FROM i.created_at) = $1
+      ) inv ON true
+      WHERE EXTRACT(YEAR FROM p.created_at) = $1
+         OR (p.deadline IS NOT NULL AND EXTRACT(YEAR FROM p.deadline) = $1)
+         OR EXISTS (
+           SELECT 1 FROM invoices i
+           WHERE i.project_id = p.id
+             AND EXTRACT(YEAR FROM i.created_at) = $1
+         )
+      ORDER BY
+        CASE WHEN p.status = 'done' THEN 1 ELSE 0 END,
+        inv.invoiced_total DESC NULLS LAST,
+        p.name ASC
+      `,
+      [year]
+    );
+
+    const { rows: companyRows } = await pool.query(
+      `
+      SELECT
+        COUNT(*)::int AS invoice_count,
+        COALESCE(SUM(total), 0)::float AS invoiced_total,
+        COALESCE(SUM(COALESCE(amount_paid, 0)), 0)::float AS collected_total,
+        COUNT(*) FILTER (WHERE project_id IS NULL)::int AS orphan_count
+      FROM invoices
+      WHERE COALESCE(status, '') NOT IN ('draft', 'cancelled', 'void')
+        AND EXTRACT(YEAR FROM created_at) = $1
+      `,
+      [year]
+    );
+
+    const { rows: orphans } = await pool.query(
+      `
+      SELECT i.id, i.invoice_number, i.total, i.amount_paid, i.status, i.client_id,
+             c.name AS client_name,
+             (
+               SELECT COUNT(*)::int FROM projects p
+               WHERE p.client_id = i.client_id
+                 AND (
+                   EXTRACT(YEAR FROM p.created_at) = $1
+                   OR (p.deadline IS NOT NULL AND EXTRACT(YEAR FROM p.deadline) = $1)
+                   OR p.status != 'done'
+                 )
+             ) AS candidate_projects
+      FROM invoices i
+      LEFT JOIN clients c ON c.id = i.client_id
+      WHERE i.project_id IS NULL
+        AND COALESCE(i.status, '') NOT IN ('draft', 'cancelled', 'void')
+        AND EXTRACT(YEAR FROM i.created_at) = $1
+      ORDER BY i.created_at DESC
+      LIMIT 80
+      `,
+      [year]
+    );
+
+    const summary = {
+      year,
+      projects_count: projects.length,
+      active_count: projects.filter(p => p.status !== 'done').length,
+      done_count: projects.filter(p => p.status === 'done').length,
+      with_invoice: projects.filter(p => Number(p.invoice_count) > 0).length,
+      without_invoice: projects.filter(p => !Number(p.invoice_count)).length,
+      invoiced_total: projects.reduce((s, p) => s + Number(p.invoiced_total || 0), 0),
+      collected_total: projects.reduce((s, p) => s + Number(p.collected_total || 0), 0),
+      unpaid_total: projects.reduce((s, p) => s + Number(p.unpaid_total || 0), 0),
+    };
+
+    res.json({
+      summary,
+      company: companyRows[0] || {
+        invoice_count: 0,
+        invoiced_total: 0,
+        collected_total: 0,
+        orphan_count: 0,
+      },
+      projects,
+      orphan_invoices: orphans,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Lie les factures sans projet au projet unique du même client (année donnée).
+ */
+router.post('/year-review/link-orphans', async (req, res) => {
+  try {
+    const year = Number(req.body?.year) || new Date().getFullYear();
+    if (!Number.isFinite(year) || year < 2000 || year > 2100) {
+      return res.status(400).json({ error: 'Année invalide' });
+    }
+
+    const { rows: orphans } = await pool.query(
+      `
+      SELECT i.id, i.client_id
+      FROM invoices i
+      WHERE i.project_id IS NULL
+        AND i.client_id IS NOT NULL
+        AND COALESCE(i.status, '') NOT IN ('draft', 'cancelled', 'void')
+        AND EXTRACT(YEAR FROM i.created_at) = $1
+      `,
+      [year]
+    );
+
+    let linked = 0;
+    const details = [];
+    for (const inv of orphans) {
+      const { rows: candidates } = await pool.query(
+        `
+        SELECT id, name FROM projects
+        WHERE client_id = $1
+          AND (
+            EXTRACT(YEAR FROM created_at) = $2
+            OR (deadline IS NOT NULL AND EXTRACT(YEAR FROM deadline) = $2)
+            OR status != 'done'
+          )
+        ORDER BY
+          CASE WHEN status != 'done' THEN 0 ELSE 1 END,
+          created_at DESC
+        LIMIT 3
+        `,
+        [inv.client_id, year]
+      );
+      if (candidates.length !== 1) continue;
+      await pool.query('UPDATE invoices SET project_id = $1 WHERE id = $2 AND project_id IS NULL', [
+        candidates[0].id,
+        inv.id,
+      ]);
+      linked += 1;
+      details.push({ invoice_id: inv.id, project_id: candidates[0].id, project_name: candidates[0].name });
+    }
+
+    res.json({ ok: true, year, linked, details });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/:id', async (req, res) => {
   try {
     const { rows } = await pool.query(`

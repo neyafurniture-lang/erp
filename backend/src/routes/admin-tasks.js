@@ -1,7 +1,10 @@
 import { Router } from 'express';
 import pool from '../db/pool.js';
 import { syncAdminTasksFromModules, ADMIN_CATEGORIES, seedPriorityTasks } from '../services/admin-task-sync.js';
-import { scanMailInvoicesToAdminTasks } from '../services/mail-invoice-todos.js';
+import {
+  scanMailInvoicesToAdminTasks,
+  cleanupClientMailPayableTodos,
+} from '../services/mail-invoice-todos.js';
 
 const router = Router();
 
@@ -9,6 +12,7 @@ const VALID_STATUS = ['todo', 'doing', 'done'];
 
 router.get('/', async (req, res) => {
   try {
+    await cleanupClientMailPayableTodos().catch(() => {});
     const { category, status } = req.query;
     let query = 'SELECT * FROM admin_tasks WHERE 1=1';
     const params = [];

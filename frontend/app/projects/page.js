@@ -118,6 +118,9 @@ export default function ProjectsPage() {
             <button type="button" onClick={() => setShowForm(!showForm)} className="btn-primary gap-1.5 shrink-0">
               <Plus className="h-4 w-4" /> Nouveau projet
             </button>
+            <Link href="/projects/revue" className="btn-secondary text-sm shrink-0">
+              Revue {new Date().getFullYear()}
+            </Link>
           </div>
 
           {showForm && (
