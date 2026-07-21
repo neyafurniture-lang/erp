@@ -45,6 +45,7 @@ const MENU_GROUPS = [
       { href: '/invoices', label: 'Devis & factures', permission: 'invoices' },
       { href: '/expenses', label: 'Dépenses', permission: 'expenses' },
       { href: '/finance', label: 'Finance', permission: 'finance' },
+      { href: '/paie', label: 'Paie', permission: 'payroll' },
     ],
   },
   {
@@ -85,6 +86,7 @@ export default function MobileNav() {
   const canSee = (permission, href) => {
     if (permission === 'finance') return canAccessPath(user, href || '/finance');
     if (permission === 'hours') return canAccessHours(user);
+    if (permission === 'payroll') return canAccessPath(user, href || '/paie');
     return hasPermission(user, permission);
   };
   const tabs = TABS.filter(t => canSee(t.permission, t.href));

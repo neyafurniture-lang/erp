@@ -11,6 +11,7 @@ export const PERMISSION_AREAS = {
   mail: { label: 'Gmail', group: 'Intégrations' },
   invoices: { label: 'Devis & factures', group: 'Finance' },
   finance: { label: 'Finance & bénéfices', group: 'Finance' },
+  payroll: { label: 'Paie', group: 'Finance' },
   expenses: { label: 'Dépenses', group: 'Opérations' },
   clients: { label: 'Clients', group: 'Commercial' },
   standards: { label: 'Standards', group: 'Commercial' },
@@ -54,6 +55,7 @@ const PATH_MAP = [
   ['/mail', 'mail'],
   ['/invoices', 'invoices'],
   ['/finance', 'finance'],
+  ['/paie', 'payroll'],
   ['/expenses', 'expenses'],
   ['/clients', 'clients'],
   ['/standards', 'standards'],
@@ -82,6 +84,11 @@ export function canAccessPath(user, pathname) {
   }
   if (key === 'hours') {
     return canAccessHours(user);
+  }
+  if (key === 'payroll') {
+    return hasPermission(user, 'payroll')
+      || hasPermission(user, 'finance')
+      || hasPermission(user, 'team');
   }
   return hasPermission(user, key);
 }

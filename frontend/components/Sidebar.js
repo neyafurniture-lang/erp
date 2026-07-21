@@ -24,6 +24,7 @@ import {
   Map,
   Globe,
   TrendingUp,
+  Banknote,
   Store,
   Share2,
   LogOut,
@@ -53,6 +54,7 @@ const NAV = [
   { href: '/invoices', label: 'Devis & factures', section: 'facturation', permission: 'invoices', icon: FileText },
   { href: '/expenses', label: 'Dépenses', section: 'facturation', permission: 'expenses', icon: Wallet },
   { href: '/finance', label: 'Finance', section: 'facturation', permission: 'finance', icon: TrendingUp },
+  { href: '/paie', label: 'Paie', section: 'facturation', permission: 'payroll', icon: Banknote },
   { href: '/standards', label: 'Standards', section: 'crm', permission: 'standards', icon: BookOpen },
   { href: '/web', label: 'Site web', section: 'crm', permission: 'web', icon: Globe },
   { href: '/marketplace', label: 'Marketplace', section: 'crm', permission: 'marketplace', icon: Store },
@@ -87,6 +89,7 @@ export default function Sidebar() {
   const visibleNav = NAV.filter(n => {
     if (n.permission === 'finance') return canAccessPath(user, '/finance');
     if (n.permission === 'hours') return canAccessHours(user);
+    if (n.permission === 'payroll') return canAccessPath(user, '/paie');
     return hasPermission(user, n.permission);
   });
   const showSettings = hasPermission(user, 'settings');
