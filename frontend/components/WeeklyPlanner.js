@@ -207,6 +207,40 @@ function ShiftEventModal({
     }
   }
 
+  async function markDone() {
+    setSaving(true);
+    setErr('');
+    try {
+      await api(`/shifts/${form.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          employee_id: Number(form.employee_id),
+          project_id: form.project_id ? Number(form.project_id) : null,
+          start_at: fromDatetimeLocal(form.start_at),
+          end_at: fromDatetimeLocal(form.end_at),
+          notes: form.notes || null,
+        }),
+      });
+      await api('/time-entries', {
+        method: 'POST',
+        body: JSON.stringify({
+          shift_id: Number(form.id),
+          employee_id: Number(form.employee_id),
+          project_id: form.project_id ? Number(form.project_id) : null,
+          started_at: fromDatetimeLocal(form.start_at),
+          ended_at: fromDatetimeLocal(form.end_at),
+          notes: form.notes || null,
+        }),
+      });
+      onSaved();
+      onClose();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function remove() {
     if (!confirm('Supprimer ce shift ?')) return;
     setSaving(true);
@@ -291,6 +325,15 @@ function ShiftEventModal({
         <div className="sticky bottom-0 bg-white border-t border-neya-border px-5 py-4 flex flex-wrap gap-2">
           <button type="button" onClick={save} disabled={saving} className="btn-primary flex-1 sm:flex-none">
             {saving ? 'Enregistrement…' : 'Enregistrer'}
+          </button>
+          <button
+            type="button"
+            onClick={markDone}
+            disabled={saving}
+            className="btn-secondary text-sm border-neya-orange/30 text-neya-orange hover:bg-orange-50"
+            title="Inscrire ces heures comme effectuées"
+          >
+            Marquer effectué
           </button>
           <button type="button" onClick={remove} disabled={saving} className="btn-secondary text-sm text-red-600 border-red-200 hover:bg-red-50">
             Supprimer

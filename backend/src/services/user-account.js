@@ -22,7 +22,19 @@ export function canAccessCalendar(user) {
   return isAdmin(user) || hasPermission(user, 'calendar') || hasPermission(user, 'team');
 }
 
+/** Page Mes heures : profil employé lié, ou gestion équipe / calendrier. */
+export function canAccessHours(user) {
+  if (!user) return false;
+  if (isAdmin(user) || hasPermission(user, 'team') || hasPermission(user, 'calendar')) return true;
+  return Boolean(user.employee_id);
+}
+
 export function canEditTimeOff(user, record) {
+  if (isAdmin(user) || hasPermission(user, 'team')) return true;
+  return user.employee_id && Number(user.employee_id) === Number(record.employee_id);
+}
+
+export function canEditTimeEntry(user, record) {
   if (isAdmin(user) || hasPermission(user, 'team')) return true;
   return user.employee_id && Number(user.employee_id) === Number(record.employee_id);
 }
