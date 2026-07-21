@@ -878,20 +878,28 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
       return listTomorrow();
 
     case 'create_expense': {
-      const amount = extractAmount(message) || 0;
+      const amount = extractAmount(message) || Number(params.amount) || 0;
       let category = 'materiaux';
-      if (/outil/i.test(message)) category = 'outils';
-      else if (/transport/i.test(message)) category = 'transport';
-      else if (/atelier/i.test(message)) category = 'atelier';
-      else if (/admin/i.test(message)) category = 'admin';
+      if (/outil/i.test(message) || params.category === 'outils') category = 'outils';
+      else if (/transport/i.test(message) || params.category === 'transport') category = 'transport';
+      else if (/atelier/i.test(message) || params.category === 'atelier') category = 'atelier';
+      else if (/admin/i.test(message) || params.category === 'admin') category = 'admin';
+      else if (params.category) category = String(params.category);
       const desc = extractAfterKeyword(message, ['dépense', 'acheté', 'payé']) || message;
+      const { normalizePurchaseDate, extractDateFromText, todayISODate } = await import('./expense-date.js');
+      const expenseDate = normalizePurchaseDate(params.date)
+        || extractDateFromText(message)
+        || todayISODate();
       const { rows } = await pool.query(
-        `INSERT INTO expenses (amount, category, description, project_id) VALUES ($1,$2,$3,$4) RETURNING *`,
-        [amount, category, desc.slice(0, 300), projectId]
+        `INSERT INTO expenses (amount, category, description, project_id, date) VALUES ($1,$2,$3,$4,$5::date) RETURNING *`,
+        [amount, category, desc.slice(0, 300), projectId, expenseDate]
       );
       actions.push({ type: 'create_expense', data: rows[0] });
       const linked = projectId ? ` (projet « ${pageContext.label} »)` : '';
-      return { reply: `Dépense enregistrée${linked} : ${amount.toFixed(2)} $ (${category})`, actions };
+      return {
+        reply: `Dépense enregistrée${linked} : ${amount.toFixed(2)} $ (${category}) · date ${expenseDate}`,
+        actions,
+      };
     }
 
     case 'list_today': {

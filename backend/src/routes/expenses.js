@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import pool from '../db/pool.js';
+import { normalizePurchaseDate, todayISODate } from '../services/expense-date.js';
 
 const RECEIPT_EXT = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.pdf']);
 
@@ -37,7 +38,7 @@ const router = Router();
 
 router.get('/', async (req, res) => {
   try {
-    const { project_id, category } = req.query;
+    const { project_id, category, year, month } = req.query;
     let query = `
       SELECT e.*, p.name as project_name
       FROM expenses e
@@ -47,7 +48,15 @@ router.get('/', async (req, res) => {
     const params = [];
     if (project_id) { params.push(project_id); query += ` AND e.project_id = $${params.length}`; }
     if (category) { params.push(category); query += ` AND e.category = $${params.length}`; }
-    query += ' ORDER BY e.date DESC';
+    if (year) {
+      params.push(Number(year));
+      query += ` AND EXTRACT(YEAR FROM e.date) = $${params.length}`;
+    }
+    if (month) {
+      params.push(Number(month));
+      query += ` AND EXTRACT(MONTH FROM e.date) = $${params.length}`;
+    }
+    query += ' ORDER BY e.date DESC, e.id DESC';
     const { rows } = await pool.query(query, params);
     res.json(rows);
   } catch (err) {
@@ -59,10 +68,11 @@ router.post('/', upload.single('receipt'), async (req, res) => {
   try {
     const { amount, category, description, project_id, date } = req.body;
     const receipt_url = req.file ? `/uploads/${req.file.filename}` : null;
+    const expenseDate = normalizePurchaseDate(date) || todayISODate();
     const { rows } = await pool.query(
       `INSERT INTO expenses (amount, category, description, project_id, receipt_url, date)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [amount, category || 'materiaux', description, project_id || null, receipt_url, date || new Date()]
+       VALUES ($1,$2,$3,$4,$5,$6::date) RETURNING *`,
+      [amount, category || 'materiaux', description, project_id || null, receipt_url, expenseDate]
     );
     res.status(201).json(rows[0]);
   } catch (err) {

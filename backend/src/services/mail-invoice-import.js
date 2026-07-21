@@ -154,10 +154,22 @@ export async function importAttachmentFromEmail(message, pageContext = null, par
       `— mail ${full.from}`,
     ].filter(Boolean).join(' ').slice(0, 300);
 
+    const { normalizePurchaseDate, extractDateFromText, todayISODate } = await import('./expense-date.js');
+    const expenseDate = normalizePurchaseDate(study.date)
+      || extractDateFromText(`${study.summary || ''} ${full.subject || ''} ${full.snippet || ''}`)
+      || todayISODate();
+
     const { rows } = await pool.query(
-      `INSERT INTO expenses (amount, category, description, receipt_url, project_id)
-       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [amount, category, desc, savedAttachments[0]?.url, projectId]
+      `INSERT INTO expenses (amount, category, description, receipt_url, project_id, date)
+       VALUES ($1,$2,$3,$4,$5,$6::date) RETURNING *`,
+      [
+        amount,
+        category,
+        desc,
+        savedAttachments[0]?.url,
+        projectId,
+        expenseDate,
+      ]
     );
     actions.push({ type: 'create_expense', data: rows[0] });
     lines.push(`\n✓ Dépense enregistrée : ${Number(amount).toFixed(2)} $${projectId ? ` (projet #${projectId})` : ''}`);

@@ -728,9 +728,15 @@ async function maybeCreateExpenseFromAttachments(message, attachments, pageConte
     study?.vendor ? `(${study.vendor})` : '',
   ].filter(Boolean).join(' ').slice(0, 300);
 
+  const { normalizePurchaseDate, extractDateFromText, todayISODate } = await import('./expense-date.js');
+  const expenseDate = normalizePurchaseDate(study?.date)
+    || extractDateFromText(`${study?.summary || ''} ${(study?.key_facts || []).join(' ')} ${message}`)
+    || todayISODate();
+
   const { rows } = await pool.query(
-    `INSERT INTO expenses (amount, category, description, receipt_url, project_id) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-    [amount, category, description, receipt?.url || attachments[0]?.url, projectId]
+    `INSERT INTO expenses (amount, category, description, receipt_url, project_id, date)
+     VALUES ($1,$2,$3,$4,$5,$6::date) RETURNING *`,
+    [amount, category, description, receipt?.url || attachments[0]?.url, projectId, expenseDate]
   );
   return { type: 'create_expense', data: rows[0] };
 }

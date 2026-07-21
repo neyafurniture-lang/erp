@@ -20,7 +20,9 @@ function ConfirmReceiptModal({ item, projects, onClose, onDone }) {
   const [category, setCategory] = useState(item.category || 'materiaux');
   const [description, setDescription] = useState(item.description || '');
   const [notes, setNotes] = useState('');
-  const [purchaseDate, setPurchaseDate] = useState(item.purchase_date?.slice?.(0, 10) || '');
+  const [purchaseDate, setPurchaseDate] = useState(
+    (item.purchase_date && String(item.purchase_date).slice(0, 10)) || ''
+  );
   const [uploadDrive, setUploadDrive] = useState(true);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
@@ -124,7 +126,7 @@ function ConfirmReceiptModal({ item, projects, onClose, onDone }) {
             Classer le ticket
           </h3>
           <p className="text-sm text-neya-muted mt-1">
-            Vérifiez le montant, liez un projet, ajoutez des détails.
+            Vérifiez le montant et la date du ticket, liez un projet.
             {item.confidence != null && (
               <span className="text-xs ml-1">· IA {Math.round(Number(item.confidence) * 100)}%</span>
             )}
@@ -178,10 +180,21 @@ function ConfirmReceiptModal({ item, projects, onClose, onDone }) {
                 <input type="number" step="0.01" min="0" className="input" value={amount} onChange={e => setAmount(e.target.value)} required />
               </div>
               <div>
-                <label className="label">Date d&apos;achat</label>
-                <input type="date" className="input" value={purchaseDate} onChange={e => setPurchaseDate(e.target.value)} />
+                <label className="label">Date du ticket</label>
+                <input
+                  type="date"
+                  className={`input ${!purchaseDate ? 'border-amber-400 ring-1 ring-amber-200' : ''}`}
+                  value={purchaseDate}
+                  onChange={e => setPurchaseDate(e.target.value)}
+                  required
+                />
               </div>
             </div>
+            {!purchaseDate && (
+              <p className="text-[11px] text-amber-800 bg-amber-50 px-2.5 py-1.5 rounded-lg -mt-2">
+                Date non lue sur le ticket — entrez la date d&apos;achat pour le suivi mensuel des dépenses.
+              </p>
+            )}
 
             <div>
               <label className="label">Catégorie</label>

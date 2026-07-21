@@ -193,7 +193,15 @@ export function formatMoney(n) {
 
 export function formatDate(d) {
   if (!d) return '—';
-  return new Date(d).toLocaleDateString('fr-CA');
+  const s = String(d);
+  // DATE SQL / ISO jour : éviter le décalage UTC (ex. 2026-07-15 → 14 juil. à Montréal)
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) {
+    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).toLocaleDateString('fr-CA');
+  }
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return '—';
+  return dt.toLocaleDateString('fr-CA');
 }
 
 export const TASK_TYPES = [
