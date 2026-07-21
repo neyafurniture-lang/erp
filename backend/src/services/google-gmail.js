@@ -120,10 +120,30 @@ function collectBodyAttachmentRefs(payload, acc = []) {
   return acc;
 }
 
+function filenameFromHeaders(headers) {
+  const cd = getHeader(headers, 'Content-Disposition');
+  if (!cd) return '';
+  const star = cd.match(/filename\*=(?:UTF-8''|utf-8'')([^;\s]+)/i);
+  if (star) {
+    try { return decodeURIComponent(star[1].replace(/"/g, '')).trim(); } catch { /* ignore */ }
+  }
+  const plain = cd.match(/filename="?([^";]+)"?/i);
+  return plain ? plain[1].trim() : '';
+}
+
+function partFilename(part) {
+  return String(part?.filename || '').trim() || filenameFromHeaders(part?.headers);
+}
+
+function isTextMime(mimeType) {
+  const m = String(mimeType || '').toLowerCase();
+  return m === 'text/plain' || m === 'text/html';
+}
+
 /** Fichiers joints (PDF, images, etc.) — pas le corps MIME text. */
 export function extractFileAttachments(payload, acc = []) {
   if (!payload) return acc;
-  const filename = String(payload.filename || '').trim();
+  const filename = partFilename(payload);
   const attachmentId = payload.body?.attachmentId;
   if (filename && attachmentId) {
     acc.push({
@@ -132,18 +152,116 @@ export function extractFileAttachments(payload, acc = []) {
       mimeType: payload.mimeType || 'application/octet-stream',
       size: Number(payload.body?.size) || 0,
     });
+  } else if (filename && payload.body?.data && !isTextMime(payload.mimeType)) {
+    acc.push({
+      id: attachmentId || `inline:${filename}`,
+      filename,
+      mimeType: payload.mimeType || 'application/octet-stream',
+      size: Number(payload.body?.size) || 0,
+      inline: !attachmentId,
+    });
   }
   for (const part of payload.parts || []) extractFileAttachments(part, acc);
   return acc;
 }
 
+function normalizeAttachmentIdCandidates(rawId) {
+  const out = new Set();
+  let s = String(rawId || '').trim();
+  if (!s) return [];
+  out.add(s);
+  for (let i = 0; i < 3; i++) {
+    try {
+      const decoded = decodeURIComponent(s);
+      if (decoded === s) break;
+      out.add(decoded);
+      s = decoded;
+    } catch {
+      break;
+    }
+  }
+  for (const v of [...out]) {
+    out.add(v.replace(/ /g, '+'));
+    out.add(v.replace(/\+/g, ' '));
+  }
+  return [...out].filter(Boolean);
+}
+
+function normalizeFilename(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
 function findAttachmentPart(payload, attachmentId) {
   if (!payload) return null;
-  if (payload.body?.attachmentId === attachmentId) return payload;
+  const want = String(attachmentId || '').trim();
+  if (!want) return null;
+  const partId = String(payload.body?.attachmentId || '').trim();
+  if (partId && partId === want) return payload;
   for (const part of payload.parts || []) {
     const found = findAttachmentPart(part, attachmentId);
     if (found) return found;
   }
+  return null;
+}
+
+function findAttachmentPartByFilename(payload, filename) {
+  if (!payload) return null;
+  const want = normalizeFilename(filename);
+  if (!want) return null;
+  const fn = normalizeFilename(partFilename(payload));
+  const attachmentId = payload.body?.attachmentId;
+  const hasFileBody = attachmentId || (payload.body?.data && !isTextMime(payload.mimeType));
+  if (fn && fn === want && hasFileBody) return payload;
+  for (const part of payload.parts || []) {
+    const found = findAttachmentPartByFilename(part, filename);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** Résout une PJ dans l'arbre MIME (ID, nom de fichier, PJ unique). */
+export function resolveAttachmentPart(payload, { attachmentId, filename } = {}) {
+  const listed = extractFileAttachments(payload);
+  const idCandidates = normalizeAttachmentIdCandidates(attachmentId);
+
+  for (const id of idCandidates) {
+    const part = findAttachmentPart(payload, id);
+    if (part) return { part, attachmentId: String(part.body?.attachmentId || id).trim() };
+  }
+
+  for (const att of listed) {
+    const attIds = normalizeAttachmentIdCandidates(att.id);
+    if (idCandidates.some(c => attIds.includes(c))) {
+      const part = findAttachmentPart(payload, att.id) || findAttachmentPartByFilename(payload, att.filename);
+      if (part) return { part, attachmentId: String(part.body?.attachmentId || att.id).trim() };
+    }
+  }
+
+  const filenameCandidates = [
+    filename,
+    ...idCandidates.filter(id => /\.[a-z0-9]{2,5}$/i.test(id)),
+  ].filter(Boolean);
+
+  for (const fn of filenameCandidates) {
+    const match = listed.find(a => normalizeFilename(a.filename) === normalizeFilename(fn));
+    if (match) {
+      const part = findAttachmentPart(payload, match.id)
+        || findAttachmentPartByFilename(payload, match.filename);
+      if (part) {
+        return { part, attachmentId: String(part.body?.attachmentId || match.id).trim() };
+      }
+    }
+  }
+
+  if (listed.length === 1) {
+    const only = listed[0];
+    const part = findAttachmentPart(payload, only.id)
+      || findAttachmentPartByFilename(payload, only.filename);
+    if (part) {
+      return { part, attachmentId: String(part.body?.attachmentId || only.id).trim() };
+    }
+  }
+
   return null;
 }
 
@@ -230,32 +348,11 @@ export async function getMessage(messageId) {
   return formatMessage(msg);
 }
 
-/** Télécharge une pièce jointe fichier (par attachmentId Gmail). */
-export async function getAttachment(messageId, attachmentId) {
-  const rawId = String(attachmentId || '');
-  const candidates = [...new Set([
-    rawId,
-    (() => { try { return decodeURIComponent(rawId); } catch { return null; } })(),
-  ].filter(Boolean))];
-
+/** Télécharge une pièce jointe fichier (par attachmentId Gmail ou nom de fichier). */
+export async function getAttachment(messageId, attachmentId, { filename } = {}) {
   const msg = await gmailFetch(`/messages/${messageId}?format=full`);
-  let part = null;
-  for (const id of candidates) {
-    part = findAttachmentPart(msg?.payload, id);
-    if (part) {
-      attachmentId = id;
-      break;
-    }
-  }
-  if (!part) {
-    const listed = extractFileAttachments(msg?.payload);
-    const match = listed.find(a => candidates.includes(a.id));
-    if (match) {
-      attachmentId = match.id;
-      part = findAttachmentPart(msg?.payload, match.id);
-    }
-  }
-  if (!part) {
+  const resolved = resolveAttachmentPart(msg?.payload, { attachmentId, filename });
+  if (!resolved) {
     const names = extractFileAttachments(msg?.payload).map(a => a.filename).filter(Boolean);
     throw new Error(
       names.length
@@ -264,16 +361,39 @@ export async function getAttachment(messageId, attachmentId) {
     );
   }
 
-  const att = await gmailFetch(`/messages/${messageId}/attachments/${encodeURIComponent(attachmentId)}`);
+  const { part } = resolved;
+  let resolvedId = String(resolved.attachmentId || '').trim();
+  const resolvedFilename = partFilename(part) || 'piece-jointe';
+
+  if (part.body?.data && !part.body?.attachmentId) {
+    const buffer = decodeAttachmentData(part.body.data);
+    return {
+      buffer,
+      filename: resolvedFilename,
+      mimeType: part.mimeType || 'application/octet-stream',
+      size: buffer.length,
+      messageId,
+      attachmentId: resolvedId || `inline:${resolvedFilename}`,
+    };
+  }
+
+  if (!resolvedId || resolvedId.startsWith('inline:')) {
+    resolvedId = String(part.body?.attachmentId || '').trim();
+  }
+  if (!resolvedId) {
+    throw new Error(`Pièce jointe introuvable (disponibles : ${resolvedFilename})`);
+  }
+
+  const att = await gmailFetch(`/messages/${messageId}/attachments/${encodeURIComponent(resolvedId)}`);
   if (!att?.data) throw new Error('Contenu pièce jointe vide');
   const buffer = decodeAttachmentData(att.data);
   return {
     buffer,
-    filename: String(part.filename || 'piece-jointe').trim() || 'piece-jointe',
+    filename: resolvedFilename,
     mimeType: part.mimeType || 'application/octet-stream',
     size: buffer.length,
     messageId,
-    attachmentId,
+    attachmentId: resolvedId,
   };
 }
 
