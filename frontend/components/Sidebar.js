@@ -42,7 +42,7 @@ const NAV = [
   { href: '/projects', label: 'Projets', section: 'principal', permission: 'projects', icon: FolderKanban },
   { href: '/cutting-plans', label: 'Plans de coupe', section: 'principal', permission: 'production', icon: Scissors },
   { href: '/sauna-cloud', label: 'Sauna Cloud', section: 'principal', permission: 'production', icon: Cloud },
-  { href: '/admin', label: 'Session admin', section: 'principal', permission: 'admin', icon: Shield },
+  { href: '/admin', label: 'Tâches admin', section: 'principal', permission: 'admin', icon: Shield },
   { href: '/mail', label: 'Courriel', section: 'ops', permission: 'mail', icon: Mail },
   { href: '/clients', label: 'Clients', section: 'ops', permission: 'clients', icon: Users },
   { href: '/suppliers', label: 'Fournisseurs', section: 'ops', permission: 'purchases', icon: Truck },

@@ -2,7 +2,7 @@ export const PERMISSION_AREAS = {
   dashboard: { label: 'Dashboard', group: 'Principal' },
   production: { label: 'Production', group: 'Principal' },
   projects: { label: 'Projets', group: 'Principal' },
-  admin: { label: 'Session admin', group: 'Principal' },
+  admin: { label: 'Tâches admin', group: 'Principal' },
   purchases: { label: 'Achats atelier', group: 'Opérations' },
   inventory: { label: 'Stock', group: 'Opérations' },
   team: { label: 'Équipe', group: 'Opérations' },

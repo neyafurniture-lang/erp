@@ -106,8 +106,8 @@ export function AdminTasksSummary() {
   return (
     <div className="border border-neya-border rounded-xl bg-white px-3 py-2.5 flex items-center justify-between gap-2">
       <div className="min-w-0">
-        <p className="text-xs font-medium text-neya-ink">Session admin</p>
-        <p className="text-[10px] text-neya-muted truncate">Notes & suivi — code requis</p>
+        <p className="text-xs font-medium text-neya-ink">Tâches admin</p>
+        <p className="text-[10px] text-neya-muted truncate">Notes & suivi</p>
       </div>
       <Link href="/admin" className="text-[11px] text-neya-orange hover:underline shrink-0 whitespace-nowrap">
         Ouvrir →

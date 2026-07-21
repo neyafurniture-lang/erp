@@ -162,7 +162,7 @@ export async function api(path, options = {}) {
   if (res.status === 401 && typeof window !== 'undefined') {
     const errBody = await res.clone().json().catch(() => ({}));
     const msg = String(errBody.error || '');
-    // Ne déconnecter que les vrais échecs JWT — pas un PIN admin / autre 401 métier
+    // Ne déconnecter que les vrais échecs JWT — pas un PIN finance / autre 401 métier
     const isAuthFailure = /token|jwt|authentif|session expir/i.test(msg)
       || msg === 'Token requis'
       || msg === 'Non authentifié'

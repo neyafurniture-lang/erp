@@ -43,7 +43,7 @@ const DEFAULTS = {
   pinterest_app_id: '',
   pinterest_app_secret: '',
   pinterest_redirect_uri: '',
-  project_admin_pin: '3125',
+  project_admin_pin: '31250',
 };
 
 function maskSecret(value) {
@@ -120,7 +120,7 @@ export async function getPublicSettings() {
     google_client_secret_preview: (all.google_client_secret || process.env.GOOGLE_CLIENT_SECRET)
       ? maskSecret(String(all.google_client_secret || process.env.GOOGLE_CLIENT_SECRET))
       : '',
-    project_admin_pin_configured: Boolean(all.project_admin_pin || process.env.PROJECT_ADMIN_PIN || '3125'),
+    project_admin_pin_configured: Boolean(all.project_admin_pin || process.env.FINANCE_SESSION_PIN || process.env.ADMIN_SESSION_PIN || process.env.PROJECT_ADMIN_PIN || '31250'),
     google_redirect_uri: all.google_redirect_uri || process.env.GOOGLE_REDIRECT_URI || '',
     google_configured: Boolean(
       (all.google_client_id || process.env.GOOGLE_CLIENT_ID)

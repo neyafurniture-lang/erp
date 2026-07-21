@@ -3,17 +3,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import {
-  ADMIN_SESSION_PIN,
-  closeAdminSession,
-  isAdminSessionOpen,
-  openAdminSession,
-} from '../lib/admin-session';
+  FINANCE_SESSION_PIN,
+  closeFinanceSession,
+  isFinanceSessionOpen,
+  openFinanceSession,
+} from '../lib/finance-session';
 
 /**
- * Verrouillage session admin : petit formulaire code, pas d’UI permanente.
- * Une fois ouvert, affiche les enfants + bouton Fermer.
+ * Verrouillage gestionnaire Finance (P&L total) : code requis.
+ * Les tâches admin ne passent plus par ce gate.
  */
-export default function AdminSessionGate({ children }) {
+export default function FinanceSessionGate({ children }) {
   const [unlocked, setUnlocked] = useState(false);
   const [ready, setReady] = useState(false);
   const [code, setCode] = useState('');
@@ -22,7 +22,7 @@ export default function AdminSessionGate({ children }) {
   const inputRef = useRef(null);
 
   useEffect(() => {
-    setUnlocked(isAdminSessionOpen());
+    setUnlocked(isFinanceSessionOpen());
     setReady(true);
   }, []);
 
@@ -39,20 +39,24 @@ export default function AdminSessionGate({ children }) {
     setBusy(true);
     try {
       const entered = code.trim();
-      // Vérif locale d’abord (fiable même si l’API est momentanément down)
-      if (entered !== ADMIN_SESSION_PIN) {
-        throw new Error('Code incorrect');
-      }
+      let accepted = false;
       try {
-        await api('/admin-tasks/unlock', {
+        await api('/analytics/unlock', {
           method: 'POST',
           body: JSON.stringify({ code: entered }),
         });
+        accepted = true;
       } catch (apiErr) {
-        // Code local OK : on ouvre quand même (ex. API en rebuild / réseau)
-        console.warn('admin unlock API:', apiErr?.message || apiErr);
+        // Fallback local si l’API est down (même code par défaut)
+        if (entered === FINANCE_SESSION_PIN) {
+          console.warn('finance unlock API:', apiErr?.message || apiErr);
+          accepted = true;
+        } else {
+          throw new Error(apiErr?.message || 'Code incorrect');
+        }
       }
-      openAdminSession();
+      if (!accepted) throw new Error('Code incorrect');
+      openFinanceSession();
       setUnlocked(true);
       setCode('');
     } catch (err) {
@@ -65,7 +69,7 @@ export default function AdminSessionGate({ children }) {
   }
 
   function lock() {
-    closeAdminSession();
+    closeFinanceSession();
     setUnlocked(false);
     setCode('');
     setError('');
@@ -79,9 +83,9 @@ export default function AdminSessionGate({ children }) {
     return (
       <div className="max-w-xs mx-auto mt-10 sm:mt-16">
         <div className="border border-neya-border rounded-xl bg-white p-4 shadow-sm">
-          <p className="text-sm font-medium text-neya-ink mb-0.5">Session admin</p>
+          <p className="text-sm font-medium text-neya-ink mb-0.5">Gestionnaire Finance</p>
           <p className="text-[11px] text-neya-muted mb-3">
-            Entrez le code pour ouvrir les notes admin.
+            Entrez le code pour voir le P&amp;L total (bénéfice, dépenses, temps).
           </p>
           <form onSubmit={submit} className="space-y-2">
             <input
@@ -119,7 +123,7 @@ export default function AdminSessionGate({ children }) {
           onClick={lock}
           className="text-[11px] text-neya-muted hover:text-neya-ink border border-neya-border rounded-lg px-2.5 py-1"
         >
-          Fermer la session
+          Verrouiller
         </button>
       </div>
       {children}
