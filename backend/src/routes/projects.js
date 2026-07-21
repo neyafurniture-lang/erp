@@ -255,6 +255,31 @@ router.post('/:id/plans/import', planUpload.single('pdf'), async (req, res) => {
   }
 });
 
+/** Devis + fichiers mails + plans du projet */
+router.get('/:id/documents', async (req, res) => {
+  try {
+    const { getProjectDocuments } = await import('../services/project-documents.js');
+    res.json(await getProjectDocuments(req.params.id));
+  } catch (err) {
+    const code = /introuvable/i.test(err.message) ? 404 : 400;
+    res.status(code).json({ error: err.message });
+  }
+});
+
+/**
+ * Cherche devis / PDF / docs dans les mails liés au projet.
+ * Body: { auto_file?: boolean } — classe les PJ trouvées dans le projet (défaut true).
+ */
+router.post('/:id/documents/scan-mail', async (req, res) => {
+  try {
+    const { scanProjectMailDocuments } = await import('../services/project-documents.js');
+    const autoFile = req.body?.auto_file !== false && req.body?.autoFile !== false;
+    res.json(await scanProjectMailDocuments(req.params.id, { autoFile }));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 /** Terminer ou rouvrir un projet en un clic */
 router.post('/:id/toggle-done', async (req, res) => {
   const client = await pool.connect();

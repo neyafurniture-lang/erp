@@ -12,6 +12,7 @@ import Viewer3D from './Viewer3D';
 import ProjectPlansPanel from './ProjectPlansPanel';
 import DriveExplorer from './DriveExplorer';
 import GmailInbox from './GmailInbox';
+import ProjectDocumentsPanel from './ProjectDocumentsPanel';
 
 const MODULES = [
   { id: 'overview', label: 'Vue d\'ensemble' },
@@ -19,6 +20,7 @@ const MODULES = [
   { id: 'materials', label: 'Matériaux' },
   { id: 'costs', label: 'Coûts' },
   { id: 'purchases', label: 'Achats' },
+  { id: 'documents', label: 'Devis & docs' },
   { id: 'plans', label: 'Plans' },
   { id: 'drive', label: 'Drive' },
   { id: 'mail', label: 'Courriel' },
@@ -628,16 +630,27 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
           {quoteSource ? (
             <div className="card-flat flex flex-wrap items-center justify-between gap-2 py-3">
               <p className="text-sm text-neya-ink">
-                Source : devis <span className="font-semibold">{quoteSource.quote_number}</span>
+                Source : devis{' '}
+                <Link href={`/invoices/quotes/${quoteSource.id}`} className="font-semibold text-neya-orange hover:underline">
+                  {quoteSource.quote_number}
+                </Link>
                 {quoteSource.title ? ` — ${quoteSource.title}` : ''}
               </p>
-              <button type="button" onClick={syncMaterialsFromQuote} className="btn-secondary text-xs">
-                Resynchroniser depuis le devis
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <Link href="?tab=documents" className="btn-secondary text-xs inline-flex items-center">
+                  Tous les devis & docs
+                </Link>
+                <button type="button" onClick={syncMaterialsFromQuote} className="btn-secondary text-xs">
+                  Resynchroniser depuis le devis
+                </button>
+              </div>
             </div>
           ) : (
-            <div className="card-flat py-3 text-sm text-neya-muted">
-              Aucun devis lié — liez un devis au projet ou au client pour importer les matériaux automatiquement.
+            <div className="card-flat py-3 text-sm text-neya-muted flex flex-wrap items-center justify-between gap-2">
+              <span>Aucun devis lié — liez un devis au projet pour importer les matériaux.</span>
+              <button type="button" onClick={() => changeTab('documents')} className="text-xs font-medium text-neya-orange hover:underline">
+                Devis & docs →
+              </button>
             </div>
           )}
 
@@ -695,6 +708,10 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
             </ul>
           )}
         </div>
+      )}
+
+      {tab === 'documents' && (
+        <ProjectDocumentsPanel project={project} onReload={onReload} />
       )}
 
       {tab === 'plans' && (
