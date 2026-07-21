@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Plus } from 'lucide-react';
 import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
@@ -12,10 +12,31 @@ const CATEGORY_LABELS = {
   materiaux: 'Matériaux', outils: 'Outils', transport: 'Transport', atelier: 'Atelier', admin: 'Admin',
 };
 
+const MONTH_LABELS = [
+  '', 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+  'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre',
+];
+
+function expenseMonthKey(dateStr) {
+  const s = String(dateStr || '');
+  const m = s.match(/^(\d{4})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}`;
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return 'sans-date';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function monthLabel(key) {
+  if (!key || key === 'sans-date') return 'Sans date';
+  const [y, mo] = key.split('-');
+  return `${MONTH_LABELS[Number(mo)] || mo} ${y}`;
+}
+
 export default function ExpensesPage() {
   const [expenses, setExpenses] = useState([]);
   const [projects, setProjects] = useState([]);
   const [showForm, setShowForm] = useState(false);
+  const [monthFilter, setMonthFilter] = useState('all');
   const [form, setForm] = useState({
     amount: '',
     category: 'materiaux',
@@ -68,21 +89,54 @@ export default function ExpensesPage() {
     load();
   }
 
-  const total = expenses.reduce((s, e) => s + Number(e.amount), 0);
+  const monthOptions = useMemo(() => {
+    const keys = [...new Set(expenses.map(e => expenseMonthKey(e.date)))].sort().reverse();
+    return keys;
+  }, [expenses]);
+
+  const filtered = useMemo(() => {
+    if (monthFilter === 'all') return expenses;
+    return expenses.filter(e => expenseMonthKey(e.date) === monthFilter);
+  }, [expenses, monthFilter]);
+
+  const total = filtered.reduce((s, e) => s + Number(e.amount), 0);
+
+  const grouped = useMemo(() => {
+    const map = new Map();
+    for (const e of filtered) {
+      const key = expenseMonthKey(e.date);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(e);
+    }
+    return [...map.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  }, [filtered]);
 
   return (
     <AuthGuard>
-      <AppShell title="Dépenses" subtitle={`${expenses.length} entrée${expenses.length > 1 ? 's' : ''} · total ${formatMoney(total)}`}>
+      <AppShell title="Dépenses" subtitle={`${filtered.length} entrée${filtered.length > 1 ? 's' : ''} · total ${formatMoney(total)}`}>
         <FinanceSyncPanel year={new Date().getFullYear()} onDone={load} />
         <ReceiptScanner onChange={load} />
 
-        <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
+        <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
           <p className="text-neya-muted text-sm">
             Total : <span className="font-display text-xl font-semibold text-neya-ink tabular-nums">{formatMoney(total)}</span>
           </p>
-          <button type="button" onClick={() => setShowForm(!showForm)} className="btn-primary gap-1.5">
-            <Plus className="h-4 w-4" /> Dépense
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              className="input text-xs h-9 w-auto min-w-[9rem]"
+              value={monthFilter}
+              onChange={e => setMonthFilter(e.target.value)}
+              aria-label="Filtrer par mois"
+            >
+              <option value="all">Tous les mois</option>
+              {monthOptions.map(k => (
+                <option key={k} value={k}>{monthLabel(k)}</option>
+              ))}
+            </select>
+            <button type="button" onClick={() => setShowForm(!showForm)} className="btn-primary gap-1.5">
+              <Plus className="h-4 w-4" /> Dépense
+            </button>
+          </div>
         </div>
 
         {showForm && (
@@ -159,44 +213,57 @@ export default function ExpensesPage() {
           </form>
         )}
 
-        <div className="cf-table-wrap overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr>
-                <th className="px-4 py-3">Date</th>
-                <th className="px-4 py-3">Description</th>
-                <th className="px-4 py-3">Catégorie</th>
-                <th className="px-4 py-3">Projet</th>
-                <th className="px-4 py-3">Reçu</th>
-                <th className="px-4 py-3 text-right">Montant</th>
-              </tr>
-            </thead>
-            <tbody>
-              {expenses.map(e => (
-                <tr key={e.id}>
-                  <td className="px-4 py-3 tabular-nums">{formatDate(e.date)}</td>
-                  <td className="px-4 py-3">{e.description || '—'}</td>
-                  <td className="px-4 py-3">
-                    <span className="rounded-full bg-neya-surface px-2.5 py-0.5 text-[11px] font-medium text-neya-ink-light">
-                      {CATEGORY_LABELS[e.category] || e.category}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-neya-muted">{e.project_name || '—'}</td>
-                  <td className="px-4 py-3">
-                    {e.receipt_url ? (
-                      <a href={resolveUploadUrl(e.receipt_url)} target="_blank" rel="noopener noreferrer" className="text-neya-orange text-xs hover:underline">Voir</a>
-                    ) : '—'}
-                  </td>
-                  <td className="px-4 py-3 text-right font-display font-semibold tabular-nums">{formatMoney(e.amount)}</td>
-                </tr>
-              ))}
-              {expenses.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-neya-muted">Aucune dépense</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+        <div className="space-y-5">
+          {grouped.length === 0 && (
+            <div className="cf-table-wrap overflow-x-auto">
+              <p className="px-4 py-10 text-center text-neya-muted text-sm">Aucune dépense</p>
+            </div>
+          )}
+          {grouped.map(([key, rows]) => {
+            const sub = rows.reduce((s, e) => s + Number(e.amount), 0);
+            return (
+              <div key={key} className="cf-table-wrap overflow-x-auto">
+                <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-neya-border bg-neya-cream/30">
+                  <p className="text-sm font-medium text-neya-ink">{monthLabel(key)}</p>
+                  <p className="text-xs text-neya-muted tabular-nums">
+                    {rows.length} · {formatMoney(sub)}
+                  </p>
+                </div>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr>
+                      <th className="px-4 py-3">Date</th>
+                      <th className="px-4 py-3">Description</th>
+                      <th className="px-4 py-3">Catégorie</th>
+                      <th className="px-4 py-3">Projet</th>
+                      <th className="px-4 py-3">Reçu</th>
+                      <th className="px-4 py-3 text-right">Montant</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map(e => (
+                      <tr key={e.id}>
+                        <td className="px-4 py-3 tabular-nums">{formatDate(e.date)}</td>
+                        <td className="px-4 py-3">{e.description || '—'}</td>
+                        <td className="px-4 py-3">
+                          <span className="rounded-full bg-neya-surface px-2.5 py-0.5 text-[11px] font-medium text-neya-ink-light">
+                            {CATEGORY_LABELS[e.category] || e.category}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-neya-muted">{e.project_name || '—'}</td>
+                        <td className="px-4 py-3">
+                          {e.receipt_url ? (
+                            <a href={resolveUploadUrl(e.receipt_url)} target="_blank" rel="noopener noreferrer" className="text-neya-orange text-xs hover:underline">Voir</a>
+                          ) : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-right font-display font-semibold tabular-nums">{formatMoney(e.amount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })}
         </div>
       </AppShell>
     </AuthGuard>

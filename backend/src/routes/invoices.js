@@ -70,6 +70,18 @@ async function nextNumber(type) {
 // QUOTES
 router.get('/quotes', async (req, res) => {
   try {
+    const projectId = req.query.project_id ? Number(req.query.project_id) : null;
+    const clientId = req.query.client_id ? Number(req.query.client_id) : null;
+    const params = [];
+    let where = '';
+    if (projectId) {
+      params.push(projectId);
+      where += `${where ? ' AND' : ' WHERE'} q.project_id = $${params.length}`;
+    }
+    if (clientId) {
+      params.push(clientId);
+      where += `${where ? ' AND' : ' WHERE'} q.client_id = $${params.length}`;
+    }
     const { rows } = await pool.query(`
       SELECT q.*, c.name as client_name, p.name as project_name,
              i.id as invoice_id, i.invoice_number
@@ -77,8 +89,9 @@ router.get('/quotes', async (req, res) => {
       LEFT JOIN clients c ON c.id = q.client_id
       LEFT JOIN projects p ON p.id = q.project_id
       LEFT JOIN invoices i ON i.quote_id = q.id
+      ${where}
       ORDER BY q.created_at DESC
-    `);
+    `, params);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -148,7 +148,10 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
     api('/supplier-invoices/scan', { method: 'POST' })
       .then((result) => {
         if (result.scanned != null) {
-          setScanInfo(`${result.ingested || 0} facture(s) détectée(s) sur ${result.scanned} message(s) scanné(s)`);
+          const todoBit = result.admin_todos?.created
+            ? ` · ${result.admin_todos.created} todo(s) admin`
+            : '';
+          setScanInfo(`${result.ingested || 0} facture(s) détectée(s) sur ${result.scanned} message(s) scanné(s)${todoBit}`);
         }
         if (result.errors?.length) {
           setScanErr(result.errors[0].error);
@@ -165,7 +168,10 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
     setScanInfo('');
     try {
       const result = await api('/supplier-invoices/scan', { method: 'POST' });
-      setScanInfo(`${result.ingested || 0} facture(s) détectée(s) sur ${result.scanned || 0} message(s) scanné(s)`);
+      const todoBit = result.admin_todos?.created
+        ? ` · ${result.admin_todos.created} todo(s) admin`
+        : '';
+      setScanInfo(`${result.ingested || 0} facture(s) détectée(s) sur ${result.scanned || 0} message(s) scanné(s)${todoBit}`);
       if (result.errors?.length) {
         setScanErr(`${result.errors.length} message(s) en erreur — ${result.errors[0].error}`);
       }

@@ -69,9 +69,9 @@ export default function DeployVpsPanel() {
       if (data.git) setGit(data.git);
       setOkMsg(
         data.git?.upToDateWithGithub
-          ? 'VPS à jour avec GitHub.'
+          ? 'Dépôt Git du VPS = origin/main. Si l’UI ne change pas : cliquez « Forcer rebuild » (Docker), puis Ctrl+F5.'
           : data.git?.updateAvailable
-            ? `Mise à jour dispo : ${data.git.behind} commit(s) en retard.`
+            ? `Mise à jour dispo : ${data.git.behind} commit(s) en retard sur main.`
             : 'Statut sync lu.'
       );
     } catch (e) {
@@ -249,9 +249,10 @@ export default function DeployVpsPanel() {
           <div className="rounded-xl border border-neya-border bg-white p-4 mb-4 space-y-3">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
-                <p className="text-sm font-semibold text-neya-ink">État vs GitHub</p>
+                <p className="text-sm font-semibold text-neya-ink">État Git vs GitHub (main)</p>
                 <p className="text-xs text-neya-muted mt-0.5">
-                  Comparaison du dépôt serveur avec <code className="text-[10px]">origin/{git?.branch || 'main'}</code>
+                  Fichiers sur le serveur vs <code className="text-[10px]">origin/{git?.deployBranch || git?.branch || 'main'}</code>
+                  {' '}— ce n&apos;est <strong>pas</strong> la preuve que Docker a rebuild l&apos;UI.
                 </p>
               </div>
               <span
@@ -264,7 +265,7 @@ export default function DeployVpsPanel() {
                 }`}
               >
                 {git?.upToDateWithGithub || git?.status === 'up_to_date'
-                  ? 'À jour'
+                  ? 'Git à jour'
                   : git?.updateAvailable
                     ? `${git.behind} commit(s) en retard`
                     : 'Inconnu'}
@@ -279,8 +280,19 @@ export default function DeployVpsPanel() {
               </li>
               {git?.deployedAt && (
                 <li className="text-xs text-neya-muted">
-                  Dernier déploiement : {new Date(git.deployedAt).toLocaleString('fr-CA')}
+                  Dernier déploiement Docker : {new Date(git.deployedAt).toLocaleString('fr-CA')}
                   {git.deployedCommit ? ` (${git.deployedCommit})` : ''}
+                </li>
+              )}
+              {git?.upToDateWithGithub && git?.deployedCommit && git?.commit && git.deployedCommit !== git.commit && (
+                <li className="text-amber-800 text-xs font-medium">
+                  Git est à jour, mais le dernier rebuild Docker ({git.deployedCommit}) ≠ commit serveur ({git.commit}).
+                  {' '}Cliquez « Forcer rebuild ».
+                </li>
+              )}
+              {git?.upToDateWithGithub && !git?.deployedAt && (
+                <li className="text-amber-800 text-xs">
+                  Git OK, mais aucun déploiement Docker enregistré — utilisez « Forcer rebuild ».
                 </li>
               )}
               {sync?.activity && (

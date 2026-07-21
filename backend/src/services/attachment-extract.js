@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { getOpenAIKey, getSetting, isAssistantAiEnabled } from './settings.js';
+import { extractDateFromText, normalizePurchaseDate } from './expense-date.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOADS_ROOT = path.join(__dirname, '../../uploads');
@@ -167,6 +168,7 @@ Réponds UNIQUEMENT en JSON :
   "confidence": 0.0,
   "amount": null,
   "vendor": null,
+  "date": null,
   "client_name": null
 }
 
@@ -178,6 +180,7 @@ Règles :
 - photo_atelier = photo chantier/atelier sans doc texte
 - suggested_actions : 1 à 3 actions pertinentes
 - amount en nombre CAD si visible, sinon null
+- date = date d'achat / facture sur le document en YYYY-MM-DD (PAS aujourd'hui). Formats QC JJ/MM/AAAA → convertir. Si illisible → null
 - summary en français, concret (pas de blabla)`;
 
     const userMsg = `Message utilisateur : """${message || '(fichier seul)'}"""
@@ -214,6 +217,10 @@ Classe et étudie ce document.`;
       confidence: Number(ai.confidence) > 0 ? Math.min(1, Number(ai.confidence)) : heuristic.confidence,
       amount: ai.amount != null && Number(ai.amount) > 0 ? Number(ai.amount) : heuristic.amount,
       vendor: ai.vendor ? String(ai.vendor).slice(0, 120) : heuristic.vendor,
+      date: normalizePurchaseDate(ai.date)
+        || normalizePurchaseDate(heuristic.date)
+        || extractDateFromText(`${ai.summary || ''} ${(ai.key_facts || []).join(' ')} ${joined}`)
+        || null,
       client_name: ai.client_name ? String(ai.client_name).slice(0, 120) : heuristic.client_name,
       source: 'ai',
     };
@@ -281,6 +288,9 @@ function heuristicClassify({ message = '', extracts = [], projectHint = null }) 
   if (vendor) key_facts.push(`Fournisseur : ${vendor}`);
   if (projectHint) key_facts.push(`Contexte page : ${projectHint}`);
 
+  const date = extractDateFromText(blob);
+  if (date) key_facts.push(`Date : ${date}`);
+
   return {
     doc_type,
     label_fr,
@@ -291,6 +301,7 @@ function heuristicClassify({ message = '', extracts = [], projectHint = null }) 
     confidence: excerpt.length > 80 ? 0.55 : 0.35,
     amount,
     vendor,
+    date,
     client_name: null,
     source: 'heuristic',
   };
