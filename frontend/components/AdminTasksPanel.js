@@ -11,6 +11,16 @@ import {
 
 const STATUS_CYCLE = { todo: 'doing', doing: 'done', done: 'todo' };
 
+const SECTION_ORDER = [
+  'a_payer',
+  'a_recevoir',
+  'facturation',
+  'marche',
+  'site_web',
+  'marketing',
+  'gestion',
+];
+
 function TaskItem({ task, onUpdate, onDelete }) {
   const cat = adminCategoryMeta(task.category);
   const overdue = task.due_date && task.status !== 'done'
@@ -60,7 +70,7 @@ function TaskItem({ task, onUpdate, onDelete }) {
           )}
           {task.notes && (
             <span className="text-[9px] text-neya-muted truncate max-w-[140px]" title={task.notes}>
-              · {task.notes}
+              · {task.notes.split('\n')[0]}
             </span>
           )}
         </div>
@@ -71,6 +81,24 @@ function TaskItem({ task, onUpdate, onDelete }) {
       <button type="button" onClick={remove} className="text-neya-muted hover:text-red-600 text-[10px] shrink-0">✕</button>
     </li>
   );
+}
+
+function groupTasksByCategory(tasks) {
+  const map = new Map();
+  for (const t of tasks) {
+    const key = t.category || 'gestion';
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(t);
+  }
+  const keys = [
+    ...SECTION_ORDER.filter(k => map.has(k)),
+    ...[...map.keys()].filter(k => !SECTION_ORDER.includes(k)).sort(),
+  ];
+  return keys.map(key => ({
+    key,
+    meta: adminCategoryMeta(key),
+    tasks: map.get(key),
+  }));
 }
 
 /** Petit rappel dashboard : lien seulement, jamais la liste en permanence. */
@@ -94,8 +122,11 @@ export default function AdminTasksPanel() {
   const [filter, setFilter] = useState('open');
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ title: '', category: 'gestion', notes: '' });
+  const [form, setForm] = useState({ title: '', category: 'a_payer', notes: '' });
   const [saving, setSaving] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanInfo, setScanInfo] = useState('');
+  const [scanErr, setScanErr] = useState('');
 
   async function load() {
     setLoading(true);
@@ -128,11 +159,35 @@ export default function AdminTasksPanel() {
           notes: form.notes.trim() || null,
         }),
       });
-      setForm({ title: '', category: 'gestion', notes: '' });
+      setForm({ title: '', category: 'a_payer', notes: '' });
       setShowAdd(false);
       await load();
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function scanMailInvoices() {
+    setScanning(true);
+    setScanErr('');
+    setScanInfo('');
+    try {
+      const result = await api('/admin-tasks/scan-mail-invoices', {
+        method: 'POST',
+        body: JSON.stringify({ days: 30, max: 50 }),
+      });
+      const parts = [
+        `${result.classified || 0} facture(s) classée(s)`,
+        result.payable ? `${result.payable} à payer` : null,
+        result.receivable ? `${result.receivable} à recevoir` : null,
+        result.created ? `${result.created} nouvelle(s)` : null,
+      ].filter(Boolean);
+      setScanInfo(parts.join(' · ') || 'Scan terminé');
+      await load();
+    } catch (err) {
+      setScanErr(err.message || 'Scan impossible');
+    } finally {
+      setScanning(false);
     }
   }
 
@@ -148,7 +203,12 @@ export default function AdminTasksPanel() {
 
   const openTasks = tasks.filter(t => t.status !== 'done');
   const doneTasks = tasks.filter(t => t.status === 'done');
-  const shown = filter === 'done' ? doneTasks : filter === 'all' ? tasks : openTasks;
+  let shown = openTasks;
+  if (filter === 'done') shown = doneTasks;
+  else if (filter === 'all') shown = tasks;
+  else if (filter === 'a_payer') shown = openTasks.filter(t => t.category === 'a_payer');
+  else if (filter === 'a_recevoir') shown = openTasks.filter(t => t.category === 'a_recevoir');
+  const sections = groupTasksByCategory(shown);
 
   if (loading && !tasks.length) {
     return <p className="text-xs text-neya-muted py-6 text-center">Chargement…</p>;
@@ -168,20 +228,37 @@ export default function AdminTasksPanel() {
             </p>
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => setShowAdd(v => !v)}
-          className="text-[11px] border border-neya-border rounded-lg px-2.5 py-1 hover:border-neya-orange"
-        >
-          {showAdd ? 'Annuler' : '+ Note'}
-        </button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={scanMailInvoices}
+            disabled={scanning}
+            className="text-[11px] border border-neya-border rounded-lg px-2.5 py-1 hover:border-neya-orange disabled:opacity-50"
+            title="Scanner Gmail + factures ERP"
+          >
+            {scanning ? 'Scan…' : 'Scanner factures'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowAdd(v => !v)}
+            className="text-[11px] border border-neya-border rounded-lg px-2.5 py-1 hover:border-neya-orange"
+          >
+            {showAdd ? 'Annuler' : '+ Note'}
+          </button>
+        </div>
       </div>
+
+      {(scanInfo || scanErr) && (
+        <p className={`text-[11px] px-2 py-1.5 rounded-lg ${scanErr ? 'bg-red-50 text-red-700' : 'bg-neya-cream/50 text-neya-muted'}`}>
+          {scanErr || scanInfo}
+        </p>
+      )}
 
       {showAdd && (
         <form onSubmit={addTask} className="border border-neya-border rounded-xl p-2.5 space-y-2 bg-neya-cream/30">
           <input
             className="input text-sm h-9"
-            placeholder="Titre…"
+            placeholder="Titre… ex. À payer — facture Olive"
             value={form.title}
             autoFocus
             onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
@@ -214,6 +291,8 @@ export default function AdminTasksPanel() {
           { id: 'open', label: 'À faire' },
           { id: 'done', label: 'Fait' },
           { id: 'all', label: 'Tout' },
+          { id: 'a_payer', label: 'À payer' },
+          { id: 'a_recevoir', label: 'À recevoir' },
         ].map(f => (
           <button
             key={f.id}
@@ -228,15 +307,25 @@ export default function AdminTasksPanel() {
         ))}
       </div>
 
-      <div className="border border-neya-border rounded-xl px-2.5 py-1 bg-white">
-        {shown.length === 0 ? (
-          <p className="text-[11px] text-neya-muted py-4 text-center">Rien ici</p>
+      <div className="space-y-3">
+        {sections.length === 0 ? (
+          <div className="border border-neya-border rounded-xl px-2.5 py-4 bg-white">
+            <p className="text-[11px] text-neya-muted text-center">Rien ici — lancez « Scanner factures »</p>
+          </div>
         ) : (
-          <ul>
-            {shown.map(t => (
-              <TaskItem key={t.id} task={t} onUpdate={updateTask} onDelete={removeTask} />
-            ))}
-          </ul>
+          sections.map(sec => (
+              <div key={sec.key} className="border border-neya-border rounded-xl bg-white overflow-hidden">
+                <div className="px-2.5 py-1.5 border-b border-neya-border/50 flex items-center gap-2 bg-neya-cream/20">
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${sec.meta.color}`}>{sec.meta.label}</span>
+                  <span className="text-[10px] text-neya-muted">{sec.tasks.length}</span>
+                </div>
+                <ul className="px-2.5 py-1">
+                  {sec.tasks.map(t => (
+                    <TaskItem key={t.id} task={t} onUpdate={updateTask} onDelete={removeTask} />
+                  ))}
+                </ul>
+              </div>
+            ))
         )}
       </div>
     </div>

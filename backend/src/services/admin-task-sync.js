@@ -2,6 +2,8 @@ import pool from '../db/pool.js';
 import { getWebStatus } from './wordpress.js';
 
 export const ADMIN_CATEGORIES = [
+  'a_payer',
+  'a_recevoir',
   'marche',
   'facturation',
   'site_web',
@@ -9,25 +11,55 @@ export const ADMIN_CATEGORIES = [
   'gestion',
 ];
 
-async function upsertBySource({ source_key, title, category, link_href, due_date }) {
+export async function upsertBySource({
+  source_key,
+  title,
+  category,
+  link_href,
+  due_date,
+  notes,
+  priority_tier,
+}) {
   const existing = await pool.query(
     'SELECT id, status FROM admin_tasks WHERE source_key = $1',
     [source_key]
   );
   if (!existing.rows[0]) {
     const { rows } = await pool.query(
-      `INSERT INTO admin_tasks (title, category, link_href, source_key, due_date, sort_order)
-       VALUES ($1, $2, $3, $4, $5, COALESCE((SELECT MAX(sort_order) + 1 FROM admin_tasks), 0))
+      `INSERT INTO admin_tasks (title, category, link_href, source_key, due_date, notes, priority_tier, sort_order)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE((SELECT MAX(sort_order) + 1 FROM admin_tasks), 0))
        RETURNING id`,
-      [title, category, link_href || null, source_key, due_date || null]
+      [
+        title,
+        category || 'gestion',
+        link_href || null,
+        source_key,
+        due_date || null,
+        notes || null,
+        priority_tier || 'p2',
+      ]
     );
     return { id: rows[0].id, inserted: true };
   }
   if (existing.rows[0].status === 'done') return { id: existing.rows[0].id, inserted: false };
   await pool.query(
-    `UPDATE admin_tasks SET title = $1, link_href = COALESCE($2, link_href), due_date = COALESCE($3, due_date)
-     WHERE source_key = $4`,
-    [title, link_href || null, due_date || null, source_key]
+    `UPDATE admin_tasks SET
+       title = $1,
+       category = COALESCE($2, category),
+       link_href = COALESCE($3, link_href),
+       due_date = COALESCE($4, due_date),
+       notes = COALESCE($5, notes),
+       priority_tier = COALESCE($6, priority_tier)
+     WHERE source_key = $7`,
+    [
+      title,
+      category || null,
+      link_href || null,
+      due_date || null,
+      notes || null,
+      priority_tier || null,
+      source_key,
+    ]
   );
   return { id: existing.rows[0].id, inserted: false };
 }
@@ -107,6 +139,16 @@ export async function syncAdminTasksFromModules() {
       )
   `);
 
+  try {
+    const { scanMailInvoicesToAdminTasks } = await import('./mail-invoice-todos.js');
+    const mail = await scanMailInvoicesToAdminTasks({ days: 21, max: 40 });
+    for (const t of mail.tasks || []) {
+      if (t.inserted) created.push(t.id);
+    }
+  } catch {
+    /* Gmail optionnel */
+  }
+
   return { synced: created.length, created };
 }
 
@@ -140,7 +182,7 @@ export const PRIORITY_TASKS = [
   { source_key: 'prio_p1_internet_new', title: 'Trouver et souscrire un nouvel abonnement Internet', category: 'gestion', priority_tier: 'p1', sort_order: 2 },
   { source_key: 'prio_p1_etel', title: 'Refaire la facture pour Etel', category: 'facturation', priority_tier: 'p1', sort_order: 3, link_href: '/invoices' },
   { source_key: 'prio_p1_aem', title: "Envoyer la facture pour l'AEM", category: 'facturation', priority_tier: 'p1', sort_order: 4, link_href: '/invoices' },
-  { source_key: 'prio_p1_olive', title: "Payer la facture d'Olive", category: 'facturation', priority_tier: 'p1', sort_order: 5, link_href: '/expenses' },
+  { source_key: 'prio_p1_olive', title: 'À payer — facture Olive', category: 'a_payer', priority_tier: 'p1', sort_order: 5, link_href: '/expenses' },
   { source_key: 'prio_p2_anne', title: 'Faire la facture Anne', category: 'facturation', priority_tier: 'p2', sort_order: 6, link_href: '/invoices' },
   { source_key: 'prio_p2_son', title: 'Faire la facture Son', category: 'facturation', priority_tier: 'p2', sort_order: 7, link_href: '/invoices' },
   { source_key: 'prio_p2_enns_relance', title: 'Relancer ENNS pour le paiement', category: 'facturation', priority_tier: 'p2', sort_order: 8, link_href: '/invoices' },

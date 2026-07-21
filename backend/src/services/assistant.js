@@ -935,6 +935,16 @@ export async function seedDefaultSkills() {
       action: 'import_email_attachment',
     },
     {
+      name: 'scan_mail_invoice_todos',
+      description: 'Scanner les factures Gmail et les classer en todos admin À payer / À recevoir',
+      triggers: [
+        'classer les factures', 'factures à payer', 'à payer facture', 'a payer facture',
+        'factures à recevoir', 'scanner factures', 'scan factures', 'facture olive',
+        'olive a envoyé', 'classer factures mail', 'todos factures',
+      ],
+      action: 'scan_mail_invoice_todos',
+    },
+    {
       name: 'list_mail_threads',
       description: 'Lister les fils courriel liés ERP',
       triggers: ['fils courriel', 'conversations mail', 'mails liés', 'threads mail'],

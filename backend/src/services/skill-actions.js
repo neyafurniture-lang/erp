@@ -11,7 +11,7 @@ export const ACTION_TYPES = [
   'complete_task', 'update_task', 'delete_task', 'unlink_task', 'list_project_tasks',
   'update_project', 'update_client', 'list_projects', 'list_clients', 'list_expenses',
   'search_projects', 'search_memory', 'get_project',
-  'list_emails', 'search_emails', 'get_email', 'import_email_attachment', 'list_mail_threads',
+  'list_emails', 'search_emails', 'get_email', 'import_email_attachment', 'scan_mail_invoice_todos', 'list_mail_threads',
   'create_fabrication_plan',
   'list_skills', 'create_skill', 'update_skill',
   'create_quote', 'create_invoice', 'convert_quote', 'send_quote', 'send_invoice',
@@ -1220,6 +1220,47 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
       } catch (err) {
         return {
           reply: `Import depuis Gmail impossible : ${err.message}. Vérifiez la connexion Google et reformulez (ex. « facture du mail de Olive »).`,
+          actions,
+        };
+      }
+    }
+
+    case 'scan_mail_invoice_todos': {
+      try {
+        const { scanMailInvoicesToAdminTasks } = await import('./mail-invoice-todos.js');
+        const days = Number(params.days) || 30;
+        const max = Number(params.max) || 50;
+        const result = await scanMailInvoicesToAdminTasks({ days, max });
+        const byPerson = {};
+        for (const t of result.tasks || []) {
+          const key = `${t.kind}:${t.person}`;
+          byPerson[key] = (byPerson[key] || 0) + 1;
+        }
+        const lines = Object.entries(byPerson).map(([key, n]) => {
+          const [kind, person] = key.split(':');
+          const label = kind === 'a_recevoir' ? 'À recevoir' : 'À payer';
+          return `• ${label} — ${person}${n > 1 ? ` (${n})` : ''}`;
+        });
+        actions.push({ type: 'scan_mail_invoice_todos', data: result });
+        if (!result.classified && !result.created) {
+          return {
+            reply: `Aucune facture récente trouvée dans Gmail (${result.scanned || 0} message(s) scannés). Vérifiez que Gmail est connecté.`,
+            actions,
+          };
+        }
+        return {
+          reply: [
+            `Factures classées dans Admin (${result.classified} mail(s), ${result.created} nouvelle(s) todo(s)) :`,
+            `• À payer : ${result.payable || 0}`,
+            `• À recevoir : ${result.receivable || 0}`,
+            lines.length ? `\nPar personne :\n${lines.join('\n')}` : null,
+            '\nOuvre /admin pour cocher.',
+          ].filter(Boolean).join('\n'),
+          actions,
+        };
+      } catch (err) {
+        return {
+          reply: `Scan factures mail impossible : ${err.message}. Vérifiez Google / Gmail.`,
           actions,
         };
       }

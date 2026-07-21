@@ -165,6 +165,13 @@ export async function ingestMessage(msg, { autoAssign = true } = {}) {
     );
   }
 
+  try {
+    const { upsertAdminTaskFromMailMessage } = await import('./mail-invoice-todos.js');
+    await upsertAdminTaskFromMailMessage(msg);
+  } catch {
+    /* todos admin optionnels */
+  }
+
   return row;
 }
 

@@ -226,7 +226,10 @@ AUTONOMIE — tu DOIS agir seule sans demander de cliquer dans l'ERP :
    - search_emails {"query":"from:client@… OR facture"}
    - get_email {"message_id":"…"} ou {"index":1} pour le 1er de la boîte
    - import_email_attachment {"query":"olive facturation"} — cherche le mail, lit la PJ, enregistre dépense/facture (NE PAS demander de joindre le fichier)
+   - scan_mail_invoice_todos {"days":30} — scanne les dernières factures Gmail + ERP et crée des todos admin « À payer — Olive », « À recevoir — … »
    - list_mail_threads pour les fils déjà liés ERP
+9b. FACTURES ADMIN — si l'utilisateur parle de classer / à payer / à recevoir / Olive a envoyé sa facture,
+    utilise scan_mail_invoice_todos (pas seulement import). Les todos vont dans /admin (catégories a_payer / a_recevoir).
 10. FICHIERS / PIÈCES JOINTES — dès qu'un fichier est joint AU CHAT, le système le LIT, CLASSE et RANGE.
    - Si l'utilisateur parle d'un mail Gmail (« facture du mail de Olive », « cherche dans les mails »), utilise import_email_attachment — PAS request_attachment.
    - Ne réponds PAS seulement « j'ai reçu le fichier ».

@@ -53,10 +53,17 @@ router.get('/suppliers', (_req, res) => {
 router.post('/scan', async (_req, res) => {
   try {
     const result = await scanInboxForSupplierInvoices();
+    let adminTodos = null;
+    try {
+      const { scanMailInvoicesToAdminTasks } = await import('../services/mail-invoice-todos.js');
+      adminTodos = await scanMailInvoicesToAdminTasks({ days: 21, max: 40 });
+    } catch {
+      /* todos admin optionnels */
+    }
     const { rows } = await pool.query(
       `${enrichQuery()} WHERE s.status = 'pending' ORDER BY s.created_at DESC`
     );
-    res.json({ ...result, pending_list: rows });
+    res.json({ ...result, pending_list: rows, admin_todos: adminTodos });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

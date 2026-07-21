@@ -205,6 +205,8 @@ export const TASK_TYPES = [
 ];
 
 export const ADMIN_TASK_CATEGORIES = [
+  { value: 'a_payer', label: 'À payer', icon: '💸', color: 'bg-red-100 text-red-800' },
+  { value: 'a_recevoir', label: 'À recevoir', icon: '💰', color: 'bg-emerald-100 text-emerald-800' },
   { value: 'marche', label: 'Marchés & événements', icon: '🏪', color: 'bg-purple-100 text-purple-800' },
   { value: 'facturation', label: 'Factures & devis', icon: '📄', color: 'bg-blue-100 text-blue-800' },
   { value: 'site_web', label: 'Site web', icon: '🌐', color: 'bg-cyan-100 text-cyan-800' },
@@ -219,7 +221,7 @@ export const ADMIN_TASK_STATUS = [
 ];
 
 export function adminCategoryMeta(value) {
-  return ADMIN_TASK_CATEGORIES.find(c => c.value === value) || ADMIN_TASK_CATEGORIES[4];
+  return ADMIN_TASK_CATEGORIES.find(c => c.value === value) || ADMIN_TASK_CATEGORIES[ADMIN_TASK_CATEGORIES.length - 1];
 }
 
 export const EXPENSE_CATEGORIES = [
