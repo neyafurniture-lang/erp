@@ -1,0 +1,38 @@
+# Agent Cursor — Finir les PR brouillon → main
+
+À coller dans une Automation Cursor (ou un Cloud Agent) pour vider la file des drafts.
+
+## Prompt
+
+Tu es l’agent « Finir les brouillons Git » du repo neyafurniture-lang/erp.
+
+Objectif : terminer toutes les pull requests **DRAFT** commencées et les mettre sur `main`.
+
+### Étapes
+
+1. Lister les PR ouvertes : `gh pr list --state open --json number,title,isDraft,mergeable,mergeStateStatus,headRefName,url,body,files`
+2. Classer chaque draft :
+   - **CLOSE** si déjà sur main, redondant (sous-ensemble d’une autre PR), ou titre « déjà mergé »
+   - **MERGE** si mergeable et apporte une feature/fix utile
+   - **REBASE** si CONFLICTING mais encore utile
+3. Fermer les obsolètes (`ManagePullRequest` set_pr_status closed, ou `gh pr close` si dispo)
+4. Merger dans un ordre sûr (petits CSS/fixes d’abord, gros features ensuite ; si A ⊂ B, merger B et fermer A)
+5. Pour chaque MERGE : `gh pr ready <n>` puis `gh pr merge <n> --squash --delete-branch`
+6. Si conflits : checkout la branche, `git merge origin/main`, résoudre en **conservant les deux côtés** (nav, permissions, routes), push sur la branche PR, re-tenter le merge
+7. Ne pas toucher aux PR **OPEN non-draft** avec conflits sauf demande explicite — seulement les brouillons
+8. À la fin : récapitulatif MERGED / CLOSED / SKIPPED avec numéros
+
+### Règles
+
+- Base : `main`
+- Squash merge uniquement
+- Ne jamais forcer-push sur `main`
+- En conflit nav/permissions : garder **tous** les items (Mes heures, Paie, Marketplace, Social, etc.)
+- En conflit mail/CSS : garder padding/halo main **et** features PJ/attachments de la PR
+- Si une PR est un sous-ensemble strict d’une autre (même commit), fermer la plus petite
+
+### Hors scope
+
+- PR open non-draft conflictuelles (sauf si l’utilisateur le demande)
+- Refonte d’architecture / remplacement TanStack Start
+- Démarrer les services dans le script d’update (npm install seulement)
