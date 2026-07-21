@@ -3,8 +3,34 @@ import pool from '../db/pool.js';
 import { computeProjectCosts } from '../services/project-costs.js';
 import { syncMaterialsFromQuote, findQuoteForProject } from '../services/project-materials.js';
 import { computeMonthlyPnl } from '../services/monthly-pnl.js';
+import { getSetting } from '../services/settings.js';
 
 const router = Router();
+
+/** Code gestionnaire Finance (P&L). Paramètres → Code Finance, sinon FINANCE_SESSION_PIN / ADMIN_SESSION_PIN. */
+async function resolveFinancePin() {
+  const fromSettings = String(await getSetting('project_admin_pin') || '').trim();
+  if (fromSettings) return fromSettings;
+  return String(
+    process.env.FINANCE_SESSION_PIN
+    || process.env.ADMIN_SESSION_PIN
+    || '31250'
+  ).trim();
+}
+
+router.post('/unlock', async (req, res) => {
+  try {
+    const code = String(req.body?.code ?? '').trim();
+    const expected = await resolveFinancePin();
+    if (!code || code !== expected) {
+      // 403 (pas 401) : sinon le client api() déconnecte toute la session ERP
+      return res.status(403).json({ error: 'Code incorrect' });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 router.get('/monthly-pnl', async (req, res) => {
   try {

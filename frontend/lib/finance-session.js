@@ -1,11 +1,11 @@
-/** Code pour ouvrir une session admin (notes / suivi). */
-export const ADMIN_SESSION_PIN = '31250';
+/** Code pour ouvrir le gestionnaire Finance (P&L total). */
+export const FINANCE_SESSION_PIN = '31250';
 
-const STORAGE_KEY = 'neya_admin_session';
+const STORAGE_KEY = 'neya_finance_session';
 /** Durée de session : 4 h (ferme l’onglet = sessionStorage perdu). */
 const TTL_MS = 4 * 60 * 60 * 1000;
 
-export function isAdminSessionOpen() {
+export function isFinanceSessionOpen() {
   if (typeof window === 'undefined') return false;
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY);
@@ -22,12 +22,12 @@ export function isAdminSessionOpen() {
   }
 }
 
-export function openAdminSession() {
+export function openFinanceSession() {
   if (typeof window === 'undefined') return;
   sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ ok: true, at: Date.now() }));
 }
 
-export function closeAdminSession() {
+export function closeFinanceSession() {
   if (typeof window === 'undefined') return;
   sessionStorage.removeItem(STORAGE_KEY);
 }

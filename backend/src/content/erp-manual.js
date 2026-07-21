@@ -185,14 +185,15 @@ export const ERP_MANUAL_SECTIONS = [
     icon: '⚙️',
     summary: 'Utilisateurs, déploiement, rollback.',
     links: [
-      { href: '/admin', label: 'Session admin' },
+      { href: '/admin', label: 'Tâches admin' },
       { href: '/settings?tab=users', label: 'Utilisateurs' },
       { href: '/settings?tab=deploy', label: 'Déploiement VPS' },
       { href: '/settings?tab=integrations', label: 'Intégrations' },
       { href: '/roadmap', label: 'Roadmap' },
     ],
     tips: [
-      'Session admin (/admin) : code 31250 pour ouvrir les notes — interface compacte, pas affichée en permanence sur le dashboard. « Fermer la session » pour verrouiller.',
+      'Tâches admin (/admin) : notes et suivi — accès libre avec la permission admin (plus de code).',
+      'Finance (/finance) : P&L total protégé par code (Paramètres → Code Finance, défaut 31250). « Verrouiller » pour refermer.',
       'Déploiement 1 clic : Paramètres → Déploiement → « Mettre à jour la prod ». Host 51.222.31.75. Accès : NEYA_VPS_PASSWORD ou clé SSH dans backend/.env.',
       'Vérifier si le VPS est à jour vs GitHub : Paramètres → Déploiement → « Vérifier vs GitHub », ou sur le VPS : cd /opt/neya-erp && ./deploy/check-update.sh',
       'MAJ auto à minuit : install-auto-update.sh sur le VPS — déploie seulement si GitHub a avancé ET aucune activité ERP depuis ~2 h.',

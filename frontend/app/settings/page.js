@@ -327,17 +327,19 @@ function SettingsContent() {
                 <input className="input" value={form.company_phone} onChange={e => setForm({ ...form, company_phone: e.target.value })} />
               </div>
               <div>
-                <label className="label">Code Notes admin (projets)</label>
+                <label className="label">Code Finance (P&amp;L total)</label>
                 <input
                   className="input"
                   type="password"
                   inputMode="numeric"
                   autoComplete="new-password"
-                  placeholder={settings?.project_admin_pin_configured ? 'Laisser vide pour conserver' : 'ex. 3125'}
+                  placeholder={settings?.project_admin_pin_configured ? 'Laisser vide pour conserver' : 'ex. 31250'}
                   value={form.project_admin_pin}
                   onChange={e => setForm({ ...form, project_admin_pin: e.target.value })}
                 />
-                <p className="text-xs text-neya-muted mt-1">Protège les prix / budgets sur la fiche projet.</p>
+                <p className="text-xs text-neya-muted mt-1">
+                  Protège uniquement le gestionnaire Finance (/finance). Les tâches admin n’ont plus de code.
+                </p>
               </div>
             </div>
             <button type="button" onClick={() => saveSettings()} disabled={saving} className="btn-primary mt-4">

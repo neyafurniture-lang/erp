@@ -7,22 +7,6 @@ const router = Router();
 
 const VALID_STATUS = ['todo', 'doing', 'done'];
 
-/** Code session admin (notes / suivi). Surcharge possible via ADMIN_SESSION_PIN. */
-export const ADMIN_SESSION_PIN = String(process.env.ADMIN_SESSION_PIN || '31250').trim();
-
-router.post('/unlock', async (req, res) => {
-  try {
-    const code = String(req.body?.code ?? '').trim();
-    if (!code || code !== ADMIN_SESSION_PIN) {
-      // 403 (pas 401) : sinon le client api() déconnecte toute la session ERP
-      return res.status(403).json({ error: 'Code incorrect' });
-    }
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 router.get('/', async (req, res) => {
   try {
     const { category, status } = req.query;

@@ -23,7 +23,7 @@ const MENU_GROUPS = [
       { href: '/projects', label: 'Projets', permission: 'projects' },
       { href: '/cutting-plans', label: 'Plans de coupe', permission: 'production' },
       { href: '/sauna-cloud', label: 'Sauna Cloud', permission: 'production' },
-      { href: '/admin', label: 'Session admin', permission: 'admin' },
+      { href: '/admin', label: 'Tâches admin', permission: 'admin' },
     ],
   },
   {

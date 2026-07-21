@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
+import FinanceSessionGate from '../../components/FinanceSessionGate';
 import { api, formatMoney } from '../../lib/api';
 import { useAuth } from '../../lib/auth-context';
 import FinanceSyncPanel from '../../components/FinanceSyncPanel';
@@ -49,6 +50,21 @@ function BarRow({ label, value, max, format = formatMoney }) {
 }
 
 export default function FinancePage() {
+  return (
+    <AuthGuard>
+      <AppShell
+        title="Finance"
+        subtitle="Gestionnaire total — code requis · bénéfice, dépenses et temps"
+      >
+        <FinanceSessionGate>
+          <FinanceDashboard />
+        </FinanceSessionGate>
+      </AppShell>
+    </AuthGuard>
+  );
+}
+
+function FinanceDashboard() {
   const { user } = useAuth();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
@@ -103,11 +119,7 @@ export default function FinancePage() {
   const years = [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1];
 
   return (
-    <AuthGuard>
-      <AppShell
-        title="Finance"
-        subtitle="Bénéfice, dépenses et temps — suivi mensuel"
-      >
+    <>
         <FinanceSyncPanel
           year={year}
           onDone={() => {
@@ -389,7 +401,6 @@ export default function FinancePage() {
             </div>
           </>
         )}
-      </AppShell>
-    </AuthGuard>
+    </>
   );
 }
