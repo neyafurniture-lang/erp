@@ -199,10 +199,19 @@ export async function assignSupplierInvoice(id, { project_id, amount, category, 
   let expenseId = null;
   if (amount && Number(amount) > 0) {
     const desc = description || `${inv.supplier_label} — ${inv.subject}`;
+    let supplierDbId = null;
+    try {
+      const { resolveSupplierIdFromSlug, ensureKnownSuppliers } = await import('./suppliers-catalog.js');
+      supplierDbId = await resolveSupplierIdFromSlug(inv.supplier_id);
+      if (!supplierDbId && inv.supplier_id && inv.supplier_id !== 'other') {
+        await ensureKnownSuppliers();
+        supplierDbId = await resolveSupplierIdFromSlug(inv.supplier_id);
+      }
+    } catch { /* catalogue optionnel */ }
     const { rows: exp } = await pool.query(
-      `INSERT INTO expenses (project_id, amount, category, description, date)
-       VALUES ($1,$2,$3,$4,CURRENT_DATE) RETURNING id`,
-      [project_id, Number(amount), category || 'materiaux', desc]
+      `INSERT INTO expenses (project_id, amount, category, description, date, supplier_id)
+       VALUES ($1,$2,$3,$4,CURRENT_DATE,$5) RETURNING id`,
+      [project_id, Number(amount), category || 'materiaux', desc, supplierDbId]
     );
     expenseId = exp[0].id;
   }

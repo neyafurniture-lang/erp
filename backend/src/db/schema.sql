@@ -283,6 +283,15 @@ CREATE TABLE IF NOT EXISTS suppliers (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS slug TEXT;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS address TEXT;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS website TEXT;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS account_number TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_suppliers_slug ON suppliers(slug) WHERE slug IS NOT NULL;
+
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS supplier_id INT REFERENCES suppliers(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_expenses_supplier ON expenses(supplier_id);
+
 CREATE TABLE IF NOT EXISTS inventory_items (
   id SERIAL PRIMARY KEY,
   sku TEXT,

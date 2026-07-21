@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Search, Plus, Mail, MapPin, Phone, ChevronRight } from 'lucide-react';
+import { Search, Plus, Mail, MapPin, Phone, ChevronRight, Inbox } from 'lucide-react';
 import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
 import { api, formatMoney } from '../../lib/api';
@@ -67,6 +67,14 @@ function ClientsContent() {
   const [query, setQuery] = useState('');
   const [form, setForm] = useState({ name: '', contact: '', email: '', phone: '', address: '', city: '', notes: '' });
   const [editId, setEditId] = useState(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importSaving, setImportSaving] = useState(false);
+  const [importError, setImportError] = useState('');
+  const [importResult, setImportResult] = useState(null);
+  const [candidates, setCandidates] = useState([]);
+  const [selected, setSelected] = useState({});
+  const [nameEdits, setNameEdits] = useState({});
 
   const load = () => api('/clients').then(setClients);
 
@@ -110,6 +118,70 @@ function ClientsContent() {
     setShowForm(true);
   }
 
+  async function openMailImport() {
+    setImportOpen(true);
+    setImportError('');
+    setImportResult(null);
+    setImportLoading(true);
+    try {
+      const data = await api('/clients/from-mail/scan', {
+        method: 'POST',
+        body: JSON.stringify({ max_messages: 400 }),
+      });
+      const list = data.candidates || [];
+      setCandidates(list);
+      const sel = {};
+      const names = {};
+      list.forEach(c => {
+        sel[c.email] = Boolean(c.selected);
+        names[c.email] = c.suggested_name || '';
+      });
+      setSelected(sel);
+      setNameEdits(names);
+    } catch (err) {
+      setImportError(err.message || 'Scan impossible');
+      setCandidates([]);
+    } finally {
+      setImportLoading(false);
+    }
+  }
+
+  function toggleAll(on) {
+    const next = {};
+    candidates.forEach(c => { next[c.email] = on; });
+    setSelected(next);
+  }
+
+  async function confirmImport() {
+    const clientsPayload = candidates
+      .filter(c => selected[c.email])
+      .map(c => ({
+        email: c.email,
+        name: nameEdits[c.email] || c.suggested_name,
+      }));
+    if (!clientsPayload.length) {
+      setImportError('Sélectionnez au moins un contact');
+      return;
+    }
+    setImportSaving(true);
+    setImportError('');
+    try {
+      const result = await api('/clients/from-mail/import', {
+        method: 'POST',
+        body: JSON.stringify({ clients: clientsPayload }),
+      });
+      setImportResult(result);
+      load();
+      if (result.created_count > 0) {
+        setCandidates(prev => prev.filter(c => !result.created.some(x => x.email === c.email)));
+      }
+    } catch (err) {
+      setImportError(err.message || 'Import échoué');
+    } finally {
+      setImportSaving(false);
+    }
+  }
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return clients;
@@ -121,6 +193,7 @@ function ClientsContent() {
   }, [clients, query]);
 
   const activeCount = clients.filter(c => c.tone === 'active' || c.active_projects > 0).length;
+  const selectedCount = Object.values(selected).filter(Boolean).length;
 
   return (
     <div className="space-y-5">
@@ -132,18 +205,112 @@ function ClientsContent() {
             {activeCount ? ` · ${activeCount} actif${activeCount > 1 ? 's' : ''}` : ''}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setShowForm(true);
-            setEditId(null);
-            setForm({ name: '', contact: '', email: '', phone: '', address: '', city: '', notes: '' });
-          }}
-          className="btn-primary gap-1.5 shrink-0"
-        >
-          <Plus className="h-4 w-4" /> Nouveau client
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={openMailImport}
+            className="btn-secondary gap-1.5 shrink-0"
+          >
+            <Inbox className="h-4 w-4" /> Depuis le courriel
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowForm(true);
+              setEditId(null);
+              setForm({ name: '', contact: '', email: '', phone: '', address: '', city: '', notes: '' });
+            }}
+            className="btn-primary gap-1.5 shrink-0"
+          >
+            <Plus className="h-4 w-4" /> Nouveau client
+          </button>
+        </div>
       </div>
+
+      {importOpen && (
+        <div className="card rounded-2xl space-y-4 border-neya-orange/20">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-display text-lg font-semibold text-neya-ink">Import depuis la boîte mail</h2>
+              <p className="text-sm text-neya-muted mt-0.5">
+                Contacts externes détectés (hors fournisseurs / newsletters) qui n’ont pas encore de fiche.
+              </p>
+            </div>
+            <button type="button" className="btn-secondary text-sm" onClick={() => setImportOpen(false)}>
+              Fermer
+            </button>
+          </div>
+
+          {importLoading && <p className="text-sm text-neya-muted">Scan de la boîte mail en cours…</p>}
+          {importError && <p className="text-sm text-red-600">{importError}</p>}
+          {importResult && (
+            <p className="text-sm text-emerald-700">
+              {importResult.created_count} fiche{importResult.created_count > 1 ? 's' : ''} créée
+              {importResult.created_count > 1 ? 's' : ''}
+              {importResult.skipped?.length ? ` · ${importResult.skipped.length} ignorée(s)` : ''}
+            </p>
+          )}
+
+          {!importLoading && candidates.length > 0 && (
+            <>
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <button type="button" className="text-neya-orange hover:underline" onClick={() => toggleAll(true)}>
+                  Tout sélectionner
+                </button>
+                <span className="text-neya-muted">·</span>
+                <button type="button" className="text-neya-muted hover:underline" onClick={() => toggleAll(false)}>
+                  Tout désélectionner
+                </button>
+                <span className="text-neya-muted ml-auto">{selectedCount} sélectionné{selectedCount > 1 ? 's' : ''}</span>
+              </div>
+              <div className="max-h-[420px] overflow-y-auto rounded-xl border border-neya-border divide-y divide-neya-border">
+                {candidates.map(c => (
+                  <label key={c.email} className="flex items-start gap-3 p-3 hover:bg-neya-surface/60 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={Boolean(selected[c.email])}
+                      onChange={e => setSelected(prev => ({ ...prev, [c.email]: e.target.checked }))}
+                    />
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <input
+                        className="input h-9 text-sm"
+                        value={nameEdits[c.email] || ''}
+                        onChange={e => setNameEdits(prev => ({ ...prev, [c.email]: e.target.value }))}
+                        onClick={e => e.stopPropagation()}
+                      />
+                      <p className="text-[12px] text-neya-muted truncate">{c.email}</p>
+                      <p className="text-[11px] text-neya-muted">
+                        {c.message_count} message{c.message_count > 1 ? 's' : ''}
+                        {c.last_subject ? ` · ${c.last_subject}` : ''}
+                      </p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="btn-primary"
+                  disabled={importSaving || selectedCount === 0}
+                  onClick={confirmImport}
+                >
+                  {importSaving ? 'Création…' : `Créer ${selectedCount} fiche${selectedCount > 1 ? 's' : ''}`}
+                </button>
+                <button type="button" className="btn-secondary" onClick={openMailImport} disabled={importLoading}>
+                  Rescanner
+                </button>
+              </div>
+            </>
+          )}
+
+          {!importLoading && !importError && candidates.length === 0 && (
+            <p className="text-sm text-neya-muted py-4 text-center">
+              Aucun nouveau contact client trouvé dans la boîte mail.
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="relative max-w-xl">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neya-muted" aria-hidden />
