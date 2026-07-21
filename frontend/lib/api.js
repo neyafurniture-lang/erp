@@ -177,7 +177,10 @@ export async function api(path, options = {}) {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Erreur ${res.status}`);
+    const error = new Error(err.error || `Erreur ${res.status}`);
+    if (err.code) error.code = err.code;
+    if (err.existing_count != null) error.existing_count = err.existing_count;
+    throw error;
   }
 
   if (res.headers.get('content-type')?.includes('application/pdf')) {
@@ -193,7 +196,15 @@ export function formatMoney(n) {
 
 export function formatDate(d) {
   if (!d) return '—';
-  return new Date(d).toLocaleDateString('fr-CA');
+  const s = String(d);
+  // DATE SQL / ISO jour : éviter le décalage UTC (ex. 2026-07-15 → 14 juil. à Montréal)
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) {
+    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).toLocaleDateString('fr-CA');
+  }
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return '—';
+  return dt.toLocaleDateString('fr-CA');
 }
 
 export const TASK_TYPES = [
@@ -205,6 +216,8 @@ export const TASK_TYPES = [
 ];
 
 export const ADMIN_TASK_CATEGORIES = [
+  { value: 'a_payer', label: 'À payer', icon: '💸', color: 'bg-red-100 text-red-800' },
+  { value: 'a_recevoir', label: 'À recevoir', icon: '💰', color: 'bg-emerald-100 text-emerald-800' },
   { value: 'marche', label: 'Marchés & événements', icon: '🏪', color: 'bg-purple-100 text-purple-800' },
   { value: 'facturation', label: 'Factures & devis', icon: '📄', color: 'bg-blue-100 text-blue-800' },
   { value: 'site_web', label: 'Site web', icon: '🌐', color: 'bg-cyan-100 text-cyan-800' },
@@ -219,7 +232,7 @@ export const ADMIN_TASK_STATUS = [
 ];
 
 export function adminCategoryMeta(value) {
-  return ADMIN_TASK_CATEGORIES.find(c => c.value === value) || ADMIN_TASK_CATEGORIES[4];
+  return ADMIN_TASK_CATEGORIES.find(c => c.value === value) || ADMIN_TASK_CATEGORIES[ADMIN_TASK_CATEGORIES.length - 1];
 }
 
 export const EXPENSE_CATEGORIES = [

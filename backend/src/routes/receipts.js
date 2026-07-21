@@ -5,6 +5,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import pool from '../db/pool.js';
 import { scanReceiptImage } from '../services/receipt-scan.js';
+import { normalizePurchaseDate, todayISODate } from '../services/expense-date.js';
 import * as drive from '../services/google-drive.js';
 import { getGoogleTokenRow } from '../services/google-oauth.js';
 
@@ -98,6 +99,7 @@ router.post('/scan', multerScan, async (req, res) => {
 
     const parsed = await scanReceiptImage(req.file.path, mime.startsWith('image/') ? mime : 'image/jpeg');
     const receipt_url = `/uploads/receipts/${req.file.filename}`;
+    const purchaseDate = normalizePurchaseDate(parsed.date);
 
     const { rows } = await pool.query(
       `INSERT INTO receipt_scans (
@@ -110,7 +112,7 @@ router.post('/scan', multerScan, async (req, res) => {
         parsed.amount,
         parsed.tax_tps,
         parsed.tax_tvq,
-        parsed.date,
+        purchaseDate,
         parsed.category,
         parsed.description,
         parsed.raw_text,
@@ -168,7 +170,7 @@ router.post('/:id/confirm', async (req, res) => {
           if (fs.existsSync(localPath)) {
             const buffer = fs.readFileSync(localPath);
             const ext = path.extname(localPath) || '.jpg';
-            const name = `${row.vendor || 'Ticket'}-${purchase_date || 'sans-date'}${ext}`.replace(/[^\w.\-àâäéèêëïîôùûüç ]/gi, '_');
+            const name = `${row.vendor || 'Ticket'}-${normalizePurchaseDate(purchase_date) || normalizePurchaseDate(row.purchase_date) || 'sans-date'}${ext}`.replace(/[^\w.\-àâäéèêëïîôùûüç ]/gi, '_');
             const uploaded = await drive.uploadFile(name, buffer, 'image/jpeg', parentId);
             drive_file_id = uploaded.id;
             drive_link = uploaded.webViewLink;
@@ -183,16 +185,20 @@ router.post('/:id/confirm', async (req, res) => {
     const desc = String(description || '').trim()
       || [finalVendor, row.description].filter(Boolean).join(' — ')
       || 'Ticket de caisse';
+    // Date du ticket (pas created_at) pour le suivi des dépenses par mois
+    const expenseDate = normalizePurchaseDate(purchase_date)
+      || normalizePurchaseDate(row.purchase_date)
+      || todayISODate();
     const { rows: expenseRows } = await pool.query(
       `INSERT INTO expenses (amount, category, description, project_id, receipt_url, date)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+       VALUES ($1, $2, $3, $4, $5, $6::date) RETURNING *`,
       [
         finalAmount,
         category || 'materiaux',
         desc,
         project_id || null,
         row.receipt_url,
-        purchase_date || new Date(),
+        expenseDate,
       ]
     );
 
@@ -203,7 +209,7 @@ router.post('/:id/confirm', async (req, res) => {
         amount = $2,
         category = $3,
         description = $4,
-        purchase_date = $5,
+        purchase_date = $5::date,
         expense_id = $6,
         drive_file_id = $7,
         drive_link = $8,
@@ -214,7 +220,7 @@ router.post('/:id/confirm', async (req, res) => {
         finalAmount,
         category || 'materiaux',
         desc,
-        purchase_date || row.purchase_date,
+        expenseDate,
         expenseRows[0].id,
         drive_file_id,
         drive_link,

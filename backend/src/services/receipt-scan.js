@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { getOpenAIKey, getAnthropicKey, getAnthropicModel, getSetting } from './settings.js';
+import { normalizePurchaseDate, extractDateFromText } from './expense-date.js';
 
 const CATEGORY_HINT = 'materiaux|outils|transport|atelier|admin';
 
@@ -20,6 +21,7 @@ Extrais les données et réponds UNIQUEMENT avec un objet JSON valide, sans mark
 }
 Règles :
 - amount = total TTC payé (nombre)
+- date = date d'ACHAT imprimée sur le ticket (PAS la date d'aujourd'hui). Convertis JJ/MM/AAAA ou MM/DD/YYYY en YYYY-MM-DD. Si illisible → null
 - category parmi materiaux|outils|transport|atelier|admin
 - description courte, sans sauts de ligne ni guillemets non échappés
 - confidence entre 0 et 1
@@ -45,16 +47,20 @@ function normalizeCategory(raw) {
 }
 
 function normalizeParsed(parsed) {
+  const rawText = parsed.raw_text || '';
+  const date = normalizePurchaseDate(parsed.date)
+    || extractDateFromText(`${parsed.date || ''} ${rawText} ${parsed.description || ''}`)
+    || null;
   return {
     vendor: parsed.vendor?.trim() || null,
     amount: parsed.amount != null && !Number.isNaN(Number(parsed.amount)) ? Number(parsed.amount) : null,
     tax_tps: parsed.tax_tps != null && !Number.isNaN(Number(parsed.tax_tps)) ? Number(parsed.tax_tps) : null,
     tax_tvq: parsed.tax_tvq != null && !Number.isNaN(Number(parsed.tax_tvq)) ? Number(parsed.tax_tvq) : null,
-    date: parsed.date || null,
+    date,
     category: normalizeCategory(parsed.category),
     description: String(parsed.description || parsed.vendor || 'Ticket de caisse').trim().slice(0, 240),
     payment_method: parsed.payment_method || null,
-    raw_text: parsed.raw_text || '',
+    raw_text: rawText,
     confidence: parsed.confidence != null ? Number(parsed.confidence) : null,
     parsed_json: parsed,
   };

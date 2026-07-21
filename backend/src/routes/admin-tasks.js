@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import pool from '../db/pool.js';
 import { syncAdminTasksFromModules, ADMIN_CATEGORIES, seedPriorityTasks } from '../services/admin-task-sync.js';
+import { scanMailInvoicesToAdminTasks } from '../services/mail-invoice-todos.js';
 
 const router = Router();
 
@@ -106,6 +107,25 @@ router.post('/sync', async (req, res) => {
     res.json({ ...result, tasks: rows });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+/** Scan Gmail + factures ERP → todos « À payer » / « À recevoir ». */
+router.post('/scan-mail-invoices', async (req, res) => {
+  try {
+    const days = Number(req.body?.days) || 30;
+    const max = Number(req.body?.max) || 50;
+    const result = await scanMailInvoicesToAdminTasks({ days, max });
+    const { rows } = await pool.query(`
+      SELECT * FROM admin_tasks
+      WHERE category IN ('a_payer', 'a_recevoir') AND status != 'done'
+      ORDER BY
+        CASE category WHEN 'a_payer' THEN 0 ELSE 1 END,
+        title ASC, created_at DESC
+    `);
+    res.json({ ...result, tasks: rows });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 

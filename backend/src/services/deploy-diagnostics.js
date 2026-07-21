@@ -6,6 +6,8 @@ export const CAPABILITIES = [
   { id: 'gmail', label: 'Gmail (lecture / envoi)', routes: ['/api/gmail/messages', '/api/gmail/search'] },
   { id: 'gmail_threads', label: 'Fils courriel + synthèse IA', routes: ['/api/gmail/threads/process-message', '/api/gmail/threads/by-gmail/:id'] },
   { id: 'email_threads', label: 'Fils courriel (alias)', routes: ['/api/email-threads/process-message'] },
+  { id: 'gmail_attachments', label: 'Pièces jointes mail (ouvrir / classer)', routes: ['/api/gmail/messages/:id/attachments/:attachmentId', '/api/gmail/messages/:id/file-attachments-to-project'] },
+  { id: 'gmail_read_state', label: 'Marquer mail lu / non lu', routes: ['/api/gmail/messages/:id/read', '/api/gmail/messages/:id/unread'] },
   { id: 'supplier_invoices', label: 'Scan factures fournisseurs', routes: ['/api/supplier-invoices/scan', '/api/supplier-invoices/pending'] },
   { id: 'receipts', label: 'Scan tickets de caisse', routes: ['/api/receipts'] },
   { id: 'drive', label: 'Google Drive', routes: ['/api/drive/tree'] },

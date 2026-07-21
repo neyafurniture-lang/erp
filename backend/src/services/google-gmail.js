@@ -120,6 +120,39 @@ function collectBodyAttachmentRefs(payload, acc = []) {
   return acc;
 }
 
+/** Fichiers joints (PDF, images, etc.) — pas le corps MIME text. */
+export function extractFileAttachments(payload, acc = []) {
+  if (!payload) return acc;
+  const filename = String(payload.filename || '').trim();
+  const attachmentId = payload.body?.attachmentId;
+  if (filename && attachmentId) {
+    acc.push({
+      id: attachmentId,
+      filename,
+      mimeType: payload.mimeType || 'application/octet-stream',
+      size: Number(payload.body?.size) || 0,
+    });
+  }
+  for (const part of payload.parts || []) extractFileAttachments(part, acc);
+  return acc;
+}
+
+function findAttachmentPart(payload, attachmentId) {
+  if (!payload) return null;
+  if (payload.body?.attachmentId === attachmentId) return payload;
+  for (const part of payload.parts || []) {
+    const found = findAttachmentPart(part, attachmentId);
+    if (found) return found;
+  }
+  return null;
+}
+
+function decodeAttachmentData(data) {
+  if (!data) return Buffer.alloc(0);
+  const b64 = String(data).replace(/-/g, '+').replace(/_/g, '/');
+  return Buffer.from(b64, 'base64');
+}
+
 async function hydrateBodyAttachments(messageId, payload) {
   const refs = collectBodyAttachmentRefs(payload);
   if (!refs.length) return payload;
@@ -151,6 +184,7 @@ async function hydrateBodyAttachments(messageId, payload) {
 export function formatMessage(msg) {
   const headers = msg.payload?.headers || [];
   const { text, html } = extractBodies(msg.payload);
+  const attachments = extractFileAttachments(msg.payload);
   return {
     id: msg.id,
     threadId: msg.threadId,
@@ -164,6 +198,8 @@ export function formatMessage(msg) {
     body: text,
     bodyHtml: html || null,
     isUnread: (msg.labelIds || []).includes('UNREAD'),
+    attachments,
+    hasAttachments: attachments.length > 0,
   };
 }
 
@@ -192,6 +228,53 @@ export async function getMessage(messageId) {
     await hydrateBodyAttachments(messageId, msg.payload);
   }
   return formatMessage(msg);
+}
+
+/** Télécharge une pièce jointe fichier (par attachmentId Gmail). */
+export async function getAttachment(messageId, attachmentId) {
+  const rawId = String(attachmentId || '');
+  const candidates = [...new Set([
+    rawId,
+    (() => { try { return decodeURIComponent(rawId); } catch { return null; } })(),
+  ].filter(Boolean))];
+
+  const msg = await gmailFetch(`/messages/${messageId}?format=full`);
+  let part = null;
+  for (const id of candidates) {
+    part = findAttachmentPart(msg?.payload, id);
+    if (part) {
+      attachmentId = id;
+      break;
+    }
+  }
+  if (!part) {
+    const listed = extractFileAttachments(msg?.payload);
+    const match = listed.find(a => candidates.includes(a.id));
+    if (match) {
+      attachmentId = match.id;
+      part = findAttachmentPart(msg?.payload, match.id);
+    }
+  }
+  if (!part) {
+    const names = extractFileAttachments(msg?.payload).map(a => a.filename).filter(Boolean);
+    throw new Error(
+      names.length
+        ? `Pièce jointe introuvable (disponibles : ${names.join(', ')})`
+        : 'Pièce jointe introuvable sur ce message'
+    );
+  }
+
+  const att = await gmailFetch(`/messages/${messageId}/attachments/${encodeURIComponent(attachmentId)}`);
+  if (!att?.data) throw new Error('Contenu pièce jointe vide');
+  const buffer = decodeAttachmentData(att.data);
+  return {
+    buffer,
+    filename: String(part.filename || 'piece-jointe').trim() || 'piece-jointe',
+    mimeType: part.mimeType || 'application/octet-stream',
+    size: buffer.length,
+    messageId,
+    attachmentId,
+  };
 }
 
 export async function getThread(threadId) {
@@ -273,6 +356,22 @@ export async function modifyLabels(messageId, addLabelIds = [], removeLabelIds =
     body: JSON.stringify({ addLabelIds, removeLabelIds }),
   });
   return { ok: true };
+}
+
+/** Marque un message (ou fil entier) comme lu. */
+export async function markMessageRead(messageId, { threadId } = {}) {
+  if (threadId) {
+    return modifyThreadLabels(threadId, [], ['UNREAD']);
+  }
+  return modifyLabels(messageId, [], ['UNREAD']);
+}
+
+/** Marque un message (ou fil entier) comme non lu. */
+export async function markMessageUnread(messageId, { threadId } = {}) {
+  if (threadId) {
+    return modifyThreadLabels(threadId, ['UNREAD'], []);
+  }
+  return modifyLabels(messageId, ['UNREAD'], []);
 }
 
 export async function listLabels() {

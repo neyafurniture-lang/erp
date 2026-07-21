@@ -55,10 +55,17 @@ router.post('/scan', async (req, res) => {
     const year = req.body?.year || req.query?.year || null;
     const max = Number(req.body?.max || req.query?.max) || 40;
     const result = await scanInboxForSupplierInvoices({ max, year });
+    let adminTodos = null;
+    try {
+      const { scanMailInvoicesToAdminTasks } = await import('../services/mail-invoice-todos.js');
+      adminTodos = await scanMailInvoicesToAdminTasks({ days: 21, max: 40 });
+    } catch {
+      /* todos admin optionnels */
+    }
     const { rows } = await pool.query(
       `${enrichQuery()} WHERE s.status = 'pending' ORDER BY s.created_at DESC`
     );
-    res.json({ ...result, pending_list: rows });
+    res.json({ ...result, pending_list: rows, admin_todos: adminTodos });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
