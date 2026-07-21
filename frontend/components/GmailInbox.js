@@ -556,10 +556,15 @@ function MailAttachments({
   );
 }
 
-export default function GmailInbox({ projectId = null, linkProjectId = null }) {
+export default function GmailInbox({
+  projectId = null,
+  linkProjectId = null,
+  initialMessageId = null,
+}) {
   const [connected, setConnected] = useState(null);
   const [messages, setMessages] = useState([]);
   const [selected, setSelected] = useState(null);
+  const deepLinkOpened = useRef(null);
   const [thread, setThread] = useState(null);
   const [loading, setLoading] = useState(true);
   const [threadLoading, setThreadLoading] = useState(false);
@@ -778,9 +783,10 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
     setPrevReply(null);
     setShowDraftInstr(false);
 
+    let full = null;
     try {
       // Toujours recharger le message complet (corps + pièces jointes)
-      const full = await api(`/gmail/messages/${id}`);
+      full = await api(`/gmail/messages/${id}`);
       setSelected(full);
 
       // Comportement Gmail : ouvrir = marquer comme lu
@@ -796,7 +802,8 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
 
     // Lecture d'abord (sync rapide) — l'IA ne doit pas bloquer l'ouverture
     try {
-      if (m.threadId) await loadThreadContext(m);
+      const threadId = full?.threadId || m.threadId;
+      if (threadId) await loadThreadContext({ ...m, ...full, threadId });
     } catch { /* ignore */ }
 
     if (activeFolder === 'sent') {
@@ -828,6 +835,15 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
       }
     }
   }
+
+  useEffect(() => {
+    if (!initialMessageId || connected !== true) return;
+    if (deepLinkOpened.current === initialMessageId) return;
+    deepLinkOpened.current = initialMessageId;
+    openMessage({ id: initialMessageId });
+    // openMessage volontairement hors deps : ouvrir une seule fois par id
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialMessageId, connected]);
 
   async function processInbox() {
     setInboxProcessing(true);

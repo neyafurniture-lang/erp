@@ -13,6 +13,7 @@ import {
   guessPersonFromMessage,
   norm,
 } from './mail-invoice-classify.js';
+import { mailMessageHref, resolveMailTaskHref } from './mail-deep-link.js';
 
 export {
   KNOWN_ALIASES,
@@ -26,6 +27,8 @@ export {
   personSlug,
   norm,
 } from './mail-invoice-classify.js';
+
+export { mailMessageHref, resolveMailTaskHref } from './mail-deep-link.js';
 
 async function getOwnEmails() {
   const set = new Set(['neyafurniture@gmail.com', 'facturation@neyafurniture.ca']);
@@ -70,6 +73,21 @@ function messageDueDate(msg) {
   return d.toISOString().slice(0, 10);
 }
 
+/** Corrige les todos mail existantes qui pointent seulement vers `/mail`. */
+export async function backfillMailTodoDeepLinks() {
+  const { rowCount } = await pool.query(`
+    UPDATE admin_tasks
+    SET link_href = '/mail?message=' || substring(source_key from '^mail_(?:payable|receivable)_(.+)$')
+    WHERE source_key ~ '^mail_(payable|receivable)_'
+      AND (
+        link_href IS NULL
+        OR link_href = '/mail'
+        OR link_href NOT LIKE '/mail?message=%'
+      )
+  `);
+  return rowCount || 0;
+}
+
 /**
  * Crée/met à jour une todo admin pour un message facture Gmail.
  */
@@ -105,7 +123,7 @@ export async function upsertAdminTaskFromMailMessage(msg, {
     source_key,
     title,
     category: kind,
-    link_href: '/mail',
+    link_href: mailMessageHref(msg.id),
     due_date: messageDueDate(msg),
     notes,
     priority_tier: 'p1',
@@ -162,6 +180,11 @@ export async function scanMailInvoicesToAdminTasks({ days = 30, max = 50 } = {})
   const created = [];
   const classified = [];
   const errors = [];
+  try {
+    await backfillMailTodoDeepLinks();
+  } catch (err) {
+    errors.push({ stage: 'backfill_links', error: err.message });
+  }
   const ownEmails = await getOwnEmails();
   const people = await loadPeopleDirectory();
 
