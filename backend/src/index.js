@@ -48,6 +48,7 @@ import timeEntriesRoutes from './routes/time-entries.js';
 import financeSyncRoutes from './routes/finance-sync.js';
 import saunaCloudRoutes from './routes/sauna-cloud.js';
 import cuttingPlansRoutes from './routes/cutting-plans.js';
+import publicSketchupRoutes from './routes/public-sketchup.js';
 import marketplaceRoutes from './routes/marketplace.js';
 import socialRoutes from './routes/social.js';
 import payrollRoutes from './routes/payroll.js';
@@ -94,9 +95,21 @@ app.get('/health', (_req, res) => {
 });
 
 // Fichiers uploadés — accès authentifié uniquement
-app.use('/uploads', uploadAuth, express.static(path.join(__dirname, '../uploads'), {
+app.use('/uploads', uploadAuth, (req, res, next) => {
+  if (/\.skp$/i.test(req.path || '')) {
+    res.type('application/vnd.sketchup.skp');
+  }
+  next();
+}, express.static(path.join(__dirname, '../uploads'), {
   dotfiles: 'deny',
   index: false,
+  setHeaders(res, filePath) {
+    if (/\.skp$/i.test(filePath)) {
+      res.setHeader('Content-Type', 'application/vnd.sketchup.skp');
+      const base = path.basename(filePath);
+      res.setHeader('Content-Disposition', `attachment; filename="${base}"`);
+    }
+  },
 }));
 
 app.use('/api/auth', authRoutes);
@@ -150,6 +163,7 @@ protectedRouter.use('/marketplace', marketplaceRoutes);
 protectedRouter.use('/social', socialRoutes);
 protectedRouter.use('/payroll', payrollRoutes);
 
+app.use('/api/public', publicSketchupRoutes);
 app.use('/api', protectedRouter);
 
 app.use((err, req, res, next) => {

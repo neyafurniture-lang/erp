@@ -162,11 +162,29 @@ export default function ProjectDocumentsPanel({ project, onReload }) {
 
   async function openMailAttachment(file) {
     try {
-      if (file.drive_web_view) {
+      const isSkp = /\.skp$/i.test(file.name || file.url || '') || /sketchup/i.test(file.mimeType || '');
+      if (file.drive_web_view && !isSkp) {
         window.open(file.drive_web_view, '_blank', 'noopener,noreferrer');
         return;
       }
       if (file.url?.startsWith('/uploads/')) {
+        if (isSkp) {
+          const token = getToken();
+          const res = await fetch(resolveUploadUrl(file.url), {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
+          if (!res.ok) throw new Error(`Erreur ${res.status}`);
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = file.name || 'modele.skp';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 60_000);
+          return;
+        }
         window.open(resolveUploadUrl(file.url), '_blank', 'noopener,noreferrer');
         return;
       }
@@ -174,9 +192,10 @@ export default function ProjectDocumentsPanel({ project, onReload }) {
         const params = new URLSearchParams();
         if (file.gmail_attachment_id) params.set('attachmentId', file.gmail_attachment_id);
         if (file.name) params.set('filename', file.name);
-        params.set('inline', '1');
+        if (!isSkp) params.set('inline', '1');
         await openAuthUrl(
-          `/gmail/messages/${encodeURIComponent(file.gmail_message_id)}/attachments?${params}`
+          `/gmail/messages/${encodeURIComponent(file.gmail_message_id)}/attachments?${params}`,
+          isSkp ? { downloadName: file.name || 'modele.skp' } : undefined
         );
         return;
       }
@@ -193,6 +212,7 @@ export default function ProjectDocumentsPanel({ project, onReload }) {
   const quotes = data?.quotes || [];
   const mailFiles = data?.mail_files || [];
   const plans = data?.plans || [];
+  const sketchupFiles = data?.sketchup_files || [];
   const emails = data?.emails || [];
   const unlinkedClientQuotes = linkQuotes.filter(q => !q.project_id);
 
@@ -365,6 +385,36 @@ export default function ProjectDocumentsPanel({ project, onReload }) {
                 >
                   {p.name || `Plan ${i + 1}`}
                 </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {sketchupFiles.length > 0 && (
+        <section className="card space-y-3 rounded-2xl">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="font-display text-lg font-semibold text-neya-ink">
+              SketchUp ({sketchupFiles.length})
+            </h2>
+            <Link href={`?tab=plans`} className="text-xs font-medium text-neya-orange hover:underline">
+              Gérer →
+            </Link>
+          </div>
+          <ul className="space-y-2">
+            {sketchupFiles.map((f, i) => (
+              <li
+                key={f.id || i}
+                className="flex items-center gap-3 rounded-xl border border-neya-border px-3 py-2.5"
+              >
+                <span className="text-xs font-bold text-neya-ink">SKP</span>
+                <p className="min-w-0 flex-1 truncate text-sm font-medium text-neya-ink">{f.name}</p>
+                <Link
+                  href={`?tab=plans`}
+                  className="btn-secondary text-xs min-h-[32px] shrink-0 inline-flex items-center"
+                >
+                  Ouvrir
+                </Link>
               </li>
             ))}
           </ul>

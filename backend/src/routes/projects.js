@@ -21,6 +21,18 @@ const planUpload = multer({
   },
 });
 
+const skpUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 80 * 1024 * 1024 },
+  fileFilter(_req, file, cb) {
+    const name = file.originalname || '';
+    const ok = /\.skp$/i.test(name)
+      || /sketchup/i.test(file.mimetype || '')
+      || file.mimetype === 'application/octet-stream';
+    cb(ok && /\.skp$/i.test(name) ? null : new Error('Fichier .skp SketchUp requis'), /\.skp$/i.test(name));
+  },
+});
+
 async function loadProjectFull(id) {
   const { rows: full } = await pool.query(
     `SELECT p.*, c.name as client_name
@@ -564,6 +576,74 @@ router.post('/:id/plans/import', planUpload.single('pdf'), async (req, res) => {
     res.status(201).json({ ok: true, plans: rows[0].meta?.plans || nextMeta.plans, added: pages.length });
   } catch (err) {
     res.status(400).json({ error: err.message || 'Import PDF impossible' });
+  }
+});
+
+/** Uploader un fichier SketchUp (.skp) — ouverture via téléchargement / app desktop. */
+router.post('/:id/sketchup', skpUpload.single('skp'), async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!req.file?.buffer?.length) {
+      return res.status(400).json({ error: 'Fichier .skp requis (champ skp)' });
+    }
+    const { storeSketchupFile } = await import('../services/project-sketchup.js');
+    const result = await storeSketchupFile(id, req.file.buffer, req.file.originalname || 'modele.skp');
+    res.status(201).json({ ok: true, file: result.file, sketchup_files: result.sketchup_files });
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Upload SketchUp impossible' });
+  }
+});
+
+router.delete('/:id/sketchup/:fileId', async (req, res) => {
+  try {
+    const { removeSketchupFile } = await import('../services/project-sketchup.js');
+    const result = await removeSketchupFile(Number(req.params.id), req.params.fileId);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/** URL iframe InnerScene (viewer + mesure) pour un .skp du projet. */
+router.get('/:id/sketchup/:fileId/embed', async (req, res) => {
+  try {
+    const { createSketchupEmbed } = await import('../services/project-sketchup.js');
+    const result = await createSketchupEmbed(Number(req.params.id), req.params.fileId, req);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/** Télécharger / « ouvrir » un .skp (force le téléchargement avec le bon type MIME). */
+router.get('/:id/sketchup/:fileId/download', async (req, res) => {
+  try {
+    const { listSketchupFiles, SKP_MIME } = await import('../services/project-sketchup.js');
+    const id = Number(req.params.id);
+    const { rows } = await pool.query('SELECT meta FROM projects WHERE id = $1', [id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Projet introuvable' });
+    const files = listSketchupFiles(rows[0].meta);
+    const file = files.find(f => String(f.id) === String(req.params.fileId));
+    if (!file?.url) return res.status(404).json({ error: 'Fichier SketchUp introuvable' });
+
+    const fs = await import('fs');
+    const path = await import('path');
+    const { fileURLToPath } = await import('url');
+    const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../uploads');
+    const rel = String(file.url).replace(/^\/uploads\//, '');
+    const disk = path.join(root, rel);
+    if (!fs.existsSync(disk)) return res.status(404).json({ error: 'Fichier absent sur le disque' });
+
+    const safeName = String(file.name || 'modele.skp').replace(/[\\"\r\n]/g, '_');
+    res.setHeader('Content-Type', SKP_MIME);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${safeName.replace(/[^\x20-\x7E]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(safeName)}`
+    );
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    fs.createReadStream(disk).pipe(res);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 

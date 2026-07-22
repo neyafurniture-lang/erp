@@ -111,6 +111,7 @@ function formatAttSize(n) {
 
 function attIcon(mime = '', name = '') {
   const m = `${mime} ${name}`.toLowerCase();
+  if (/\.skp\b|sketchup/.test(m)) return '📐';
   if (/pdf/.test(m)) return '📄';
   if (/image|png|jpe?g|gif|webp|heic/.test(m)) return '🖼️';
   if (/sheet|excel|xls|csv/.test(m)) return '📊';
@@ -363,12 +364,14 @@ function MailAttachments({
   }
 
   async function openAttachment(att, { download = false } = {}) {
+    const isSkp = /\.skp$/i.test(att.filename || '') || /sketchup/i.test(att.mimeType || '');
+    const forceDownload = download || isSkp;
     // Ouvrir la fenêtre tout de suite (sinon bloqué après le fetch async)
-    const previewWin = !download ? window.open('about:blank', '_blank') : null;
+    const previewWin = !forceDownload ? window.open('about:blank', '_blank') : null;
     try {
       const token = getToken();
       const res = await fetch(
-        attachmentUrl(att, { download }),
+        attachmentUrl(att, { download: forceDownload }),
         { headers: token ? { Authorization: `Bearer ${token}` } : {} }
       );
       if (!res.ok) {
@@ -378,11 +381,11 @@ function MailAttachments({
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
 
-      if (download || !previewWin || previewWin.closed) {
+      if (forceDownload || !previewWin || previewWin.closed) {
         if (previewWin && !previewWin.closed) previewWin.close();
         const a = document.createElement('a');
         a.href = url;
-        a.download = att.filename || 'piece-jointe';
+        a.download = att.filename || (isSkp ? 'modele.skp' : 'piece-jointe');
         a.target = '_blank';
         a.rel = 'noopener noreferrer';
         document.body.appendChild(a);
