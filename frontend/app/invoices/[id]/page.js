@@ -246,6 +246,11 @@ export default function InvoiceDetailPage() {
                   Devis source →
                 </Link>
               )}
+              {invoice.project_id && (
+                <Link href={`/projects/${invoice.project_id}`} className="dash-link block mt-2">
+                  Ouvrir le projet →
+                </Link>
+              )}
             </div>
           </aside>
         </div>

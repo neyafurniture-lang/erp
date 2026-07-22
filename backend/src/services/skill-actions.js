@@ -23,14 +23,16 @@ export const ACTION_TYPES = [
   'erp_manual', 'atelier_habits',
 ];
 
-/** Message qui décrit un matériau / stock à ajouter au projet (pas une tâche atelier). */
+/** Info matériel (essence, panneau, quincaillerie…) — pas une tâche à créer. */
 export function isMaterialInfoMessage(message = '') {
   const m = String(message || '');
-  if (!/\b(mat[eé]riau|mat[eé]riaux|mat[eé]riel|contreplaqu[eé]|mdf|ch[eê]ne|bois|vis|colle|panneau|plaque|quincaillerie|fer|acier|verre)\b/i.test(m)) {
-    return false;
-  }
-  return /\b(ajouter|ajoute|besoin|pr[eé]voir|commander|pr[eé]voir|noter|inscrire|mettre|pr[eé]voir)\b/i.test(m)
-    || /\b(x\s*\d+|\d+\s*(feuilles?|plaques?|unit[eé]s?|pi[eè]ces?))\b/i.test(m);
+  const material = /\b(merisier|ch[eê]ne|noyer|[eé]rable|frêne|frene|pin|c[eè]dre|contreplaqu[eé]|m[eé]lamine|mdf|baltic|panneau[x]?|quincaillerie|charni[eè]res?|coulisses?|vis\b|colle\b|vernis|teinture|bois\s+(franc|brut)|mat[eé]riau|mat[eé]riaux|mat[eé]riel|plaque|fer|acier|verre)\b/i.test(m);
+  if (!material) return false;
+  const taskVerb = /\b(fini[rs]?|termine[rz]?|coupe[rz]?|d[eé]bite[rz]?|assemble[rz]?|ponce[rz]?|usine[rz]?|installe[rz]?|livre[rz]?|appelle[rz]?|planifie[rz]?|rappelle|n['']oublie)\b/i.test(m);
+  const infoHint = /\b(utilis(e|é|er)|acheté|achete|reçu|recu|commande|commandé|en\s+stock|il\s+reste|on\s+a\s+(pris|mis)|mat[eé]riaux?\s*:|pour\s+ce\s+projet\s*:|ajouter|ajoute|besoin|pr[eé]voir|noter|inscrire)\b/i.test(m)
+    || /\b\d+\s*(pi|pieds?|pmp|feuilles?|plaques?|planches?|morceaux?|unit[eé]s?|pi[eè]ces?|\/4)\b/i.test(m)
+    || /\bx\s*\d+\b/i.test(m);
+  return infoHint && !taskVerb;
 }
 
 /** Extrait un éventuel objet params JSON préfixé au message (mode LLM). */
@@ -2021,26 +2023,34 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
 
     case 'add_project_material': {
       const id = projectId || await resolveProjectId(params, msg, pageContext);
-      if (!id) return { reply: 'Précisez le projet (page ouverte ou nom).', actions };
-      const description = params.description
-        || extractQuotedText(msg)
-        || extractAfterKeyword(msg, ['matériau', 'materiau', 'matériel', 'materiel', 'ajoute', 'ajouter'])
-        || msg.replace(/^(ajoute|ajouter|noter|prévoir|prevoir)\s+/i, '').trim();
-      if (!description) return { reply: 'Précisez le matériau (ex. « ajoute 2 plaques MDF »).', actions };
-      const qtyMatch = String(description).match(/(\d+(?:[.,]\d+)?)\s*(feuilles?|plaques?|unit[eé]s?|pi[eè]ces?)?/i)
-        || msg.match(/x\s*(\d+)/i);
+      if (!id) {
+        return { reply: 'Sur quel projet ? Ouvrez la fiche projet ou précisez son nom.', actions };
+      }
+      const unitCost = params.unit_cost != null
+        ? Number(params.unit_cost)
+        : (Number(params.price) || extractAmount(msg) || 0);
+      const qtyMatch = msg.match(/(\d+(?:[.,]\d+)?)\s*(pi|pieds?|pmp|feuilles?|plaques?|planches?|morceaux?|unités?|unit[eé]s?|pi[eè]ces?|x)\b/i);
       const quantity = params.quantity != null
         ? Number(params.quantity)
-        : (qtyMatch ? parseFloat(String(qtyMatch[1]).replace(',', '.')) : 1);
-      const unit_cost = params.unit_cost != null ? Number(params.unit_cost) : 0;
+        : (qtyMatch ? Number(String(qtyMatch[1]).replace(',', '.')) : 1);
+      const unit = params.unit || (qtyMatch ? String(qtyMatch[2]).toLowerCase() : 'unité');
+      const description = String(
+        params.description
+        || extractQuotedText(msg)
+        || extractAfterKeyword(msg, ['matériau', 'materiau', 'matériel', 'materiel', 'utilisé', 'utilise', 'acheté', 'achete', 'reçu', 'recu', 'ajoute', 'ajouter'])
+        || msg.replace(/^(ajoute|ajouter|noter|prévoir|prevoir)\s+/i, '').trim()
+        || msg
+      ).slice(0, 300);
+      if (!description) return { reply: 'Précisez le matériau (ex. « ajoute 2 plaques MDF »).', actions };
       const { rows } = await pool.query(
         `INSERT INTO project_materials (project_id, inventory_item_id, description, quantity, unit, unit_cost, notes)
          VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-        [id, params.inventory_item_id || null, String(description).slice(0, 500), quantity || 1, params.unit || 'unité', unit_cost, params.notes || null]
+        [id, params.inventory_item_id || null, description, quantity || 1, unit, unitCost, params.notes || null]
       );
       actions.push({ type: 'add_project_material', data: rows[0] });
+      const label = pageContext?.label ? ` sur « ${pageContext.label} »` : '';
       return {
-        reply: `Matériau ajouté au projet #${id} : ${rows[0].description} (×${rows[0].quantity}).`,
+        reply: `Matériau noté${label} : ${description} — ${quantity} ${unit}${unitCost ? ` · ${Number(unitCost).toFixed(2)} $/u` : ''}`,
         actions,
       };
     }

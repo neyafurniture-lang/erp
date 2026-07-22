@@ -297,6 +297,13 @@ async function tryOpenAI(message, history, pageContext = null) {
   }
   if (actionType === 'null' || actionType === 'none') actionType = null;
 
+  // Garde-fou routeur : info matériel ≠ tâche, Cursor seulement sur demande explicite
+  try {
+    const { validateLlmAction } = await import('./ai-router.js');
+    const check = validateLlmAction(actionType, message, pageContext);
+    actionType = check.valid ? check.actionType : null;
+  } catch { /* routeur indisponible — garder l'action telle quelle */ }
+
   if (actionType && ACTION_TYPES.includes(actionType)) {
     const fakeSkill = { action_type: actionType, name: actionType };
     const result = await executeSkill(fakeSkill, message, pageContext, actionParams || {});
@@ -521,6 +528,26 @@ export async function processMessage(message, attachments = [], rawContext = nul
     );
     return studied;
   }
+
+  // Fast-path : skill sûre (lecture / sync / manuel) matchée avec confiance → pas d'appel LLM
+  try {
+    const { SKILL_ONLY_ACTIONS, isHighConfidenceSkillMatch, needsLlmParsing } = await import('./ai-router.js');
+    const fastSkill = await matchSkill(message);
+    if (
+      fastSkill
+      && SKILL_ONLY_ACTIONS.has(fastSkill.action_type)
+      && isHighConfidenceSkillMatch(fastSkill, message)
+      && message.trim().length <= 80
+      && !needsLlmParsing(message, pageContext)
+    ) {
+      const fast = await executeSkill(fastSkill, contextualMessage, pageContext);
+      await pool.query(
+        'INSERT INTO assistant_messages (role, content, actions_taken) VALUES ($1,$2,$3)',
+        ['assistant', fast.reply, JSON.stringify(fast.actions || [])]
+      );
+      return fast;
+    }
+  } catch { /* routeur indisponible — continuer avec le LLM */ }
 
   // Correction « pas lié à ce projet » avant le LLM (évite de recréer la tâche dans le projet ouvert)
   if (wantsUnlinkFromProject(message)) {

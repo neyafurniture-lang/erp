@@ -326,7 +326,13 @@ export default function InvoicesPage() {
                       <Link href={detailHref} className="hover:text-neya-orange">
                         <p className="font-medium">{item.title || item.project_name || '—'}</p>
                       </Link>
-                      <p className="text-xs text-neya-muted">{item.client_name}</p>
+                      {item.client_id ? (
+                        <Link href={`/clients/${item.client_id}`} className="text-xs text-neya-muted hover:text-neya-orange hover:underline">
+                          {item.client_name}
+                        </Link>
+                      ) : (
+                        <p className="text-xs text-neya-muted">{item.client_name}</p>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-neya-muted tabular-nums">{formatDate(item.created_at)}</td>
                     <td className="px-4 py-3 font-display font-semibold tabular-nums">{formatMoney(item.total)}</td>

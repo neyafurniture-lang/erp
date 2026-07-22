@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
@@ -272,7 +273,13 @@ export default function ExpensesPage() {
                             {CATEGORY_LABELS[e.category] || e.category}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-neya-muted">{e.project_name || '—'}</td>
+                        <td className="px-4 py-3 text-neya-muted">
+                          {e.project_id ? (
+                            <Link href={`/projects/${e.project_id}`} className="hover:text-neya-orange hover:underline">
+                              {e.project_name || `Projet #${e.project_id}`}
+                            </Link>
+                          ) : (e.project_name || '—')}
+                        </td>
                         <td className="px-4 py-3">
                           {e.receipt_url ? (
                             <a href={resolveUploadUrl(e.receipt_url)} target="_blank" rel="noopener noreferrer" className="text-neya-orange text-xs hover:underline">Voir</a>
