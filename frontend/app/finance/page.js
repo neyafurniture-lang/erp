@@ -128,6 +128,12 @@ function FinanceDashboard() {
           }}
         />
 
+        <p className="mb-6 text-sm text-neya-muted">
+          Pour revoir les projets {year}, lier les factures et marquer terminé :{' '}
+          <Link href={`/projects/revue?year=${year}`} className="text-neya-orange hover:underline">
+            Revue projets {year} →
+          </Link>
+        </p>
         <div className="flex flex-wrap items-end gap-3 mb-6">
           <div>
             <label className="label">Année</label>

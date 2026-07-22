@@ -257,9 +257,32 @@ export const PURCHASE_NEED_STATUS = {
 
 export const PROJECT_STATUS = [
   { value: 'active', label: 'Actif', color: 'bg-neya-success' },
+  { value: 'waiting', label: 'En attente', color: 'bg-amber-500' },
   { value: 'paused', label: 'Pause', color: 'bg-neya-warning' },
   { value: 'done', label: 'Terminé', color: 'bg-neya-muted' },
+  { value: 'cancelled', label: 'Annulé', color: 'bg-red-400' },
 ];
+
+/** Alias legacy → valeur canonique (ex. on_hold → waiting). */
+export function normalizeProjectStatusValue(status) {
+  const raw = String(status || 'active').trim().toLowerCase();
+  if (raw === 'on_hold' || raw === 'on-hold' || raw === 'pending' || raw === 'en_attente') return 'waiting';
+  if (PROJECT_STATUS.some(s => s.value === raw)) return raw;
+  return 'active';
+}
+
+export function projectStatusMeta(status) {
+  const value = normalizeProjectStatusValue(status);
+  return PROJECT_STATUS.find(s => s.value === value) || PROJECT_STATUS[0];
+}
+
+/** Priorité projet (colonne INT) — vrai si > 0. */
+export function isProjectPriority(projectOrPriority) {
+  if (projectOrPriority && typeof projectOrPriority === 'object') {
+    return Number(projectOrPriority.priority) > 0;
+  }
+  return Number(projectOrPriority) > 0;
+}
 
 export async function downloadPdf(path, filename) {
   const token = getToken();

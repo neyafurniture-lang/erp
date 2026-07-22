@@ -13,6 +13,21 @@ export function todayISODate() {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
+function parseYmd(ymd) {
+  const m = String(ymd || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  return { y: Number(m[1]), mo: Number(m[2]), d: Number(m[3]) };
+}
+
+function daysBetween(aYmd, bYmd) {
+  const a = parseYmd(aYmd);
+  const b = parseYmd(bYmd);
+  if (!a || !b) return null;
+  const ua = Date.UTC(a.y, a.mo - 1, a.d);
+  const ub = Date.UTC(b.y, b.mo - 1, b.d);
+  return Math.round((ua - ub) / 86400000);
+}
+
 /**
  * @param {unknown} raw
  * @returns {string|null} YYYY-MM-DD ou null
@@ -49,8 +64,8 @@ export function normalizePurchaseDate(raw) {
   // JJ/MM/AAAA, JJ-MM-AAAA, JJ.MM.AAAA (Québec) — ou MM/DD/YYYY ambigu
   const dmy = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})/);
   if (dmy) {
-    let a = Number(dmy[1]);
-    let b = Number(dmy[2]);
+    const a = Number(dmy[1]);
+    const b = Number(dmy[2]);
     const y = Number(dmy[3]);
     let day;
     let month;
@@ -99,6 +114,39 @@ export function normalizePurchaseDate(raw) {
   }
 
   return null;
+}
+
+/**
+ * Date utilisable pour une dépense : refuse les dates absurdes (OCR / JJ↔MM).
+ * @param {unknown} raw
+ * @param {{ referenceDate?: string, maxDaysPast?: number, allowFutureDays?: number, force?: boolean }} [opts]
+ * @returns {{ date: string, adjusted: boolean, original: string|null, reason: string|null }}
+ */
+export function resolveExpenseDate(raw, opts = {}) {
+  const reference = normalizePurchaseDate(opts.referenceDate) || todayISODate();
+  const maxPast = opts.maxDaysPast ?? 60;
+  const allowFuture = opts.allowFutureDays ?? 1;
+  const original = normalizePurchaseDate(raw);
+
+  if (opts.force && original) {
+    return { date: original, adjusted: false, original, reason: null };
+  }
+
+  if (!original) {
+    return { date: reference, adjusted: true, original: null, reason: 'missing' };
+  }
+
+  const delta = daysBetween(original, reference);
+  if (delta == null) {
+    return { date: reference, adjusted: true, original, reason: 'invalid' };
+  }
+  if (delta > allowFuture) {
+    return { date: reference, adjusted: true, original, reason: 'future' };
+  }
+  if (delta < -maxPast) {
+    return { date: reference, adjusted: true, original, reason: 'too_old' };
+  }
+  return { date: original, adjusted: false, original, reason: null };
 }
 
 /** Cherche une date dans un texte de ticket (fallback si l'IA omet le champ). */

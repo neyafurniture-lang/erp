@@ -70,21 +70,54 @@ export function looksLikeInvoiceMail({ subject, snippet, from, attachments = [] 
 }
 
 /**
- * Direction : SENT → à recevoir (on a facturé) ; sinon → à payer (on a reçu une facture).
+ * Direction facture mail.
+ * - SENT / From = Neya → à recevoir (on a facturé)
+ * - Fournisseur connu ou employé/alias « Olive » → à payer
+ * - Client (ex. Delfine) → null (pas une todo « à payer » — c’est de l’argent à recevoir, déjà suivi via factures ERP)
+ * - Ambigu → null (on ne crée pas de todo importante)
  */
-export function classifyInvoiceKind({ labelIds = [], from = '', to = '', ownEmails = new Set() } = {}) {
+export function classifyInvoiceKind({
+  labelIds = [],
+  from = '',
+  to = '',
+  subject = '',
+  snippet = '',
+  ownEmails = new Set(),
+  people = [],
+} = {}) {
   const labels = labelIds.map(String);
   if (labels.includes('SENT')) return 'a_recevoir';
 
   const fromEmail = parseEmailAddress(from);
   if (fromEmail && ownEmails.has(fromEmail)) return 'a_recevoir';
 
-  const toEmail = parseEmailAddress(to);
-  if (toEmail && ownEmails.has(toEmail) && fromEmail && !ownEmails.has(fromEmail)) {
-    return 'a_payer';
+  const hay = `${from} ${subject} ${snippet}`;
+
+  const clientHit = matchCounterparty({
+    haystack: hay,
+    people: people.filter(p => p.type === 'client'),
+    includeAliases: false,
+  });
+  if (clientHit) return null;
+
+  if (detectSupplierLabel(from, subject, snippet)) return 'a_payer';
+
+  const employeeHit = matchCounterparty({
+    haystack: hay,
+    people: people.filter(p => p.type === 'employee'),
+    includeAliases: false,
+  });
+  if (employeeHit) return 'a_payer';
+
+  // Alias type Olive = facture à nous payer ; Phoenix = client / à recevoir (skip todo mail)
+  const hayN = norm(hay);
+  for (const alias of KNOWN_ALIASES) {
+    if (!alias.patterns.some(p => hayN.includes(norm(p)))) continue;
+    if (/olive/i.test(alias.name)) return 'a_payer';
+    return null;
   }
 
-  return 'a_payer';
+  return null;
 }
 
 export function buildInvoiceTaskTitle(kind, personName) {
@@ -94,9 +127,9 @@ export function buildInvoiceTaskTitle(kind, personName) {
 }
 
 /**
- * @param {{ haystack: string, people: Array<{ name: string, email?: string|null, type?: string }> }}
+ * @param {{ haystack: string, people: Array<{ name: string, email?: string|null, type?: string }>, includeAliases?: boolean }}
  */
-export function matchCounterparty({ haystack, people = [] } = {}) {
+export function matchCounterparty({ haystack, people = [], includeAliases = true } = {}) {
   const hay = norm(haystack);
   const emailMatch = String(haystack || '').match(/[\w.+-]+@[\w.-]+\.\w+/gi) || [];
   for (const email of emailMatch.map(e => e.toLowerCase())) {
@@ -115,8 +148,10 @@ export function matchCounterparty({ haystack, people = [] } = {}) {
     if (first.length >= 4 && hay.includes(first)) return p.name;
   }
 
-  for (const alias of KNOWN_ALIASES) {
-    if (alias.patterns.some(p => hay.includes(norm(p)))) return alias.name;
+  if (includeAliases) {
+    for (const alias of KNOWN_ALIASES) {
+      if (alias.patterns.some(p => hay.includes(norm(p)))) return alias.name;
+    }
   }
 
   return null;

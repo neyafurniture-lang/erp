@@ -364,7 +364,10 @@ export default function DashboardPage() {
                     : '');
                 return (
                   <li key={m.id}>
-                    <Link href="/mail" className="cf-mail-row">
+                    <Link
+                      href={m.id ? `/mail?message=${encodeURIComponent(m.id)}` : '/mail'}
+                      className="cf-mail-row"
+                    >
                       <span className="cf-mail-avatar" aria-hidden>{initials(from)}</span>
                       <span className="min-w-0 flex-1">
                         <span className="flex flex-wrap items-center gap-2">

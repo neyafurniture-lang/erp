@@ -143,8 +143,7 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
 
   useEffect(() => {
     load();
-    // Scan auto hors compact seulement (évite de ralentir /mail à chaque visite)
-    if (compact) return undefined;
+    // Scan auto à chaque visite /mail pour stocker les factures reçues
     api('/supplier-invoices/scan', { method: 'POST' })
       .then((result) => {
         if (result.scanned != null) {
@@ -152,6 +151,7 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
             ? ` · ${result.admin_todos.created} todo(s) admin`
             : '';
           setScanInfo(`${result.ingested || 0} facture(s) détectée(s) sur ${result.scanned} message(s) scanné(s)${todoBit}`);
+          if ((result.ingested || 0) > 0 && compact) setExpanded(true);
         }
         if (result.errors?.length) {
           setScanErr(result.errors[0].error);
