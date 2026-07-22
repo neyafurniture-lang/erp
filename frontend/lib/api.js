@@ -123,6 +123,45 @@ export function resolveUploadUrl(pathOrUrl) {
   return `${base}${path}${sep}access_token=${encodeURIComponent(token)}`;
 }
 
+/**
+ * Charge un fichier /uploads en blob URL (aperçu iframe/img — contourne X-Frame-Options).
+ * Penser à URL.revokeObjectURL au unmount.
+ */
+export async function fetchUploadObjectUrl(pathOrUrl) {
+  if (!pathOrUrl) throw new Error('Fichier manquant');
+  const token = getToken();
+  const url = resolveUploadUrl(pathOrUrl);
+  const res = await fetch(url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Fichier inaccessible (${res.status})`);
+  }
+  const blob = await res.blob();
+  if (!blob.size) throw new Error('Fichier vide');
+  // Réponses JSON d’erreur parfois renvoyées en 200 avec mauvais type
+  if (blob.type && blob.type.includes('json')) {
+    throw new Error('Le serveur n’a pas renvoyé un fichier valide');
+  }
+  return {
+    objectUrl: URL.createObjectURL(blob),
+    mime: blob.type || '',
+    size: blob.size,
+  };
+}
+
+/** Mode d’aperçu selon MIME / extension. */
+export function uploadPreviewMode(pathOrUrl, mime = '') {
+  const path = String(pathOrUrl || '').split('?')[0].toLowerCase();
+  const m = String(mime || '').toLowerCase();
+  if (m.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(path)) return 'image';
+  if (m === 'application/pdf' || /\.pdf$/i.test(path)) return 'pdf';
+  if (m.startsWith('video/') || /\.(mp4|webm|mov)$/i.test(path)) return 'video';
+  if (m.startsWith('text/') || /\.(txt|csv|json|xml|md)$/i.test(path)) return 'text';
+  return 'download';
+}
+
 export async function api(path, options = {}) {
   const token = getToken();
   const isFormData = options.body instanceof FormData;

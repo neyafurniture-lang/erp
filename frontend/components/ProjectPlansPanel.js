@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import { api, getApiUrl, getToken, resolveUploadUrl } from '../lib/api';
 import { parseProjectMeta } from '../lib/project-products';
+import UploadFilePreview from './UploadFilePreview';
 
 async function downloadSketchup(projectId, file) {
   const token = getToken();
@@ -162,33 +163,27 @@ export default function ProjectPlansPanel({ project, onReload }) {
           </div>
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {plans.map(plan => {
-              const url = resolveUploadUrl(plan.url);
-              return (
-                <button
-                  key={plan.id || plan.url}
-                  type="button"
-                  onClick={() => setPreview(plan)}
-                  className="card-flat p-0 overflow-hidden text-left hover:ring-2 hover:ring-neya-orange/40 transition-shadow"
-                >
-                  <div className="aspect-[4/3] bg-neya-surface border-b border-neya-border">
-                    {url ? (
-                      <iframe
-                        title={plan.name}
-                        src={`${url}#toolbar=0&navpanes=0`}
-                        className="w-full h-full pointer-events-none"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-xs text-neya-muted">PDF</div>
-                    )}
-                  </div>
-                  <div className="px-3 py-2">
-                    <p className="text-sm font-medium text-neya-ink truncate">{plan.name}</p>
-                    <p className="text-xs text-neya-muted">Page {plan.page}</p>
-                  </div>
-                </button>
-              );
-            })}
+            {plans.map(plan => (
+              <button
+                key={plan.id || plan.url}
+                type="button"
+                onClick={() => setPreview(plan)}
+                className="card-flat p-0 overflow-hidden text-left hover:ring-2 hover:ring-neya-orange/40 transition-shadow"
+              >
+                <div className="aspect-[4/3] bg-neya-surface border-b border-neya-border">
+                  <UploadFilePreview
+                    url={plan.url}
+                    title={plan.name}
+                    compact
+                    className="w-full h-full pointer-events-none"
+                  />
+                </div>
+                <div className="px-3 py-2">
+                  <p className="text-sm font-medium text-neya-ink truncate">{plan.name}</p>
+                  <p className="text-xs text-neya-muted">Page {plan.page}</p>
+                </div>
+              </button>
+            ))}
           </div>
         )}
       </div>
@@ -281,17 +276,30 @@ export default function ProjectPlansPanel({ project, onReload }) {
             className="bg-white w-full max-w-5xl max-h-[90vh] rounded-xl overflow-hidden shadow-xl flex flex-col"
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-4 py-3 border-b border-neya-border">
-              <p className="text-sm font-semibold text-neya-ink truncate">{preview.name}</p>
-              <button type="button" onClick={() => setPreview(null)} className="text-sm text-neya-muted hover:text-neya-ink">
-                Fermer
-              </button>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-neya-border gap-3">
+              <p className="text-sm font-semibold text-neya-ink truncate min-w-0">{preview.name}</p>
+              <div className="flex items-center gap-2 shrink-0">
+                <a
+                  href={resolveUploadUrl(preview.url) || '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-neya-orange hover:underline"
+                >
+                  Nouvel onglet
+                </a>
+                <button type="button" onClick={() => setPreview(null)} className="text-sm text-neya-muted hover:text-neya-ink">
+                  Fermer
+                </button>
+              </div>
             </div>
-            <iframe
-              title={preview.name}
-              src={resolveUploadUrl(preview.url)}
-              className="w-full flex-1 min-h-[70vh]"
-            />
+            <div className="w-full flex-1 min-h-[70vh] bg-neya-surface">
+              <UploadFilePreview
+                url={preview.url}
+                title={preview.name}
+                pdfHash="toolbar=1&navpanes=0"
+                className="w-full h-full min-h-[70vh]"
+              />
+            </div>
           </div>
         </div>
       )}
