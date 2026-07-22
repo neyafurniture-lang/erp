@@ -323,7 +323,10 @@ export function formatMessage(msg) {
 
 export async function listMessages({ label = 'INBOX', max = 30, pageToken = null, q = '' } = {}) {
   const params = new URLSearchParams({ maxResults: String(max) });
-  if (label) params.set('labelIds', label);
+  if (label) {
+    const labelId = await resolveLabelId(label);
+    if (labelId) params.set('labelIds', labelId);
+  }
   if (pageToken) params.set('pageToken', pageToken);
   if (q) params.set('q', q);
 
@@ -338,6 +341,87 @@ export async function listMessages({ label = 'INBOX', max = 30, pageToken = null
     )
   );
   return { messages, nextPageToken: list.nextPageToken || null };
+}
+
+const SYSTEM_LABEL_IDS = new Set([
+  'INBOX', 'SENT', 'DRAFT', 'SPAM', 'TRASH', 'UNREAD', 'STARRED', 'IMPORTANT',
+  'CATEGORY_PERSONAL', 'CATEGORY_SOCIAL', 'CATEGORY_PROMOTIONS', 'CATEGORY_UPDATES', 'CATEGORY_FORUMS',
+]);
+
+/** Résout un nom Gmail (`Tri/A_traiter`, `NEYA/Clients`) ou un id (`Label_12`) → id API. */
+export async function resolveLabelId(labelOrName) {
+  if (!labelOrName) return null;
+  const raw = String(labelOrName).trim();
+  if (!raw) return null;
+  if (SYSTEM_LABEL_IDS.has(raw)) return raw;
+  if (/^Label_/i.test(raw)) return raw;
+  const labels = await getCachedLabels();
+  const byId = labels.find(l => l.id === raw);
+  if (byId) return byId.id;
+  const byName = labels.find(l => l.name === raw);
+  if (byName) return byName.id;
+  // Essai insensible à la casse
+  const lower = raw.toLowerCase();
+  const fuzzy = labels.find(l => String(l.name || '').toLowerCase() === lower);
+  return fuzzy?.id || null;
+}
+
+/** Détail d’un label (compteurs messages). */
+export async function getLabel(labelId) {
+  if (!labelId) return null;
+  return gmailFetch(`/labels/${encodeURIComponent(labelId)}`);
+}
+
+/**
+ * Arbre de labels utilisateur pour préfixes donnés (ex. NEYA/, Tri/).
+ * Inclut aussi les labels exacts listés dans `exact`.
+ */
+export async function listLabelTree({
+  prefixes = ['NEYA/', 'Tri/'],
+  exact = ['NEYA', 'Tri', 'Fournitures'],
+  withCounts = true,
+} = {}) {
+  const labels = await getCachedLabels(true);
+  const matched = labels.filter(l => {
+    const name = String(l.name || '');
+    if (exact.some(e => name === e)) return true;
+    return prefixes.some(p => name.startsWith(p));
+  });
+
+  const enriched = [];
+  for (const l of matched) {
+    let messagesTotal = l.messagesTotal ?? null;
+    let messagesUnread = l.messagesUnread ?? null;
+    if (withCounts && (messagesTotal == null || messagesUnread == null)) {
+      try {
+        const full = await getLabel(l.id);
+        messagesTotal = full.messagesTotal ?? 0;
+        messagesUnread = full.messagesUnread ?? 0;
+      } catch {
+        messagesTotal = messagesTotal ?? 0;
+        messagesUnread = messagesUnread ?? 0;
+      }
+    }
+    enriched.push({
+      id: l.id,
+      name: l.name,
+      type: l.type || 'user',
+      messagesTotal: Number(messagesTotal) || 0,
+      messagesUnread: Number(messagesUnread) || 0,
+    });
+  }
+
+  enriched.sort((a, b) => String(a.name).localeCompare(String(b.name), 'fr'));
+
+  const groups = {
+    neya: enriched.filter(l => l.name === 'NEYA' || l.name.startsWith('NEYA/')),
+    tri: enriched.filter(l => l.name === 'Tri' || l.name.startsWith('Tri/')),
+    other: enriched.filter(l =>
+      !l.name.startsWith('NEYA') && !l.name.startsWith('Tri') && exact.includes(l.name)
+    ),
+  };
+
+  return { labels: enriched, groups };
 }
 
 export async function getMessage(messageId) {

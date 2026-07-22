@@ -4,6 +4,7 @@ import {
   normalizePurchaseDate,
   extractDateFromText,
   todayISODate,
+  resolveExpenseDate,
 } from './expense-date.js';
 
 describe('expense-date', () => {
@@ -29,5 +30,25 @@ describe('expense-date', () => {
 
   it('todayISODate est YYYY-MM-DD', () => {
     assert.match(todayISODate(), /^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('resolveExpenseDate corrige une date trop ancienne (OCR)', () => {
+    const r = resolveExpenseDate('2026-02-09', { referenceDate: '2026-07-21', maxDaysPast: 60 });
+    assert.equal(r.date, '2026-07-21');
+    assert.equal(r.adjusted, true);
+    assert.equal(r.original, '2026-02-09');
+    assert.equal(r.reason, 'too_old');
+  });
+
+  it('resolveExpenseDate garde une date récente', () => {
+    const r = resolveExpenseDate('2026-07-17', { referenceDate: '2026-07-21', maxDaysPast: 60 });
+    assert.equal(r.date, '2026-07-17');
+    assert.equal(r.adjusted, false);
+  });
+
+  it('resolveExpenseDate refuse le futur lointain', () => {
+    const r = resolveExpenseDate('2026-12-01', { referenceDate: '2026-07-21' });
+    assert.equal(r.date, '2026-07-21');
+    assert.equal(r.reason, 'future');
   });
 });

@@ -97,6 +97,7 @@ export async function initDb() {
   `);
   await pool.query('ALTER TABLE projects ADD COLUMN IF NOT EXISTS quantity INT NOT NULL DEFAULT 1');
   await pool.query('ALTER TABLE projects ADD COLUMN IF NOT EXISTS production_priority INT NOT NULL DEFAULT 0');
+  await pool.query('ALTER TABLE projects ADD COLUMN IF NOT EXISTS priority INT NOT NULL DEFAULT 0');
   await pool.query('ALTER TABLE projects ADD COLUMN IF NOT EXISTS drive_folder_id TEXT');
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'member'`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS permissions JSONB NOT NULL DEFAULT '[]'`);
@@ -169,6 +170,22 @@ export async function initDb() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  // Colonne manquante sur certaines prod (bloquait GET /expenses)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS suppliers (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      contact TEXT,
+      email TEXT,
+      phone TEXT,
+      lead_days INT DEFAULT 7,
+      notes TEXT,
+      meta JSONB DEFAULT '{}',
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query('ALTER TABLE expenses ADD COLUMN IF NOT EXISTS supplier_id INT REFERENCES suppliers(id) ON DELETE SET NULL');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_expenses_supplier ON expenses(supplier_id)');
   await pool.query(`UPDATE users SET role = 'admin', permissions = '["*"]' WHERE email = 'admin@neya.local' AND (role IS NULL OR role = 'member' OR permissions = '[]'::jsonb)`);
 
   await pool.query(`

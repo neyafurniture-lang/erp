@@ -567,10 +567,15 @@ function MailAttachments({
   );
 }
 
-export default function GmailInbox({ projectId = null, linkProjectId = null }) {
+export default function GmailInbox({
+  projectId = null,
+  linkProjectId = null,
+  initialMessageId = null,
+}) {
   const [connected, setConnected] = useState(null);
   const [messages, setMessages] = useState([]);
   const [selected, setSelected] = useState(null);
+  const deepLinkOpened = useRef(null);
   const [thread, setThread] = useState(null);
   const [loading, setLoading] = useState(true);
   const [threadLoading, setThreadLoading] = useState(false);
@@ -600,6 +605,7 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
   const [sections, setSections] = useState(
     [{ id: 'inbox', count: 0 }, ...ERP_FOLDERS.map(s => ({ ...s, count: 0 }))]
   );
+  const [gmailGroups, setGmailGroups] = useState({ neya: [], tri: [], other: [] });
   const [undoToast, setUndoToast] = useState(null);
   const undoTimer = useRef(null);
 
@@ -650,6 +656,13 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
       } else if (folder === 'sent') {
         const data = await api('/gmail/messages?label=SENT&max=40');
         setMessages(data.messages || []);
+      } else if (String(folder || '').startsWith('gmail:')) {
+        const labelRef = decodeURIComponent(String(folder).slice('gmail:'.length));
+        const data = await api(
+          `/gmail/messages?label=${encodeURIComponent(labelRef)}&max=50&sorted=1`
+        );
+        setMessages(data.messages || []);
+        if (data.sections) setSections(data.sections);
       } else if (folder === 'inbox' || !folder) {
         const data = await api('/gmail/inbox-sorted?max=40');
         setMessages(data.messages || []);
@@ -667,11 +680,22 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
     }
   }, [activeFolder, projectId]);
 
+  const loadGmailLabels = useCallback(async () => {
+    try {
+      const tree = await api('/gmail/labels/tree?prefixes=NEYA/,Tri/&exact=NEYA,Tri,Fournitures');
+      setGmailGroups(tree.groups || { neya: [], tri: [], other: [] });
+    } catch {
+      setGmailGroups({ neya: [], tri: [], other: [] });
+    }
+  }, []);
+
   useEffect(() => {
     getGoogleStatus().then(s => {
       setConnected(s.google?.connected);
-      if (s.google?.connected) load('', activeFolder);
-      else setLoading(false);
+      if (s.google?.connected) {
+        load('', activeFolder);
+        loadGmailLabels();
+      } else setLoading(false);
     }).catch(() => { setConnected(false); setLoading(false); });
     api('/clients').then(setClients).catch(() => {});
     api('/projects').then(setProjects).catch(() => {});
@@ -789,9 +813,10 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
     setPrevReply(null);
     setShowDraftInstr(false);
 
+    let full = null;
     try {
       // Toujours recharger le message complet (corps + pièces jointes)
-      const full = await api(`/gmail/messages/${id}`);
+      full = await api(`/gmail/messages/${id}`);
       setSelected(full);
 
       // Comportement Gmail : ouvrir = marquer comme lu
@@ -807,7 +832,8 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
 
     // Lecture d'abord (sync rapide) — l'IA ne doit pas bloquer l'ouverture
     try {
-      if (m.threadId) await loadThreadContext(m);
+      const threadId = full?.threadId || m.threadId;
+      if (threadId) await loadThreadContext({ ...m, ...full, threadId });
     } catch { /* ignore */ }
 
     if (activeFolder === 'sent') {
@@ -840,24 +866,42 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
     }
   }
 
+  useEffect(() => {
+    if (!initialMessageId || connected !== true) return;
+    if (deepLinkOpened.current === initialMessageId) return;
+    deepLinkOpened.current = initialMessageId;
+    openMessage({ id: initialMessageId });
+    // openMessage volontairement hors deps : ouvrir une seule fois par id
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialMessageId, connected]);
+
   async function processInbox() {
     setInboxProcessing(true);
     setErr('');
     try {
       const result = await api('/gmail/sort-inbox', {
         method: 'POST',
-        body: JSON.stringify({ max: 30 }),
+        body: JSON.stringify({ max: 40, includeTri: true, scanInvoices: true }),
       });
       setMessages(result.messages || []);
       setSections(result.sections || sections);
+      await loadGmailLabels();
       const labeled = result.gmail_labels?.applied ?? 0;
-      const msg = `${result.processed} fil(s) synchronisé(s) — boîte triée. ${labeled} label(s) Gmail NEYA appliqué(s).`;
-      if (result.errors?.length || result.gmail_labels?.errors?.length) {
-        const errText = result.errors?.[0]?.error || result.gmail_labels?.errors?.[0]?.error;
+      const triBit = result.tri_processed
+        ? ` · ${result.tri_processed} depuis Tri/A_traiter`
+        : '';
+      const inv = result.invoices;
+      const invBit = inv ? ` · ${inv.ingested || 0} facture(s) stockée(s)` : '';
+      const msg = `${result.processed || 0} fil(s) trié(s)${triBit} — ${labeled} label(s) NEYA${invBit}.`;
+      if (result.errors?.length || result.gmail_labels?.errors?.length || result.tri_errors?.length) {
+        const errText = result.errors?.[0]?.error
+          || result.gmail_labels?.errors?.[0]?.error
+          || result.tri_errors?.[0]?.error;
         setErr(`${msg} Erreur : ${errText}`);
       } else {
         showUndo(msg, null);
       }
+      if (!search) await load('', activeFolder);
     } catch (e) {
       try {
         const result = await threadApi('/process-inbox', {
@@ -1047,8 +1091,16 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
 
   const filteredMessages = useMemo(() => {
     let list;
-    if (activeFolder === 'inbox' || activeFolder === 'sent' || search) list = messages;
-    else list = messages.filter(m => (m.mailCategory || 'autres') === activeFolder);
+    if (
+      activeFolder === 'inbox'
+      || activeFolder === 'sent'
+      || String(activeFolder).startsWith('gmail:')
+      || search
+    ) {
+      list = messages;
+    } else {
+      list = messages.filter(m => (m.mailCategory || 'autres') === activeFolder);
+    }
 
     if (activeFolder === 'inbox' && !search && listFilter !== 'tous') {
       if (listFilter === 'unread') {
@@ -1221,6 +1273,44 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
               })}
             </ul>
           </div>
+
+          {(gmailGroups.tri?.length > 0 || gmailGroups.other?.length > 0) && (
+            <div className="border-t border-neya-border px-4 py-3">
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-neya-muted">
+                Labels Gmail
+              </p>
+              <ul className="flex flex-col gap-0.5 max-h-56 overflow-y-auto">
+                {[...(gmailGroups.tri || []), ...(gmailGroups.other || [])]
+                  .filter(l => l.name !== 'Tri' && l.name !== 'NEYA')
+                  .map(label => {
+                    const folderId = `gmail:${encodeURIComponent(label.name)}`;
+                    const active = activeFolder === folderId;
+                    const short = String(label.name).replace(/^Tri\//, '');
+                    return (
+                      <li key={label.id}>
+                        <button
+                          type="button"
+                          onClick={() => { setListFilter('tous'); selectFolder(folderId); }}
+                          className={`mail-folder ${active ? 'mail-folder-active' : ''}`}
+                          title={label.name}
+                        >
+                          <span className="mail-neya-dot bg-neya-muted/40" />
+                          <span className="flex-1 text-left truncate">{short}</span>
+                          {(label.messagesUnread > 0 || label.messagesTotal > 0) && (
+                            <span className={`text-[10.5px] font-semibold tabular-nums ${
+                              /A_traiter/i.test(label.name) ? 'text-neya-orange' : 'text-neya-muted'
+                            }`}>
+                              {label.messagesUnread || label.messagesTotal}
+                            </span>
+                          )}
+                        </button>
+                      </li>
+                    );
+                  })}
+              </ul>
+            </div>
+          )}
+
           {projectId && (
             <div className="px-2 pt-1">
               <Link href={`/projects/${projectId}`} className="mail-folder">
@@ -1230,15 +1320,18 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
             </div>
           )}
           {!isSent && (
-            <div className="mt-auto p-3 border-t border-neya-border">
+            <div className="mt-auto p-3 border-t border-neya-border space-y-2">
               <button
                 type="button"
                 onClick={processInbox}
                 disabled={inboxProcessing}
                 className="mail-btn-sort w-full justify-center"
               >
-                {inboxProcessing ? 'Tri…' : 'Trier la boîte'}
+                {inboxProcessing ? 'Tri en cours…' : 'Lancer le tri'}
               </button>
+              <p className="text-[10px] text-neya-muted text-center leading-snug">
+                Classe NEYA + vide Tri/A_traiter + stocke les factures reçues
+              </p>
             </div>
           )}
         </aside>
@@ -1292,6 +1385,16 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
                     {f.label}{sectionCounts[f.id] ? ` (${sectionCounts[f.id]})` : ''}
                   </option>
                 ))}
+                {[...(gmailGroups.tri || []), ...(gmailGroups.other || [])]
+                  .filter(l => l.name !== 'Tri' && l.name !== 'NEYA')
+                  .map(l => (
+                    <option key={l.id} value={`gmail:${encodeURIComponent(l.name)}`}>
+                      {String(l.name).replace(/^Tri\//, '')}
+                      {l.messagesUnread || l.messagesTotal
+                        ? ` (${l.messagesUnread || l.messagesTotal})`
+                        : ''}
+                    </option>
+                  ))}
               </select>
               {!isSent && (
                 <button

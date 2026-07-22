@@ -58,9 +58,18 @@ function TaskItem({ task, onUpdate, onDelete }) {
         {task.status === 'done' ? '✓' : task.status === 'doing' ? '…' : ''}
       </button>
       <div className="flex-1 min-w-0">
-        <p className={`text-xs font-medium leading-snug ${task.status === 'done' ? 'line-through opacity-50' : ''}`}>
-          {task.title}
-        </p>
+        {task.link_href ? (
+          <Link
+            href={task.link_href}
+            className={`text-xs font-medium leading-snug hover:text-neya-orange ${task.status === 'done' ? 'line-through opacity-50' : ''}`}
+          >
+            {task.title}
+          </Link>
+        ) : (
+          <p className={`text-xs font-medium leading-snug ${task.status === 'done' ? 'line-through opacity-50' : ''}`}>
+            {task.title}
+          </p>
+        )}
         <div className="flex flex-wrap items-center gap-1 mt-0.5">
           <span className={`text-[9px] px-1 py-0 rounded ${cat.color}`}>{cat.label}</span>
           {task.due_date && (
@@ -76,7 +85,7 @@ function TaskItem({ task, onUpdate, onDelete }) {
         </div>
       </div>
       {task.link_href && (
-        <Link href={task.link_href} className="text-[10px] text-neya-orange shrink-0">→</Link>
+        <Link href={task.link_href} className="text-[10px] text-neya-orange shrink-0" aria-label="Ouvrir">→</Link>
       )}
       <button type="button" onClick={remove} className="text-neya-muted hover:text-red-600 text-[10px] shrink-0">✕</button>
     </li>
