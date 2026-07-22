@@ -30,6 +30,8 @@ const LIST_FILTERS = [
   { id: 'a_repondre', label: 'À répondre' },
   { id: 'clients', label: 'Clients' },
   { id: 'fournisseurs', label: 'Fournisseurs' },
+  { id: 'promotions', label: 'Promos' },
+  { id: 'autres', label: 'Non classés' },
 ];
 
 const ALL_FOLDER_LABELS = {
@@ -848,13 +850,25 @@ export default function GmailInbox({
         method: 'POST',
         body: JSON.stringify({ message_id: id }),
       });
-      setThread(processed);
+      setThread(prev => {
+        // Ne jamais écraser une synthèse déjà en mémoire/DB par un échec IA
+        if (processed?.synthesis_error && prev?.latest_synthesis && !processed.latest_synthesis) {
+          return {
+            ...processed,
+            latest_synthesis: prev.latest_synthesis,
+            syntheses: prev.syntheses || processed.syntheses,
+            client_id: processed.client_id ?? prev.client_id,
+            client_name: processed.client_name ?? prev.client_name,
+          };
+        }
+        return processed;
+      });
       setLinkClientId(processed.client_id ? String(processed.client_id) : '');
       setLinkProjId(processed.project_id ? String(processed.project_id) : (linkProjectId || projectId ? String(linkProjectId || projectId) : ''));
       if (processed.latest_synthesis?.suggested_reply || processed.synthesis?.suggested_reply) {
         setReply(processed.latest_synthesis?.suggested_reply || processed.synthesis.suggested_reply);
       }
-      if (processed.synthesis_error) {
+      if (processed.synthesis_error && !processed.latest_synthesis) {
         setThreadWarn(`Synthèse : ${processed.synthesis_error}`);
       }
     } catch (e) {
@@ -881,8 +895,7 @@ export default function GmailInbox({
     try {
       const result = await api('/gmail/sort-inbox', {
         method: 'POST',
-        body: JSON.stringify({ max: 40, includeTri: true, scanInvoices: true }),
-      });
+        body: JSON.stringify({ max: 50, includeTri: true, scanInvoices: true }),      });
       setMessages(result.messages || []);
       setSections(result.sections || sections);
       await loadGmailLabels();
@@ -1016,6 +1029,26 @@ export default function GmailInbox({
       } else {
         showUndo('Liens enregistrés', null);
       }
+    } catch (e) {
+      setErr(e.message);
+    }
+  }
+
+  async function setMailCategory(category) {
+    if (!thread?.id || !category) return;
+    try {
+      const updated = await threadApi(`/${thread.id}/category`, {
+        method: 'POST',
+        body: JSON.stringify({ category }),
+      });
+      setThread(updated);
+      // Mettre à jour le badge dans la liste
+      setMessages(prev => prev.map(m => {
+        const sameThread = thread.gmail_thread_id && m.threadId === thread.gmail_thread_id;
+        if (!sameThread) return m;
+        return { ...m, mailCategory: category };
+      }));
+      showUndo(`Classé dans « ${ALL_FOLDER_LABELS[category] || category} »`, null);
     } catch (e) {
       setErr(e.message);
     }
@@ -1745,6 +1778,22 @@ export default function GmailInbox({
                         </select>
                         {thread.project_name && (
                           <p className="text-[11px] text-neya-muted">Projet : {thread.project_name}</p>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        <label className="label mb-0">Dossier TRI NEYA</label>
+                        <select
+                          className="input text-sm min-h-[40px]"
+                          value={thread.mail_category || selected?.mailCategory || ''}
+                          onChange={e => setMailCategory(e.target.value)}
+                        >
+                          <option value="" disabled>Choisir…</option>
+                          {ERP_FOLDERS.map(f => (
+                            <option key={f.id} value={f.id}>{f.label}</option>
+                          ))}
+                        </select>
+                        {thread.mail_category_manual && (
+                          <p className="text-[11px] text-neya-muted">Classement manuel (conservé au prochain tri)</p>
                         )}
                       </div>
                       <div className="flex flex-wrap gap-2">

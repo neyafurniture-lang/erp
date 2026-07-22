@@ -2,7 +2,7 @@ import { Router } from 'express';
 import pool from '../db/pool.js';
 import * as gmail from '../services/google-gmail.js';
 import { logAgentAction } from '../services/assistant-memory.js';
-import { enrichInboxMessages, sortInbox, sortRecentInbox, MAIL_SECTIONS, ensureNeyaGmailLabels, listNeyaGmailLabels, GMAIL_CATEGORY_LABELS } from '../services/mail-sort.js';
+import { enrichInboxMessages, sortInbox, sortRecentInbox, MAIL_SECTIONS, ensureNeyaGmailLabels, listNeyaGmailLabels, GMAIL_CATEGORY_LABELS, setThreadMailCategory } from '../services/mail-sort.js';
 import emailThreadsRoutes from './email-threads.js';
 
 const router = Router();
@@ -42,10 +42,25 @@ router.get('/sections', (_req, res) => {
 
 router.post('/sort-inbox', async (req, res) => {
   try {
-    const max = Number(req.body?.max) || 25;
+    const max = Number(req.body?.max) || 40;
     const includeTri = req.body?.includeTri !== false;
     const scanInvoices = req.body?.scanInvoices !== false;
     res.json(await sortRecentInbox(max, { includeTri, scanInvoices }));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/threads/:id/category', async (req, res) => {
+  try {
+    const category = req.body?.category || req.body?.mail_category;
+    const row = await setThreadMailCategory(Number(req.params.id), category);
+    res.json({
+      ok: true,
+      id: row.id,
+      mail_category: row.mail_category,
+      mail_category_manual: row.mail_category_manual,
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

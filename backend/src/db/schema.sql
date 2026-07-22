@@ -465,6 +465,7 @@ CREATE TABLE IF NOT EXISTS email_threads (
   link_confidence NUMERIC(4,3),
   status TEXT DEFAULT 'open',
   mail_category TEXT,
+  mail_category_manual BOOLEAN DEFAULT false,
   last_message_at TIMESTAMPTZ,
   message_count INT DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW(),
