@@ -60,8 +60,10 @@ export function extractAmount(text) {
 
 /** Montant monétaire explicite ($ / CAD / dollars) — évite « du 15 » → 15$. */
 export function extractMoneyAmount(text) {
-  const m = String(text || '').match(/(\d+(?:[.,]\d+)?)\s*(?:\$|cad|dollars?)\b/i)
-    || String(text || '').match(/(?:\$|cad)\s*(\d+(?:[.,]\d+)?)/i);
+  const s = String(text || '');
+  const m = s.match(/(\d+(?:[.,]\d+)?)\s*(?:\$|CAD|cad|dollars?)\b/i)
+    || s.match(/(\d+(?:[.,]\d+)?)\s*\$/)
+    || s.match(/(?:\$|CAD|cad)\s*(\d+(?:[.,]\d+)?)/i);
   return m ? parseFloat(m[1].replace(',', '.')) : null;
 }
 

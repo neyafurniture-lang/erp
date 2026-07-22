@@ -44,6 +44,9 @@ router.get('/:id', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const { employee_id, project_id, start_at, end_at, notes } = req.body;
+    if (!employee_id || !start_at || !end_at) {
+      return res.status(400).json({ error: 'employee_id, start_at et end_at requis' });
+    }
     const { rows } = await pool.query(
       `INSERT INTO shifts (employee_id, project_id, start_at, end_at, notes)
        VALUES ($1,$2,$3,$4,$5) RETURNING *`,

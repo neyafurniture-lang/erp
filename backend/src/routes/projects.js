@@ -429,7 +429,8 @@ router.post('/:id/installation-billing/scan', async (req, res) => {
     const { scanProjectInstallationDates } = await import('../services/installation-billing.js');
     res.json(await scanProjectInstallationDates(Number(req.params.id)));
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    const code = /introuvable/i.test(err.message) ? 404 : 400;
+    res.status(code).json({ error: err.message });
   }
 });
 
@@ -438,7 +439,8 @@ router.put('/:id/installation-billing', async (req, res) => {
     const { saveInstallationBilling } = await import('../services/installation-billing.js');
     res.json(await saveInstallationBilling(Number(req.params.id), req.body || {}));
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    const code = /introuvable/i.test(err.message) ? 404 : 400;
+    res.status(code).json({ error: err.message });
   }
 });
 
@@ -447,7 +449,8 @@ router.post('/:id/installation-billing/sync-invoice', async (req, res) => {
     const { syncInstallationInvoice } = await import('../services/installation-billing.js');
     res.json(await syncInstallationInvoice(Number(req.params.id), req.body || {}));
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    const code = /introuvable/i.test(err.message) ? 404 : 400;
+    res.status(code).json({ error: err.message });
   }
 });
 
