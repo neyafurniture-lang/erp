@@ -20,9 +20,22 @@ function ConfirmReceiptModal({ item, projects, onClose, onDone }) {
   const [category, setCategory] = useState(item.category || 'materiaux');
   const [description, setDescription] = useState(item.description || '');
   const [notes, setNotes] = useState('');
-  const [purchaseDate, setPurchaseDate] = useState(
-    (item.purchase_date && String(item.purchase_date).slice(0, 10)) || ''
-  );
+  const ocrDate = (item.purchase_date && String(item.purchase_date).slice(0, 10)) || '';
+  const dateHint = (() => {
+    if (!ocrDate) return { value: new Date().toISOString().slice(0, 10), warn: 'missing' };
+    const today = new Date();
+    const t = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+    const parts = ocrDate.split('-').map(Number);
+    if (parts.length !== 3) return { value: new Date().toISOString().slice(0, 10), warn: 'invalid' };
+    const o = Date.UTC(parts[0], parts[1] - 1, parts[2]);
+    const delta = Math.round((o - t) / 86400000);
+    if (delta > 1 || delta < -60) {
+      return { value: new Date().toISOString().slice(0, 10), warn: delta > 1 ? 'future' : 'too_old', original: ocrDate };
+    }
+    return { value: ocrDate, warn: null };
+  })();
+  const [purchaseDate, setPurchaseDate] = useState(dateHint.value);
+  const [forceDate, setForceDate] = useState(false);
   const [uploadDrive, setUploadDrive] = useState(true);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
@@ -65,7 +78,7 @@ function ConfirmReceiptModal({ item, projects, onClose, onDone }) {
       if (notes.trim()) parts.push(notes.trim());
       const fullDescription = parts.join(' — ') || 'Ticket de caisse';
 
-      await api(`/receipts/${item.id}/confirm`, {
+      const result = await api(`/receipts/${item.id}/confirm`, {
         method: 'POST',
         body: JSON.stringify({
           project_id: projectId ? Number(projectId) : null,
@@ -73,11 +86,12 @@ function ConfirmReceiptModal({ item, projects, onClose, onDone }) {
           category,
           description: fullDescription,
           purchase_date: purchaseDate || null,
+          force_date: forceDate,
           upload_to_drive: uploadDrive,
           vendor: vendor.trim() || null,
         }),
       });
-      onDone();
+      onDone({ created: true, expense: result?.expense, date_adjusted: result?.date_adjusted });
       onClose();
     } catch (e) {
       setErr(e.message);
@@ -89,7 +103,7 @@ function ConfirmReceiptModal({ item, projects, onClose, onDone }) {
 
   async function dismiss() {
     await api(`/receipts/${item.id}/dismiss`, { method: 'POST' });
-    onDone();
+    onDone({ created: false, dismissed: true });
     onClose();
   }
 
@@ -183,16 +197,25 @@ function ConfirmReceiptModal({ item, projects, onClose, onDone }) {
                 <label className="label">Date du ticket</label>
                 <input
                   type="date"
-                  className={`input ${!purchaseDate ? 'border-amber-400 ring-1 ring-amber-200' : ''}`}
+                  className={`input ${dateHint.warn ? 'border-amber-400 ring-1 ring-amber-200' : ''}`}
                   value={purchaseDate}
-                  onChange={e => setPurchaseDate(e.target.value)}
+                  onChange={e => {
+                    setPurchaseDate(e.target.value);
+                    setForceDate(true);
+                  }}
                   required
                 />
               </div>
             </div>
-            {!purchaseDate && (
+            {dateHint.warn === 'missing' && (
               <p className="text-[11px] text-amber-800 bg-amber-50 px-2.5 py-1.5 rounded-lg -mt-2">
-                Date non lue sur le ticket — entrez la date d&apos;achat pour le suivi mensuel des dépenses.
+                Date non lue — préremplie à aujourd&apos;hui. Corrigez si le ticket est d&apos;un autre jour.
+              </p>
+            )}
+            {(dateHint.warn === 'too_old' || dateHint.warn === 'future') && (
+              <p className="text-[11px] text-amber-800 bg-amber-50 px-2.5 py-1.5 rounded-lg -mt-2">
+                OCR a lu {dateHint.original} (suspect) — remis à aujourd&apos;hui pour rester visible dans le mois en cours.
+                Changez la date manuellement si c&apos;est vraiment celle du ticket.
               </p>
             )}
 
@@ -401,7 +424,20 @@ export default function ReceiptScanner({ compact = false, onChange }) {
           item={selected}
           projects={projects}
           onClose={() => { setSelected(null); setHint(''); }}
-          onDone={() => { load(); setHint('Dépense créée.'); }}
+          onDone={(info) => {
+            load();
+            if (info?.dismissed) setHint('Ticket ignoré — aucune dépense créée.');
+            else if (info?.created) {
+              const d = info.expense?.date ? String(info.expense.date).slice(0, 10) : '';
+              const amt = info.expense?.amount != null ? formatMoney(info.expense.amount) : '';
+              setHint(
+                info.date_adjusted
+                  ? `Dépense ${amt} enregistrée au ${d} (date OCR corrigée).`
+                  : `Dépense ${amt} enregistrée · date ${d}.`
+              );
+            }
+            if (typeof onChange === 'function') onChange();
+          }}
         />
       )}
     </div>

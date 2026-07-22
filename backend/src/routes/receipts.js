@@ -5,7 +5,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import pool from '../db/pool.js';
 import { scanReceiptImage } from '../services/receipt-scan.js';
-import { normalizePurchaseDate, todayISODate } from '../services/expense-date.js';
+import { normalizePurchaseDate, resolveExpenseDate, todayISODate } from '../services/expense-date.js';
 import * as drive from '../services/google-drive.js';
 import { getGoogleTokenRow } from '../services/google-oauth.js';
 
@@ -185,10 +185,14 @@ router.post('/:id/confirm', async (req, res) => {
     const desc = String(description || '').trim()
       || [finalVendor, row.description].filter(Boolean).join(' — ')
       || 'Ticket de caisse';
-    // Date du ticket (pas created_at) pour le suivi des dépenses par mois
-    const expenseDate = normalizePurchaseDate(purchase_date)
-      || normalizePurchaseDate(row.purchase_date)
-      || todayISODate();
+    // Date du ticket pour le suivi mensuel — mais on refuse les dates OCR absurdes
+    // (ex. février alors qu’on scanne en juillet) qui faisaient « disparaître » la dépense
+    const forceDate = req.body?.force_date === true || req.body?.force_date === 'true';
+    const resolved = resolveExpenseDate(
+      purchase_date || row.purchase_date,
+      { referenceDate: todayISODate(), maxDaysPast: 60, allowFutureDays: 1, force: forceDate }
+    );
+    const expenseDate = resolved.date;
     const { rows: expenseRows } = await pool.query(
       `INSERT INTO expenses (amount, category, description, project_id, receipt_url, date)
        VALUES ($1, $2, $3, $4, $5, $6::date) RETURNING *`,
@@ -229,7 +233,13 @@ router.post('/:id/confirm', async (req, res) => {
       ]
     );
 
-    res.json({ receipt: updated[0], expense: expenseRows[0] });
+    res.json({
+      receipt: updated[0],
+      expense: expenseRows[0],
+      date_adjusted: resolved.adjusted,
+      date_original: resolved.original,
+      date_reason: resolved.reason,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
