@@ -96,6 +96,9 @@ app.get('/health', (_req, res) => {
 
 // Fichiers uploadés — accès authentifié uniquement
 app.use('/uploads', uploadAuth, (req, res, next) => {
+  // Permettre l’aperçu PDF/images dans l’ERP (sinon X-Frame-Options: DENY global)
+  res.removeHeader('X-Frame-Options');
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'self'");
   if (/\.skp$/i.test(req.path || '')) {
     res.type('application/vnd.sketchup.skp');
   }
@@ -104,10 +107,14 @@ app.use('/uploads', uploadAuth, (req, res, next) => {
   dotfiles: 'deny',
   index: false,
   setHeaders(res, filePath) {
+    res.removeHeader('X-Frame-Options');
     if (/\.skp$/i.test(filePath)) {
       res.setHeader('Content-Type', 'application/vnd.sketchup.skp');
       const base = path.basename(filePath);
       res.setHeader('Content-Disposition', `attachment; filename="${base}"`);
+    } else if (/\.pdf$/i.test(filePath)) {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'inline');
     }
   },
 }));

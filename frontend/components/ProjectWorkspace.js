@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { api, formatMoney, formatDate, TASK_TYPES, resolveUploadUrl, PROJECT_STATUS, projectStatusMeta, normalizeProjectStatusValue, isProjectPriority } from '../lib/api';
+import UploadFilePreview from './UploadFilePreview';
 import { isCustomProject, checklistProgress } from '../lib/projects';
 import { PRODUCTION_STAGES, computeProductionStage, resolveProject3dUrl } from '../lib/production';
 import { parseMeta } from '../lib/standards';
@@ -545,31 +546,24 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
                     </button>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-3">
-                    {planPages.slice(0, 6).map(plan => {
-                      const url = resolveUploadUrl(plan.url);
-                      return (
-                        <a
-                          key={plan.id || plan.url}
-                          href={url || '#'}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="rounded-lg border border-neya-border bg-neya-surface/50 overflow-hidden hover:border-neya-orange/40 transition-colors"
-                        >
-                          <div className="aspect-[4/3] bg-white">
-                            {url ? (
-                              <iframe
-                                title={plan.name}
-                                src={`${url}#toolbar=0&navpanes=0`}
-                                className="w-full h-full pointer-events-none"
-                              />
-                            ) : (
-                              <div className="w-full h-full grid place-items-center text-[11px] text-neya-muted">PDF</div>
-                            )}
-                          </div>
-                          <p className="px-2 py-1.5 text-[11px] font-medium text-neya-ink truncate">{plan.name}</p>
-                        </a>
-                      );
-                    })}
+                    {planPages.slice(0, 6).map(plan => (
+                      <button
+                        key={plan.id || plan.url}
+                        type="button"
+                        onClick={() => changeTab('plans')}
+                        className="rounded-lg border border-neya-border bg-neya-surface/50 overflow-hidden hover:border-neya-orange/40 transition-colors text-left"
+                      >
+                        <div className="aspect-[4/3] bg-white">
+                          <UploadFilePreview
+                            url={plan.url}
+                            title={plan.name}
+                            compact
+                            className="w-full h-full pointer-events-none"
+                          />
+                        </div>
+                        <p className="px-2 py-1.5 text-[11px] font-medium text-neya-ink truncate">{plan.name}</p>
+                      </button>
+                    ))}
                   </div>
                 </div>
               ) : productImage ? (
