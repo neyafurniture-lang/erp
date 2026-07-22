@@ -1,16 +1,21 @@
 /**
  * Fichiers SketchUp (.skp) liés à un projet.
- * Pas de preview navigateur : téléchargement pour ouverture dans SketchUp.
+ * Viewer live via iframe InnerScene + URL signée CORS.
  */
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import jwt from 'jsonwebtoken';
 import pool from '../db/pool.js';
+import { getJwtSecret } from '../config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOADS_ROOT = path.join(__dirname, '../../uploads');
 
 export const SKP_MIME = 'application/vnd.sketchup.skp';
+export const INNERSCENE_VIEWER = 'https://www.innerscene.com/tools/skp-viewer';
+const EMBED_TOKEN_TTL = '2h';
+const EMBED_PURPOSE = 'skp_embed';
 
 export function isSketchupFilename(name = '') {
   return /\.skp$/i.test(String(name || ''));
@@ -50,16 +55,83 @@ export function listSketchupFiles(meta) {
   return Array.isArray(m.sketchup_files) ? m.sketchup_files : [];
 }
 
+export function resolveSketchupDiskPath(fileUrl) {
+  const rel = String(fileUrl || '').replace(/^\/uploads\//, '');
+  if (!rel || rel.includes('..')) return null;
+  const disk = path.join(UPLOADS_ROOT, rel);
+  if (!disk.startsWith(UPLOADS_ROOT + path.sep)) return null;
+  return disk;
+}
+
+/** Base API publique absolue (pour iframe InnerScene). */
+export function publicApiBaseFromRequest(req) {
+  const env = String(process.env.ERP_PUBLIC_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '');
+  if (env) {
+    if (/\/api$/i.test(env)) return env;
+    return `${env}/api`;
+  }
+  const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0].trim();
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+  if (!host) return null;
+  return `${proto}://${host}/api`;
+}
+
 /**
- * Enregistre un .skp sur le projet (disque + meta.sketchup_files).
+ * URL signée courte durée + URL iframe InnerScene.
+ * Le fichier doit être joignable en HTTPS public (pas localhost).
  */
+export async function createSketchupEmbed(projectId, fileId, req) {
+  const pid = Number(projectId);
+  const { rows } = await pool.query('SELECT meta FROM projects WHERE id = $1', [pid]);
+  if (!rows[0]) throw new Error('Projet introuvable');
+  const files = listSketchupFiles(rows[0].meta);
+  const file = files.find(f => String(f.id) === String(fileId));
+  if (!file?.url) throw new Error('Fichier SketchUp introuvable');
+
+  const disk = resolveSketchupDiskPath(file.url);
+  if (!disk || !fs.existsSync(disk)) throw new Error('Fichier absent sur le disque');
+
+  const apiBase = publicApiBaseFromRequest(req);
+  if (!apiBase) throw new Error('URL publique ERP introuvable');
+
+  const token = jwt.sign(
+    {
+      purpose: EMBED_PURPOSE,
+      projectId: pid,
+      fileId: String(file.id),
+      rel: String(file.url).replace(/^\/uploads\//, ''),
+      name: file.name || 'modele.skp',
+    },
+    getJwtSecret(),
+    { expiresIn: EMBED_TOKEN_TTL }
+  );
+
+  const fileUrl = `${apiBase}/public/sketchup/${encodeURIComponent(token)}`;
+  const viewerUrl = `${INNERSCENE_VIEWER}?embedded=1&url=${encodeURIComponent(fileUrl)}`;
+
+  return {
+    file,
+    file_url: fileUrl,
+    viewer_url: viewerUrl,
+    expires_in: 7200,
+    note: /localhost|127\.0\.0\.1/i.test(fileUrl)
+      ? 'InnerScene ne peut pas charger un fichier en localhost — déployez l’ERP en HTTPS public.'
+      : null,
+  };
+}
+
+export function verifySketchupEmbedToken(token) {
+  const payload = jwt.verify(String(token || ''), getJwtSecret());
+  if (payload?.purpose !== EMBED_PURPOSE || !payload.rel) {
+    throw new Error('Jeton SketchUp invalide');
+  }
+  return payload;
+}
+
 export async function storeSketchupFile(projectId, buffer, originalName = 'modele.skp') {
   const pid = Number(projectId);
   if (!pid) throw new Error('project_id invalide');
   if (!buffer?.length) throw new Error('Fichier SketchUp vide');
-  if (!isSketchupFilename(originalName) && !String(originalName || '').toLowerCase().includes('sketchup')) {
-    // Accepte aussi si l’extension manque mais on force .skp
-  }
 
   const { rows } = await pool.query('SELECT id, meta FROM projects WHERE id = $1', [pid]);
   if (!rows[0]) throw new Error('Projet introuvable');
@@ -110,8 +182,8 @@ export async function removeSketchupFile(projectId, fileId) {
   const next = prev.filter(f => f !== target);
 
   if (target?.url?.startsWith('/uploads/')) {
-    const disk = path.join(UPLOADS_ROOT, target.url.replace(/^\/uploads\//, ''));
-    try { if (fs.existsSync(disk)) fs.unlinkSync(disk); } catch { /* ignore */ }
+    const disk = resolveSketchupDiskPath(target.url);
+    try { if (disk && fs.existsSync(disk)) fs.unlinkSync(disk); } catch { /* ignore */ }
   }
 
   const nextMeta = {

@@ -32,6 +32,7 @@ export default function ProjectPlansPanel({ project, onReload }) {
   const [err, setErr] = useState('');
   const [ok, setOk] = useState('');
   const [preview, setPreview] = useState(null);
+  const [skpViewer, setSkpViewer] = useState(null);
 
   const meta = parseProjectMeta(project.meta);
   const plans = Array.isArray(meta.plans) ? meta.plans : [];
@@ -65,7 +66,7 @@ export default function ProjectPlansPanel({ project, onReload }) {
       const fd = new FormData();
       fd.append('skp', file);
       const res = await api(`/projects/${project.id}/sketchup`, { method: 'POST', body: fd });
-      setOk(`SketchUp « ${res.file?.name || file.name} » ajouté — ouvrez-le avec SketchUp sur l’ordinateur.`);
+      setOk(`SketchUp « ${res.file?.name || file.name} » ajouté.`);
       onReload?.();
     } catch (e) {
       setErr(e.message);
@@ -75,11 +76,30 @@ export default function ProjectPlansPanel({ project, onReload }) {
     }
   }
 
-  async function openSkp(file) {
+  async function viewSkp(file) {
+    setErr('');
+    setBusy(`view-${file.id}`);
+    try {
+      const embed = await api(`/projects/${project.id}/sketchup/${encodeURIComponent(file.id)}/embed`);
+      setSkpViewer({
+        name: file.name,
+        viewerUrl: embed.viewer_url,
+        note: embed.note,
+        file,
+      });
+      if (embed.note) setOk(embed.note);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function openSkpDownload(file) {
     setErr('');
     try {
       await downloadSketchup(project.id, file);
-      setOk(`Téléchargement de « ${file.name} » — ouvrez le fichier avec SketchUp.`);
+      setOk(`Téléchargement de « ${file.name} » — ouvrez avec SketchUp desktop si besoin.`);
     } catch (e) {
       setErr(e.message);
     }
@@ -178,7 +198,7 @@ export default function ProjectPlansPanel({ project, onReload }) {
           <div>
             <p className="text-sm font-semibold text-neya-ink">Fichiers SketchUp (.skp)</p>
             <p className="text-xs text-neya-muted mt-0.5">
-              Pas de preview dans le navigateur — téléchargez puis ouvrez avec SketchUp sur l’ordinateur.
+              Visualisation + mesure dans le navigateur (viewer InnerScene) — ou téléchargement SketchUp desktop.
             </p>
           </div>
           <div>
@@ -221,13 +241,21 @@ export default function ProjectPlansPanel({ project, onReload }) {
                     {file.uploaded_at ? ` · ${new Date(file.uploaded_at).toLocaleDateString('fr-CA')}` : ''}
                   </p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    onClick={() => openSkp(file)}
-                    className="btn-primary text-xs min-h-[32px]"
+                    onClick={() => viewSkp(file)}
+                    disabled={busy === `view-${file.id}`}
+                    className="btn-primary text-xs min-h-[32px] disabled:opacity-40"
                   >
-                    Ouvrir dans SketchUp
+                    {busy === `view-${file.id}` ? '…' : 'Voir / mesurer'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openSkpDownload(file)}
+                    className="btn-secondary text-xs min-h-[32px]"
+                  >
+                    Télécharger
                   </button>
                   <button
                     type="button"
@@ -263,6 +291,63 @@ export default function ProjectPlansPanel({ project, onReload }) {
               title={preview.name}
               src={resolveUploadUrl(preview.url)}
               className="w-full flex-1 min-h-[70vh]"
+            />
+          </div>
+        </div>
+      )}
+
+      {skpViewer && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-2 sm:p-4"
+          onClick={() => setSkpViewer(null)}
+        >
+          <div
+            className="bg-white w-full max-w-6xl h-[92vh] rounded-xl overflow-hidden shadow-xl flex flex-col"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-neya-border shrink-0">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-neya-ink truncate">{skpViewer.name}</p>
+                <p className="text-[11px] text-neya-muted">
+                  Viewer InnerScene — orbit / zoom / règle de mesure
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="btn-secondary text-xs min-h-[32px]"
+                  onClick={() => openSkpDownload(skpViewer.file)}
+                >
+                  Télécharger .skp
+                </button>
+                <a
+                  href={skpViewer.viewerUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-secondary text-xs min-h-[32px] inline-flex items-center"
+                >
+                  Nouvel onglet
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setSkpViewer(null)}
+                  className="text-sm text-neya-muted hover:text-neya-ink px-2"
+                >
+                  Fermer
+                </button>
+              </div>
+            </div>
+            {skpViewer.note && (
+              <p className="px-4 py-2 text-xs text-amber-800 bg-amber-50 border-b border-amber-100">
+                {skpViewer.note}
+              </p>
+            )}
+            <iframe
+              title={`SketchUp — ${skpViewer.name}`}
+              src={skpViewer.viewerUrl}
+              className="w-full flex-1 min-h-0 border-0"
+              allow="fullscreen"
+              allowFullScreen
             />
           </div>
         </div>

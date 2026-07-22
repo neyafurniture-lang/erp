@@ -203,6 +203,7 @@ export default function ProjectDocumentsPanel({ project, onReload }) {
   const quotes = data?.quotes || [];
   const mailFiles = data?.mail_files || [];
   const plans = data?.plans || [];
+  const sketchupFiles = data?.sketchup_files || [];
   const emails = data?.emails || [];
   const unlinkedClientQuotes = linkQuotes.filter(q => !q.project_id);
 

@@ -48,6 +48,7 @@ import timeEntriesRoutes from './routes/time-entries.js';
 import financeSyncRoutes from './routes/finance-sync.js';
 import saunaCloudRoutes from './routes/sauna-cloud.js';
 import cuttingPlansRoutes from './routes/cutting-plans.js';
+import publicSketchupRoutes from './routes/public-sketchup.js';
 import marketplaceRoutes from './routes/marketplace.js';
 import socialRoutes from './routes/social.js';
 import payrollRoutes from './routes/payroll.js';
@@ -162,6 +163,7 @@ protectedRouter.use('/marketplace', marketplaceRoutes);
 protectedRouter.use('/social', socialRoutes);
 protectedRouter.use('/payroll', payrollRoutes);
 
+app.use('/api/public', publicSketchupRoutes);
 app.use('/api', protectedRouter);
 
 app.use((err, req, res, next) => {

@@ -597,6 +597,17 @@ router.delete('/:id/sketchup/:fileId', async (req, res) => {
   }
 });
 
+/** URL iframe InnerScene (viewer + mesure) pour un .skp du projet. */
+router.get('/:id/sketchup/:fileId/embed', async (req, res) => {
+  try {
+    const { createSketchupEmbed } = await import('../services/project-sketchup.js');
+    const result = await createSketchupEmbed(Number(req.params.id), req.params.fileId, req);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 /** Télécharger / « ouvrir » un .skp (force le téléchargement avec le bon type MIME). */
 router.get('/:id/sketchup/:fileId/download', async (req, res) => {
   try {
