@@ -1021,27 +1021,39 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
     if (!selected?.id) return;
     const msg = selected;
     const archivedId = selected.id;
-    await api(`/gmail/messages/${archivedId}/archive`, { method: 'POST' });
-    setSelected(null);
-    setThread(null);
-    setMobileDetail(false);
-    setMessages(prev => prev.filter(m => (m.id || m.gmail_message_id) !== archivedId));
-    showUndo('Conversation archivée', async () => {
-      await api(`/gmail/messages/${archivedId}/unarchive`, { method: 'POST' });
-      await load(search, activeFolder);
-      setSelected(msg);
-      setMobileDetail(true);
-    });
+    try {
+      await api(`/gmail/messages/${archivedId}/archive`, { method: 'POST' });
+      setSelected(null);
+      setThread(null);
+      setMobileDetail(false);
+      setMessages(prev => prev.filter(m => (m.id || m.gmail_message_id) !== archivedId));
+      showUndo('Conversation archivée', async () => {
+        try {
+          await api(`/gmail/messages/${archivedId}/unarchive`, { method: 'POST' });
+          await load(search, activeFolder);
+          setSelected(msg);
+          setMobileDetail(true);
+        } catch (e) {
+          setErr(e.message || 'Annulation archive impossible');
+        }
+      });
+    } catch (e) {
+      setErr(e.message || 'Archive impossible');
+    }
   }
 
   async function linkToProject(pid) {
     const id = selected?.id || selected?.gmail_message_id;
     if (!id || !pid) return;
-    const result = await api('/gmail/link-project', {
-      method: 'POST',
-      body: JSON.stringify({ message_id: id, project_id: Number(pid) }),
-    });
-    if (result.thread) setThread(result.thread);
+    try {
+      const result = await api('/gmail/link-project', {
+        method: 'POST',
+        body: JSON.stringify({ message_id: id, project_id: Number(pid) }),
+      });
+      if (result.thread) setThread(result.thread);
+    } catch (e) {
+      setErr(e.message || 'Liaison projet impossible');
+    }
   }
 
   const synthesis = thread?.latest_synthesis || thread?.synthesis;

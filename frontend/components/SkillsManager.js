@@ -4,18 +4,20 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 
 export const ACTION_TYPES = [
-  'create_task', 'create_project', 'schedule_task', 'create_expense', 'list_today', 'create_client',
-  'complete_task', 'update_task', 'delete_task', 'list_project_tasks',
+  'create_task', 'create_project', 'schedule_task', 'plan_day', 'create_expense', 'list_today', 'list_tomorrow', 'create_client',
+  'complete_task', 'update_task', 'delete_task', 'unlink_task', 'list_project_tasks',
   'update_project', 'update_client', 'list_projects', 'list_clients', 'list_expenses',
+  'search_projects', 'search_memory', 'get_project',
+  'list_emails', 'search_emails', 'get_email', 'import_email_attachment', 'scan_mail_invoice_todos', 'list_mail_threads',
+  'import_mail_dates_to_project',
+  'create_fabrication_plan',
   'list_skills', 'create_skill', 'update_skill',
   'create_quote', 'create_invoice', 'convert_quote', 'send_quote', 'send_invoice',
-  'list_quotes', 'list_invoices', 'delete_project', 'delete_client', 'delete_expense',
+  'list_quotes', 'list_invoices', 'update_quote', 'get_quote',
+  'delete_project', 'delete_client', 'delete_expense',
   'update_standard', 'sync_wordpress', 'sync_web_orders', 'list_web_orders', 'sync_web_photos',
   'ui_edit_mode', 'ui_add_todo_list', 'ui_move_section', 'ui_hide_section', 'ui_show_section', 'ui_reset_layout',
-  'erp_manual', 'search_projects', 'search_memory', 'get_project',
-  'list_emails', 'search_emails', 'get_email', 'list_mail_threads', 'import_mail_dates_to_project',
-  'create_fabrication_plan', 'update_quote', 'get_quote',
-  'demande_modification_erp', 'atelier_habits',
+  'erp_manual',
 ];
 
 export default function SkillsManager({ compact = false }) {

@@ -137,6 +137,9 @@ export default function AdminTasksPanel() {
       ]);
       setTasks(list);
       setSummary(sum);
+    } catch (e) {
+      console.warn('admin-tasks load:', e.message);
+      setTasks([]);
     } finally {
       setLoading(false);
     }

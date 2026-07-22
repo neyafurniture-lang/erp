@@ -36,6 +36,7 @@ export default function ExpensesPage() {
   const [projects, setProjects] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [monthFilter, setMonthFilter] = useState('all');
+  const [formErr, setFormErr] = useState('');
   const [form, setForm] = useState({
     amount: '',
     category: 'materiaux',
@@ -65,27 +66,32 @@ export default function ExpensesPage() {
 
   async function create(e) {
     e.preventDefault();
+    setFormErr('');
     const parts = [form.description.trim(), form.notes.trim()].filter(Boolean);
-    await api('/expenses', {
-      method: 'POST',
-      body: JSON.stringify({
-        amount: Number(form.amount),
-        category: form.category,
-        description: parts.join(' — ') || null,
-        project_id: form.project_id || null,
-        date: form.date || null,
-      }),
-    });
-    setShowForm(false);
-    setForm({
-      amount: '',
-      category: 'materiaux',
-      description: '',
-      notes: '',
-      project_id: '',
-      date: new Date().toISOString().slice(0, 10),
-    });
-    load();
+    try {
+      await api('/expenses', {
+        method: 'POST',
+        body: JSON.stringify({
+          amount: Number(form.amount),
+          category: form.category,
+          description: parts.join(' — ') || null,
+          project_id: form.project_id || null,
+          date: form.date || null,
+        }),
+      });
+      setShowForm(false);
+      setForm({
+        amount: '',
+        category: 'materiaux',
+        description: '',
+        notes: '',
+        project_id: '',
+        date: new Date().toISOString().slice(0, 10),
+      });
+      load();
+    } catch (err) {
+      setFormErr(err.message || 'Enregistrement impossible');
+    }
   }
 
   const monthOptions = useMemo(() => {
@@ -140,6 +146,7 @@ export default function ExpensesPage() {
         {showForm && (
           <form onSubmit={create} className="card rounded-2xl mb-6 space-y-4">
             <p className="text-sm font-medium text-neya-ink">Dépense manuelle</p>
+            {formErr && <p className="text-xs text-red-700 bg-red-50 px-2 py-1.5 rounded">{formErr}</p>}
 
             <div>
               <label className="label">Projet</label>

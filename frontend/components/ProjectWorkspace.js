@@ -13,11 +13,14 @@ import ProjectPlansPanel from './ProjectPlansPanel';
 import DriveExplorer from './DriveExplorer';
 import GmailInbox from './GmailInbox';
 import ProjectDocumentsPanel from './ProjectDocumentsPanel';
+import InstallationBillingPanel from './InstallationBillingPanel';
+import ProjectProductsPanel from './ProjectProductsPanel';
 
 const MODULES = [
   { id: 'overview', label: 'Vue d\'ensemble' },
   { id: 'tasks', label: 'Tâches' },
   { id: 'materials', label: 'Matériaux' },
+  { id: 'products', label: 'Produits' },
   { id: 'costs', label: 'Coûts' },
   { id: 'purchases', label: 'Achats' },
   { id: 'documents', label: 'Devis & docs' },
@@ -25,6 +28,7 @@ const MODULES = [
   { id: 'drive', label: 'Drive' },
   { id: 'mail', label: 'Courriel' },
   { id: 'hours', label: 'Heures' },
+  { id: 'installation', label: 'Installation' },
   { id: 'notes', label: 'Notes' },
 ];
 
@@ -933,6 +937,20 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
 
       {tab === 'documents' && (
         <ProjectDocumentsPanel project={project} onReload={onReload} />
+      )}
+
+      {tab === 'products' && (
+        <ProjectProductsPanel project={project} onReload={onReload} />
+      )}
+
+      {tab === 'installation' && (
+        <InstallationBillingPanel
+          projectId={project.id}
+          projectName={project.name}
+          clientId={project.client_id}
+          clientName={project.client_name}
+          onReload={onReload}
+        />
       )}
 
       {tab === 'plans' && (

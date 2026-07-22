@@ -413,6 +413,44 @@ router.post('/:id/documents/scan-mail', async (req, res) => {
   }
 });
 
+/** Installation / facturation sur place */
+router.get('/:id/installation-billing', async (req, res) => {
+  try {
+    const { getInstallationBilling } = await import('../services/installation-billing.js');
+    res.json(await getInstallationBilling(Number(req.params.id)));
+  } catch (err) {
+    const code = /introuvable/i.test(err.message) ? 404 : 400;
+    res.status(code).json({ error: err.message });
+  }
+});
+
+router.post('/:id/installation-billing/scan', async (req, res) => {
+  try {
+    const { scanProjectInstallationDates } = await import('../services/installation-billing.js');
+    res.json(await scanProjectInstallationDates(Number(req.params.id)));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.put('/:id/installation-billing', async (req, res) => {
+  try {
+    const { saveInstallationBilling } = await import('../services/installation-billing.js');
+    res.json(await saveInstallationBilling(Number(req.params.id), req.body || {}));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/:id/installation-billing/sync-invoice', async (req, res) => {
+  try {
+    const { syncInstallationInvoice } = await import('../services/installation-billing.js');
+    res.json(await syncInstallationInvoice(Number(req.params.id), req.body || {}));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 /** Terminer ou rouvrir un projet en un clic */
 router.post('/:id/toggle-done', async (req, res) => {
   const client = await pool.connect();

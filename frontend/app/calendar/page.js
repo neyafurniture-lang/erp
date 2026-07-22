@@ -230,20 +230,25 @@ function CraftCalendar() {
     if (!title) return;
     const start = new Date(`${selected}T${addForm.start}:00`);
     const end = new Date(`${selected}T${addForm.end}:00`);
-    await api('/tasks', {
-      method: 'POST',
-      body: JSON.stringify({
-        title,
-        type: addForm.type,
-        status: 'todo',
-        start_time: start.toISOString(),
-        end_time: end.toISOString(),
-        estimated_minutes: Math.max(30, Math.round((end - start) / 60000)),
-      }),
-    });
-    setShowAdd(false);
-    setAddForm({ title: '', start: '09:00', end: '10:00', type: 'assemblage' });
-    load();
+    try {
+      setErr('');
+      await api('/tasks', {
+        method: 'POST',
+        body: JSON.stringify({
+          title,
+          type: addForm.type,
+          status: 'todo',
+          start_time: start.toISOString(),
+          end_time: end.toISOString(),
+          estimated_minutes: Math.max(30, Math.round((end - start) / 60000)),
+        }),
+      });
+      setShowAdd(false);
+      setAddForm({ title: '', start: '09:00', end: '10:00', type: 'assemblage' });
+      load();
+    } catch (errCreate) {
+      setErr(errCreate.message || 'Impossible de créer l’événement');
+    }
   }
 
   function openTask(ev) {

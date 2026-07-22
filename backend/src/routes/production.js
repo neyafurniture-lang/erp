@@ -236,7 +236,7 @@ router.post('/:id/advance', async (req, res) => {
     );
     res.json({ tasks: updated, stage: computeStage(updated) });
   } catch (err) {
-    await client.query('ROLLBACK');
+    try { await client.query('ROLLBACK'); } catch { /* */ }
     res.status(500).json({ error: err.message });
   } finally {
     client.release();

@@ -12,6 +12,7 @@ export const ACTION_TYPES = [
   'update_project', 'update_client', 'list_projects', 'list_clients', 'list_expenses',
   'search_projects', 'search_memory', 'get_project',
   'list_emails', 'search_emails', 'get_email', 'import_email_attachment', 'scan_mail_invoice_todos', 'list_mail_threads',
+  'import_mail_dates_to_project',
   'create_fabrication_plan',
   'list_skills', 'create_skill', 'update_skill',
   'create_quote', 'create_invoice', 'convert_quote', 'send_quote', 'send_invoice',
@@ -1857,6 +1858,95 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
       const { reply, href, section } = buildManualReply(message);
       actions.push({ type: 'navigate', data: { href, section } });
       return { reply: reply.replace(/\*\*/g, ''), actions };
+    }
+
+    case 'list_skills': {
+      const { rows: skills } = await pool.query('SELECT * FROM assistant_skills ORDER BY name');
+      const list = skills.map(s => {
+        const patterns = (s.trigger_patterns || []).slice(0, 3).join(', ');
+        return `${s.enabled ? '✓' : '○'} ${s.name} → ${s.action_type}${patterns ? ` (${patterns}…)` : ''}`;
+      }).join('\n');
+      actions.push({ type: 'list_skills', data: skills });
+      return {
+        reply: `Skills NEYA (${skills.length}) :\n${list || '(aucune)'}`,
+        actions,
+      };
+    }
+
+    case 'create_skill': {
+      const name = params.name
+        || extractQuotedText(msg)
+        || extractAfterKeyword(msg, ['skill', 'capacité', 'capacite']);
+      const action_type = params.action_type
+        || (msg.match(/action\s+([a-z_]+)/i) || [])[1];
+      if (!name || !action_type || !ACTION_TYPES.includes(action_type)) {
+        return {
+          reply: 'Format : skill « nom » action complete_task. Ou params {name, action_type, triggers}.',
+          actions,
+        };
+      }
+      const triggers = Array.isArray(params.triggers)
+        ? params.triggers
+        : (params.trigger_patterns || [String(name).replace(/_/g, ' ')]);
+      const skillName = String(name).replace(/\s+/g, '_').toLowerCase().slice(0, 80);
+      const { rows } = await pool.query(
+        `INSERT INTO assistant_skills (name, description, trigger_patterns, action_type, enabled)
+         VALUES ($1,$2,$3,$4,true)
+         ON CONFLICT (name) DO UPDATE SET
+           description = EXCLUDED.description,
+           trigger_patterns = EXCLUDED.trigger_patterns,
+           action_type = EXCLUDED.action_type,
+           enabled = true
+         RETURNING *`,
+        [
+          skillName,
+          params.description || `Via protocol — ${action_type}`,
+          JSON.stringify(triggers),
+          action_type,
+        ]
+      );
+      actions.push({ type: 'create_skill', data: rows[0] });
+      return { reply: `Skill « ${rows[0].name} » créée (${action_type}).`, actions };
+    }
+
+    case 'update_skill': {
+      const name = params.name || extractQuotedText(msg) || (msg.match(/skill\s+([a-z0-9_-]+)/i) || [])[1];
+      if (!name) return { reply: 'Précisez le skill (ex. « activer skill create_task »).', actions };
+      const { rows } = await pool.query('SELECT * FROM assistant_skills WHERE name ILIKE $1', [name]);
+      if (!rows[0]) return { reply: `Skill « ${name} » introuvable.`, actions };
+      const skill = rows[0];
+      let enabled = skill.enabled;
+      let action_type = skill.action_type;
+      let triggers = skill.trigger_patterns;
+      if (params.enabled !== undefined) enabled = !!params.enabled;
+      else if (/désactiver|desactiver|disable/i.test(msg)) enabled = false;
+      else if (/activer|enable/i.test(msg)) enabled = true;
+      if (params.action_type && ACTION_TYPES.includes(params.action_type)) action_type = params.action_type;
+      if (Array.isArray(params.triggers)) triggers = params.triggers;
+      const { rows: updated } = await pool.query(
+        `UPDATE assistant_skills SET enabled=$1, action_type=$2, trigger_patterns=$3 WHERE id=$4 RETURNING *`,
+        [enabled, action_type, JSON.stringify(triggers || []), skill.id]
+      );
+      actions.push({ type: 'update_skill', data: updated[0] });
+      return {
+        reply: `Skill « ${updated[0].name} » mise à jour${updated[0].enabled ? ' (active)' : ' (désactivée)'}.`,
+        actions,
+      };
+    }
+
+    case 'import_mail_dates_to_project': {
+      const id = projectId || await resolveProjectId(params, msg, pageContext);
+      if (!id) return { reply: 'Précisez le projet (page ouverte ou nom).', actions };
+      const { scanProjectInstallationDates } = await import('./installation-billing.js');
+      const result = await scanProjectInstallationDates(id);
+      actions.push({ type: 'import_mail_dates_to_project', data: result });
+      const n = result?.billing?.dates?.length || result?.dates?.length || 0;
+      return {
+        reply: n
+          ? `Dates d’installation scannées pour le projet #${id} (${n} date(s)). Voir l’onglet Installation.`
+          : `Scan terminé — aucune date d’installation trouvée pour le projet #${id}.`,
+        actions,
+      };
     }
 
     default:

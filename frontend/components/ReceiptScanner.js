@@ -88,9 +88,13 @@ function ConfirmReceiptModal({ item, projects, onClose, onDone }) {
   }
 
   async function dismiss() {
-    await api(`/receipts/${item.id}/dismiss`, { method: 'POST' });
-    onDone();
-    onClose();
+    try {
+      await api(`/receipts/${item.id}/dismiss`, { method: 'POST' });
+      onDone();
+      onClose();
+    } catch (e) {
+      setErr(e.message || 'Impossible d’ignorer le ticket');
+    }
   }
 
   return (

@@ -50,9 +50,13 @@ function AssignModal({ item, projects, onClose, onDone }) {
   }
 
   async function dismiss() {
-    await api(`/supplier-invoices/${item.id}/dismiss`, { method: 'POST' });
-    onDone();
-    onClose();
+    try {
+      await api(`/supplier-invoices/${item.id}/dismiss`, { method: 'POST' });
+      onDone();
+      onClose();
+    } catch (e) {
+      setErr(e.message || 'Impossible d’ignorer');
+    }
   }
 
   return (

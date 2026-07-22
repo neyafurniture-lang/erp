@@ -188,25 +188,40 @@ export default function SocialPage() {
   }
 
   async function markPublished(id) {
-    await api(`/social/${id}/publish`, { method: 'PATCH' });
-    loadPosts();
-    loadAnalytics();
+    try {
+      setErr('');
+      await api(`/social/${id}/publish`, { method: 'PATCH' });
+      loadPosts();
+      loadAnalytics();
+    } catch (e) {
+      setErr(e.message || 'Publication impossible');
+    }
   }
 
   async function saveMetrics(id, metrics) {
-    await api(`/social/${id}/metrics`, {
-      method: 'PATCH',
-      body: JSON.stringify(metrics),
-    });
-    loadAnalytics();
-    loadPosts();
+    try {
+      setErr('');
+      await api(`/social/${id}/metrics`, {
+        method: 'PATCH',
+        body: JSON.stringify(metrics),
+      });
+      loadAnalytics();
+      loadPosts();
+    } catch (e) {
+      setErr(e.message || 'Métriques non enregistrées');
+    }
   }
 
   async function removePost(id) {
     if (!confirm('Supprimer ce post ?')) return;
-    await api(`/social/${id}`, { method: 'DELETE' });
-    loadPosts();
-    loadAnalytics();
+    try {
+      setErr('');
+      await api(`/social/${id}`, { method: 'DELETE' });
+      loadPosts();
+      loadAnalytics();
+    } catch (e) {
+      setErr(e.message || 'Suppression impossible');
+    }
   }
 
   return (
