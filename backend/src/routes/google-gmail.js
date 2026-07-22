@@ -42,7 +42,27 @@ router.get('/sections', (_req, res) => {
 
 router.post('/sort-inbox', async (req, res) => {
   try {
-    res.json(await sortRecentInbox(Number(req.body?.max) || 25));
+    const max = Number(req.body?.max) || 25;
+    const includeTri = req.body?.includeTri !== false;
+    const scanInvoices = req.body?.scanInvoices !== false;
+    res.json(await sortRecentInbox(max, { includeTri, scanInvoices }));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get('/labels/tree', async (req, res) => {
+  try {
+    const prefixes = String(req.query.prefixes || 'NEYA/,Tri/')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+    const exact = String(req.query.exact || 'NEYA,Tri,Fournitures')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+    const withCounts = req.query.counts !== '0' && req.query.counts !== 'false';
+    res.json(await gmail.listLabelTree({ prefixes, exact, withCounts }));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
