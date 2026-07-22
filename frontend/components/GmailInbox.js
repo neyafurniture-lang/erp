@@ -818,13 +818,25 @@ export default function GmailInbox({
         method: 'POST',
         body: JSON.stringify({ message_id: id }),
       });
-      setThread(processed);
+      setThread(prev => {
+        // Ne jamais écraser une synthèse déjà en mémoire/DB par un échec IA
+        if (processed?.synthesis_error && prev?.latest_synthesis && !processed.latest_synthesis) {
+          return {
+            ...processed,
+            latest_synthesis: prev.latest_synthesis,
+            syntheses: prev.syntheses || processed.syntheses,
+            client_id: processed.client_id ?? prev.client_id,
+            client_name: processed.client_name ?? prev.client_name,
+          };
+        }
+        return processed;
+      });
       setLinkClientId(processed.client_id ? String(processed.client_id) : '');
       setLinkProjId(processed.project_id ? String(processed.project_id) : (linkProjectId || projectId ? String(linkProjectId || projectId) : ''));
       if (processed.latest_synthesis?.suggested_reply || processed.synthesis?.suggested_reply) {
         setReply(processed.latest_synthesis?.suggested_reply || processed.synthesis.suggested_reply);
       }
-      if (processed.synthesis_error) {
+      if (processed.synthesis_error && !processed.latest_synthesis) {
         setThreadWarn(`Synthèse : ${processed.synthesis_error}`);
       }
     } catch (e) {

@@ -82,10 +82,35 @@ export async function applyGmailLabelsForMessages(messages = []) {
   return { applied, errors };
 }
 
-// Éviter no-reply / notification@ (trop large → GitHub, banques, etc. en « Promotions »)
-const PROMO_RE = /unsubscribe|newsletter|promotions?\b|marketing|mailchimp|info@shop|deals@|offres@|soldes?@/i;
+// Newsletters / marketing — suffisamment précis pour éviter GitHub/banques
+const PROMO_RE = /unsubscribe|d[ée]sinscription|newsletter|infolettre|promotions?\b|marketing|mailchimp|klaviyo|sendgrid|constant.?contact|info@shop|deals@|offres@|soldes?@|updates@|newsletter@|noreply@.*news|no-?reply@.*mail|livraison\s+gratuite|free\s+shipping|last\s+chance|derni[eè]re\s+chance|%\s*off|rabais|promo\b/i;
+const PROMO_DOMAIN_RE = /\b(leevalley|leevalleynews|mailchimp|klaviyo|sendgrid|shopifyemail|exacttarget|cmail|campaign-archive|list-manage)\b/i;
 const NOT_PROMO_FROM_RE = /github\.com|gitlab\.com|bitbucket\.org|cursor\.com|google\.com|accounts\.google/i;
 const CLIENT_INTENTS = new Set(['devis', 'suivi', 'plainte', 'confirmation']);
+const WEAK_LINK_SOURCES = new Set([
+  'client_name',
+  'client_name_parts',
+  'client_name_parts_recent_project',
+  'client_name_recent_project',
+  'client_recent_project',
+  'synth_relink',
+  'synth_client_suggest',
+  'project_name',
+]);
+
+export function isPromotion(from, subject, snippet) {
+  if (NOT_PROMO_FROM_RE.test(String(from || ''))) return false;
+  const hay = `${from} ${subject} ${snippet}`;
+  return PROMO_RE.test(hay) || PROMO_DOMAIN_RE.test(hay);
+}
+
+function isWeakAutoLink(thread) {
+  const source = String(thread?.link_source || '');
+  if (WEAK_LINK_SOURCES.has(source)) return true;
+  if (source.startsWith('client_name')) return true;
+  const conf = Number(thread?.link_confidence);
+  return Number.isFinite(conf) && conf > 0 && conf < 0.9;
+}
 
 let clientEmailCache = null;
 let clientEmailCacheAt = 0;
@@ -141,12 +166,6 @@ function collectAddresses({ from = '', to = '', cc = '', participants = [] } = {
   return [...new Set(all.filter(e => e && e.includes('@') && !own.has(e)))];
 }
 
-function isPromotion(from, subject, snippet) {
-  if (NOT_PROMO_FROM_RE.test(String(from || ''))) return false;
-  const hay = `${from} ${subject} ${snippet}`;
-  return PROMO_RE.test(hay);
-}
-
 /**
  * Classe un message dans une section unique (priorité haute → basse).
  * Les mails envoyés sont classés via le destinataire client (To/Cc), pas seulement From.
@@ -173,22 +192,31 @@ export function classifyMailMessage({
     ownEmails
   );
   const matchedClientEmail = addresses.some(e => emails.has(e));
-  const hasClient = Boolean(thread?.client_id) || matchedClientEmail;
-  const hasProject = Boolean(thread?.project_id);
-  const needsResponse = !isOutbound && (
+  const promo = isPromotion(from, subject, snippet);
+  const weakLink = isWeakAutoLink(thread);
+  // Lien client « réel » : email ERP exact, ou lien manuel / haute confiance — pas un faux positif « Son »
+  const hasStrongClient = matchedClientEmail || (
+    Boolean(thread?.client_id)
+    && !weakLink
+    && String(thread?.link_source || '') !== 'sync'
+  );
+  const hasClient = hasStrongClient || (Boolean(thread?.client_id) && !promo);
+  const hasProject = Boolean(thread?.project_id) && !promo;
+  const needsResponse = !isOutbound && !promo && (
     thread?.needs_response === true || thread?.latest_needs_response === true
   );
   const clientIntent = thread?.client_intent || thread?.latest_client_intent;
   const isSupplierInvoice = looksLikeSupplierInvoice(from, subject, snippet);
+  // Facture explicite (pas juste « votre commande » dans une newsletter)
+  const hardInvoice = /\b(facture|invoice|receipt|re[cç]u|order confirmation|confirmation de commande)\b/i
+    .test(`${subject} ${snippet}`);
 
-  // Priorité atelier : répondre / clients avant newsletters fournisseurs
-  if (needsResponse || (isUnread && hasClient && !isOutbound)) return 'a_repondre';
+  // Newsletters / promos d’abord — sauf client ERP exact (email) ou vraie facture
+  if (promo && !matchedClientEmail && !hardInvoice) return 'promotions';
+  if (isSupplierInvoice) return 'fournisseurs';
+  if (needsResponse || (isUnread && hasStrongClient && !isOutbound)) return 'a_repondre';
   if (hasProject) return 'projets';
   if (hasClient || CLIENT_INTENTS.has(clientIntent)) return 'clients';
-  if (isSupplierInvoice) return 'fournisseurs';
-  if (isPromotion(from, subject, snippet)) return 'promotions';
-  // Domaine fournisseur sans facture → promotions plutôt que « Fournisseurs »
-  if (detectSupplier(from, subject, snippet) && isPromotion(from, subject, snippet)) return 'promotions';
   if (detectSupplier(from, subject, snippet)) return 'autres';
   return 'autres';
 }
@@ -224,6 +252,8 @@ export function computeMailCategoryForThread(threadRow, synthesis = null, { ownE
     thread: {
       client_id: threadRow.client_id,
       project_id: threadRow.project_id,
+      link_source: threadRow.link_source,
+      link_confidence: threadRow.link_confidence,
       needs_response: synthesis?.needs_response,
       client_intent: synthesis?.client_intent,
       participant_emails: participants,
@@ -310,7 +340,8 @@ export async function enrichInboxMessages(messages = []) {
     );
 
     // Auto-lier au client connu (surtout pour les mails envoyés : destinataire = client)
-    if (thread?.id && !thread.client_id && addresses.length) {
+    // Jamais pour une newsletter / promo
+    if (thread?.id && !thread.client_id && addresses.length && !isPromotion(m.from, m.subject, m.snippet)) {
       const linked = await autoLinkThreadFromAddresses(thread, addresses);
       if (linked?.client_id) {
         thread = { ...thread, ...linked };
@@ -394,6 +425,15 @@ export async function classifyAndStoreThread(threadDbId) {
     { participants: threadRow.participant_emails },
     ownEmails
   );
+
+  const fromHint = addresses[0] || '';
+  if (isPromotion(fromHint, threadRow.subject || '', '') && threadRow.client_id) {
+    try {
+      const { clearWeakAutoLink } = await import('./email-threads.js');
+      const cleared = await clearWeakAutoLink(threadRow.id);
+      if (cleared) threadRow = { ...threadRow, ...cleared, client_name: null };
+    } catch { /* optional */ }
+  }
 
   if (!threadRow.client_id && addresses.length) {
     threadRow = await autoLinkThreadFromAddresses(threadRow, addresses);
