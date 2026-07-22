@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { api, formatMoney, formatDate, TASK_TYPES, resolveUploadUrl, PROJECT_STATUS, projectStatusMeta, normalizeProjectStatusValue } from '../lib/api';
+import { api, formatMoney, formatDate, TASK_TYPES, resolveUploadUrl, PROJECT_STATUS, projectStatusMeta, normalizeProjectStatusValue, isProjectPriority } from '../lib/api';
 import { isCustomProject, checklistProgress } from '../lib/projects';
 import { PRODUCTION_STAGES, computeProductionStage, resolveProject3dUrl } from '../lib/production';
 import { parseMeta } from '../lib/standards';
@@ -296,6 +296,22 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
     }
   }
 
+  async function toggleProjectPriority() {
+    if (statusBusy) return;
+    setStatusBusy(true);
+    try {
+      await api(`/projects/${project.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ priority: isProjectPriority(project) ? 0 : 1 }),
+      });
+      onReload();
+    } catch (err) {
+      window.alert(err.message || 'Impossible de mettre à jour la priorité');
+    } finally {
+      setStatusBusy(false);
+    }
+  }
+
   function updateHourRow(idx, field, value) {
     setHoursRows(rows => {
       const next = rows.map((r, i) => (i === idx ? { ...r, [field]: value } : r));
@@ -452,21 +468,37 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
               {project.name}
             </h1>
           </div>
-          <div className="shrink-0 flex flex-col items-stretch gap-1.5 min-w-[10rem]">
-            <label className="text-[10px] font-semibold uppercase tracking-wide text-neya-muted" htmlFor="project-status-select">
-              Statut
-            </label>
-            <select
-              id="project-status-select"
-              value={projectStatusMeta(project.status).value}
+          <div className="shrink-0 flex flex-col sm:flex-row items-stretch gap-2">
+            <button
+              type="button"
+              onClick={toggleProjectPriority}
               disabled={statusBusy}
-              onChange={(e) => changeProjectStatus(e.target.value)}
-              className="input py-2 text-sm font-semibold disabled:opacity-50"
+              aria-pressed={isProjectPriority(project)}
+              className={`inline-flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-semibold transition-colors disabled:opacity-50 ${
+                isProjectPriority(project)
+                  ? 'border-amber-300 bg-amber-50 text-amber-700'
+                  : 'border-neya-border bg-white text-neya-muted hover:text-amber-600'
+              }`}
             >
-              {PROJECT_STATUS.map(s => (
-                <option key={s.value} value={s.value}>{s.label}</option>
-              ))}
-            </select>
+              <span aria-hidden>{isProjectPriority(project) ? '★' : '☆'}</span>
+              {isProjectPriority(project) ? 'Prioritaire' : 'Priorité'}
+            </button>
+            <div className="flex flex-col items-stretch gap-1.5 min-w-[10rem]">
+              <label className="text-[10px] font-semibold uppercase tracking-wide text-neya-muted" htmlFor="project-status-select">
+                Statut
+              </label>
+              <select
+                id="project-status-select"
+                value={projectStatusMeta(project.status).value}
+                disabled={statusBusy}
+                onChange={(e) => changeProjectStatus(e.target.value)}
+                className="input py-2 text-sm font-semibold disabled:opacity-50"
+              >
+                {PROJECT_STATUS.map(s => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
         <div className="flex flex-wrap gap-2 mt-4">
@@ -474,6 +506,9 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
           <span className={`badge text-white border-transparent ${projectStatusMeta(project.status).color}`}>
             {projectStatusMeta(project.status).label}
           </span>
+          {isProjectPriority(project) && (
+            <span className="badge border-amber-300 bg-amber-50 text-amber-800">Prioritaire</span>
+          )}
           {project.deadline && <span className="badge border-neya-border">{formatDate(project.deadline)}</span>}
           {costs && <span className="badge border-neya-orange/30 text-neya-orange">Marge {costs.margin_pct}%</span>}
         </div>

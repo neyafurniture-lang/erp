@@ -2,24 +2,27 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Search, Plus, Calendar, DollarSign, ChevronRight } from 'lucide-react';
+import { Search, Plus, Calendar, DollarSign, ChevronRight, Star } from 'lucide-react';
 import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
 import {
   api, formatMoney, formatDate, PROJECT_STATUS, projectStatusMeta, normalizeProjectStatusValue,
+  isProjectPriority,
 } from '../../lib/api';
 import { isCustomProject } from '../../lib/projects';
 
 const FILTERS = [
   { id: 'active', label: 'Actifs' },
   { id: 'waiting', label: 'En attente' },
+  { id: 'priority', label: 'Prioritaires' },
   { id: 'done', label: 'Terminés' },
   { id: 'all', label: 'Tous' },
 ];
 
-function matchesFilter(status, filter) {
-  const s = normalizeProjectStatusValue(status);
+function matchesFilter(project, filter) {
+  const s = normalizeProjectStatusValue(project.status);
   if (filter === 'all') return true;
+  if (filter === 'priority') return isProjectPriority(project);
   if (filter === 'done') return s === 'done' || s === 'cancelled';
   if (filter === 'waiting') return s === 'waiting' || s === 'paused';
   if (filter === 'active') return s === 'active';
@@ -34,7 +37,7 @@ export default function ProjectsPage() {
   const [query, setQuery] = useState('');
   const [busyId, setBusyId] = useState(null);
   const [form, setForm] = useState({
-    name: '', client_id: '', deadline: '', budget_estimated: '', status: 'active',
+    name: '', client_id: '', deadline: '', budget_estimated: '', status: 'active', priority: false,
   });
 
   const load = () => {
@@ -58,10 +61,11 @@ export default function ProjectsPage() {
         deadline: form.deadline || null,
         budget_estimated: Number(form.budget_estimated) || 0,
         status: form.status || 'active',
+        priority: form.priority ? 1 : 0,
       }),
     });
     setShowForm(false);
-    setForm({ name: '', client_id: '', deadline: '', budget_estimated: '', status: 'active' });
+    setForm({ name: '', client_id: '', deadline: '', budget_estimated: '', status: 'active', priority: false });
     load();
   }
 
@@ -83,16 +87,41 @@ export default function ProjectsPage() {
     }
   }
 
+  async function togglePriority(e, project) {
+    e.preventDefault();
+    e.stopPropagation();
+    const next = isProjectPriority(project) ? 0 : 1;
+    setBusyId(project.id);
+    try {
+      await api(`/projects/${project.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ priority: next }),
+      });
+      load();
+    } catch (err) {
+      window.alert(err.message || 'Impossible de mettre à jour la priorité');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return projects.filter(p => {
-      if (!matchesFilter(p.status, filter)) return false;
-      if (!q) return true;
-      return (
-        (p.name || '').toLowerCase().includes(q)
-        || (p.client_name || '').toLowerCase().includes(q)
-      );
-    });
+    return projects
+      .filter(p => {
+        if (!matchesFilter(p, filter)) return false;
+        if (!q) return true;
+        return (
+          (p.name || '').toLowerCase().includes(q)
+          || (p.client_name || '').toLowerCase().includes(q)
+        );
+      })
+      .sort((a, b) => {
+        const pa = isProjectPriority(a) ? 1 : 0;
+        const pb = isProjectPriority(b) ? 1 : 0;
+        if (pb !== pa) return pb - pa;
+        return 0;
+      });
   }, [projects, filter, query]);
 
   const activeCount = projects.filter(p => normalizeProjectStatusValue(p.status) === 'active').length;
@@ -100,6 +129,7 @@ export default function ProjectsPage() {
     const s = normalizeProjectStatusValue(p.status);
     return s === 'waiting' || s === 'paused';
   }).length;
+  const priorityCount = projects.filter(p => isProjectPriority(p)).length;
   const doneCount = projects.filter(p => {
     const s = normalizeProjectStatusValue(p.status);
     return s === 'done' || s === 'cancelled';
@@ -109,12 +139,12 @@ export default function ProjectsPage() {
     <AuthGuard>
       <AppShell
         title="Projets"
-        subtitle={`${activeCount} actifs · ${waitingCount} en attente · ${doneCount} terminés · ${projects.length} au total`}
+        subtitle={`${activeCount} actifs · ${waitingCount} en attente · ${priorityCount} prioritaires · ${doneCount} terminés · ${projects.length} au total`}
       >
         <div className="space-y-5">
           <div className="lg:hidden">
             <h1 className="font-display text-[26px] font-semibold text-neya-ink">Projets</h1>
-            <p className="text-sm text-neya-muted">{activeCount} actifs · {waitingCount} en attente · {doneCount} terminés</p>
+            <p className="text-sm text-neya-muted">{activeCount} actifs · {waitingCount} en attente · {priorityCount} prioritaires · {doneCount} terminés</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
@@ -177,6 +207,18 @@ export default function ProjectsPage() {
                 <label className="label">Budget estimé ($)</label>
                 <input type="number" className="input" value={form.budget_estimated} onChange={e => setForm({ ...form, budget_estimated: e.target.value })} />
               </div>
+              <div className="md:col-span-2 flex items-center gap-2">
+                <input
+                  id="new-project-priority"
+                  type="checkbox"
+                  checked={!!form.priority}
+                  onChange={e => setForm({ ...form, priority: e.target.checked })}
+                  className="h-4 w-4 rounded border-neya-border text-neya-orange focus:ring-neya-orange"
+                />
+                <label htmlFor="new-project-priority" className="text-sm text-neya-ink">
+                  Marquer comme prioritaire
+                </label>
+              </div>
               <div className="md:col-span-2 flex gap-2">
                 <button type="submit" className="btn-primary">Créer</button>
                 <button type="button" onClick={() => setShowForm(false)} className="btn-secondary">Annuler</button>
@@ -193,6 +235,7 @@ export default function ProjectsPage() {
               {visible.map(p => {
                 const st = projectStatusMeta(p.status);
                 const custom = isCustomProject(p);
+                const prio = isProjectPriority(p);
                 const isDone = normalizeProjectStatusValue(p.status) === 'done'
                   || normalizeProjectStatusValue(p.status) === 'cancelled';
                 const pct = custom && p.tasks_total > 0
@@ -202,15 +245,18 @@ export default function ProjectsPage() {
                 return (
                   <div
                     key={p.id}
-                    className={`group relative grid grid-rows-[auto_1fr_auto] rounded-2xl border border-neya-border bg-white p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${isDone ? 'opacity-80' : ''}`}
+                    className={`group relative grid grid-rows-[auto_1fr_auto] rounded-2xl border bg-white p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${
+                      prio ? 'border-amber-300 ring-1 ring-amber-200' : 'border-neya-border'
+                    } ${isDone ? 'opacity-80' : ''}`}
                   >
                     <Link href={`/projects/${p.id}`} className="min-w-0 block pr-28">
                       <div className="min-w-0">
                         <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] text-neya-muted">
                           {p.client_name || 'Sans client'}
                         </p>
-                        <h3 className={`mt-1 truncate font-display text-[17px] font-semibold text-neya-ink ${isDone ? 'line-through text-neya-muted' : ''}`}>
-                          {p.name}
+                        <h3 className={`mt-1 flex items-center gap-1.5 truncate font-display text-[17px] font-semibold text-neya-ink ${isDone ? 'line-through text-neya-muted' : ''}`}>
+                          {prio && <Star className="h-3.5 w-3.5 shrink-0 fill-amber-400 text-amber-500" aria-hidden />}
+                          <span className="truncate">{p.name}</span>
                         </h3>
                       </div>
 
@@ -258,7 +304,21 @@ export default function ProjectsPage() {
                       </div>
                     </Link>
 
-                    <div className="absolute top-4 right-4 z-10">
+                    <div className="absolute top-4 right-4 z-10 flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        title={prio ? 'Retirer la priorité' : 'Marquer prioritaire'}
+                        aria-pressed={prio}
+                        disabled={busyId === p.id}
+                        onClick={(e) => togglePriority(e, p)}
+                        className={`rounded-lg border p-1.5 transition-colors disabled:opacity-50 ${
+                          prio
+                            ? 'border-amber-300 bg-amber-50 text-amber-600'
+                            : 'border-neya-border bg-white text-neya-muted hover:text-amber-500'
+                        }`}
+                      >
+                        <Star className={`h-3.5 w-3.5 ${prio ? 'fill-amber-400' : ''}`} />
+                      </button>
                       <label className="sr-only" htmlFor={`project-status-${p.id}`}>Statut</label>
                       <select
                         id={`project-status-${p.id}`}
