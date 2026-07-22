@@ -1374,6 +1374,16 @@ export default function GmailInbox({
                     {f.label}{sectionCounts[f.id] ? ` (${sectionCounts[f.id]})` : ''}
                   </option>
                 ))}
+                {[...(gmailGroups.tri || []), ...(gmailGroups.other || [])]
+                  .filter(l => l.name !== 'Tri' && l.name !== 'NEYA')
+                  .map(l => (
+                    <option key={l.id} value={`gmail:${encodeURIComponent(l.name)}`}>
+                      {String(l.name).replace(/^Tri\//, '')}
+                      {l.messagesUnread || l.messagesTotal
+                        ? ` (${l.messagesUnread || l.messagesTotal})`
+                        : ''}
+                    </option>
+                  ))}
               </select>
               {!isSent && (
                 <button
