@@ -2,6 +2,7 @@ import pool from '../db/pool.js';
 import * as gmail from './google-gmail.js';
 import { extractKeywords, matchProjectFromRules } from './invoice-email-router.js';
 import { getOpenAIKey, getAnthropicKey, getAnthropicModel, getSetting, isAssistantAiEnabled } from './settings.js';
+import { parseLlmJson } from './llm-json.js';
 
 function parseEmailAddress(raw) {
   if (!raw) return null;
@@ -411,18 +412,18 @@ export async function linkThread(threadId, { client_id, project_id, link_source 
   return getThreadDetail(threadId);
 }
 
-async function callSynthesisLLM(prompt) {
+async function callSynthesisLLM(prompt, { maxTokens = 4096 } = {}) {
   if (!(await isAssistantAiEnabled())) {
     throw new Error('Assistant IA désactivé — activez-le dans Paramètres → Assistant IA');
   }
 
-  const system = 'Tu synthétises des fils de courriel pour un atelier de meubles (NEYA). Réponds UNIQUEMENT en JSON valide.';
+  const system = 'Tu synthétises des fils de courriel pour un atelier de meubles (NEYA). Réponds UNIQUEMENT en JSON valide compact (pas de markdown, pas de commentaires). Échappe correctement guillemets et retours à la ligne dans les chaînes.';
   const preferred = (await getSetting('ai_provider')) || 'anthropic';
   const errors = [];
 
-  async function tryOpenAI() {
+  async function tryOpenAI(userPrompt) {
     const key = await getOpenAIKey();
-    if (!key) throw new Error('Clé OpenAI absente');
+    if (!key) return null; // skip silencieux si pas configuré
     const model = (await getSetting('openai_model')) || 'gpt-4o-mini';
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -430,19 +431,19 @@ async function callSynthesisLLM(prompt) {
       body: JSON.stringify({
         model,
         temperature: 0.2,
-        messages: [{ role: 'system', content: system }, { role: 'user', content: prompt }],
+        messages: [{ role: 'system', content: system }, { role: 'user', content: userPrompt }],
         response_format: { type: 'json_object' },
       }),
     });
     const raw = await res.text();
     if (!res.ok) throw new Error(`OpenAI ${res.status}: ${raw.slice(0, 180)}`);
     const data = JSON.parse(raw);
-    return JSON.parse(data.choices[0].message.content);
+    return parseLlmJson(data.choices[0].message.content);
   }
 
-  async function tryClaude() {
+  async function tryClaude(userPrompt) {
     const key = await getAnthropicKey();
-    if (!key) throw new Error('Clé Claude absente');
+    if (!key) return null;
     const model = await getAnthropicModel();
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -453,28 +454,62 @@ async function callSynthesisLLM(prompt) {
       },
       body: JSON.stringify({
         model,
-        max_tokens: 1200,
+        max_tokens: maxTokens,
         system,
-        messages: [{ role: 'user', content: prompt }],
+        // Prefill pour forcer une réponse JSON objet
+        messages: [
+          { role: 'user', content: userPrompt },
+          { role: 'assistant', content: '{' },
+        ],
       }),
     });
     const raw = await res.text();
     if (!res.ok) throw new Error(`Claude ${res.status}: ${raw.slice(0, 180)}`);
     const data = JSON.parse(raw);
-    const text = data.content?.find(b => b.type === 'text')?.text || data.content?.[0]?.text || '{}';
-    const fenced = String(text).match(/```(?:json)?\s*([\s\S]*?)```/i);
-    const candidate = fenced ? fenced[1].trim() : String(text).trim();
-    const match = candidate.match(/\{[\s\S]*\}/);
-    return JSON.parse(match ? match[0] : candidate);
+    const text = data.content?.find(b => b.type === 'text')?.text || data.content?.[0]?.text || '';
+    return parseLlmJson(`{${text}`);
   }
 
-  const order = preferred === 'openai' ? [tryOpenAI, tryClaude] : [tryClaude, tryOpenAI];
-  for (const fn of order) {
+  async function runProvider(fn, label) {
     try {
-      return await fn();
+      const first = await fn(prompt);
+      if (first == null) return null;
+      return first;
     } catch (e) {
-      errors.push(e.message);
+      // Une 2ᵉ tentative courte si JSON illisible
+      if (/JSON|parse|illisible|Expected/i.test(e.message)) {
+        try {
+          const retryPrompt = `${prompt}
+
+IMPORTANT: ta réponse précédente était un JSON invalide (${e.message}).
+Renvoie UNIQUEMENT un objet JSON valide, sans markdown, avec des chaînes correctement échappées.`;
+          const second = await fn(retryPrompt);
+          if (second == null) {
+            errors.push(`${label}: ${e.message}`);
+            return null;
+          }
+          return second;
+        } catch (e2) {
+          errors.push(`${label}: ${e2.message}`);
+          return null;
+        }
+      }
+      errors.push(`${label}: ${e.message}`);
+      return null;
     }
+  }
+
+  const order = preferred === 'openai'
+    ? [['OpenAI', tryOpenAI], ['Claude', tryClaude]]
+    : [['Claude', tryClaude], ['OpenAI', tryOpenAI]];
+
+  for (const [label, fn] of order) {
+    const result = await runProvider(fn, label);
+    if (result) return result;
+  }
+
+  if (!errors.length) {
+    throw new Error('Synthèse IA impossible — aucune clé API configurée (Claude / OpenAI)');
   }
   throw new Error(`Synthèse IA impossible — ${errors.join(' | ')}`);
 }
@@ -581,11 +616,17 @@ export async function synthesizeThread(threadId) {
   }
 
   const fresh = await getThreadDetail(threadId);
-  const transcript = (fresh.messages || []).map(m => ({
+  const allMessages = fresh.messages || [];
+  // Limite le volume pour éviter JSON tronqué sur longs fils
+  const bodyLimit = allMessages.length > 8 ? 600 : 1000;
+  const recent = allMessages.length > 12 ? allMessages.slice(-12) : allMessages;
+  const transcript = recent.map(m => ({
     from: m.from_email,
     date: m.sent_at,
-    outbound: m.is_outbound,
-    body: (m.body_text || m.snippet || '').slice(0, 1500),
+    outbound: !!m.is_outbound,
+    body: String(m.body_text || m.snippet || '')
+      .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ' ')
+      .slice(0, bodyLimit),
   }));
 
   if (!transcript.length) {
@@ -604,27 +645,27 @@ Client lié: ${fresh.client_name || 'non lié'} (id: ${fresh.client_id || 'null'
 Projet lié: ${fresh.project_name || 'non lié'} (id: ${fresh.project_id || 'null'})
 Sujet: ${fresh.subject}
 
-Messages (${transcript.length}):
-${JSON.stringify(transcript, null, 2)}
+Messages (${transcript.length}${allMessages.length > transcript.length ? ` / ${allMessages.length}` : ''}):
+${JSON.stringify(transcript)}
 
 Signature à utiliser à la fin de suggested_reply (obligatoire si tu proposes une réponse) :
 ---
 ${signature || 'Mehdi\nDesigner / Producteur\nNeya Furniture'}
 ---
 
-JSON attendu:
+Réponds avec un objet JSON (compact) de la forme:
 {
-  "summary": "résumé en 3-5 phrases de la conversation et où on en est",
+  "summary": "résumé en 3-5 phrases",
   "key_points": [{"type":"demande|info|délai|prix|problème", "text":"..."}],
-  "action_items": [{"text":"...", "due":"YYYY-MM-DD ou null", "priority":"haute|normale|basse"}],
-  "sentiment": "urgent|positif|neutre|tendu",
-  "suggested_reply": "brouillon de réponse professionnelle en français, terminé par la signature ci-dessus (ou null si rien à répondre)",
-  "client_intent": "devis|suivi|plainte|confirmation|autre",
+  "action_items": [{"text":"...", "due":null, "priority":"normale"}],
+  "sentiment": "neutre",
+  "suggested_reply": "brouillon FR + signature (ou null)",
+  "client_intent": "autre",
   "needs_response": true,
-  "suggested_client_name": "nom client ERP si identifiable sinon null"
+  "suggested_client_name": null
 }`;
 
-  const parsed = await callSynthesisLLM(prompt);
+  const parsed = await callSynthesisLLM(prompt, { maxTokens: 4096 });
   const model = (await getSetting('ai_provider')) || 'anthropic';
 
   if (!fresh.client_id && parsed.suggested_client_name) {
