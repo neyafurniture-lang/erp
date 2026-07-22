@@ -27,7 +27,7 @@ async function resolveProjectId({ message, pageContext, params, study, keywords 
   const q = String(params.project_query || study?.suggested_project_query || '').trim();
   if (q) {
     const { rows } = await pool.query(
-      `SELECT id FROM projects WHERE status IN ('active','on_hold') AND name ILIKE $1 ORDER BY priority DESC LIMIT 1`,
+      `SELECT id FROM projects WHERE status IN ('active','paused') AND name ILIKE $1 ORDER BY priority DESC LIMIT 1`,
       [`%${q.split(/\s+/)[0]}%`]
     );
     if (rows[0]) return rows[0].id;
@@ -36,7 +36,7 @@ async function resolveProjectId({ message, pageContext, params, study, keywords 
   for (const kw of keywords || []) {
     if (kw.length >= 4) {
       const { rows } = await pool.query(
-        `SELECT id FROM projects WHERE status IN ('active','on_hold') AND name ILIKE $1 LIMIT 1`,
+        `SELECT id FROM projects WHERE status IN ('active','paused') AND name ILIKE $1 LIMIT 1`,
         [`%${kw}%`]
       );
       if (rows[0]) return rows[0].id;

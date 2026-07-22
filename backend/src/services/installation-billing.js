@@ -339,7 +339,7 @@ export async function syncInstallationInvoice(projectId) {
 
   if (!invoiceId) {
     const { rows: existing } = await pool.query(
-      `SELECT id FROM invoices WHERE project_id = $1 AND status IN ('draft', 'sent', 'partial')
+      `SELECT id FROM invoices WHERE project_id = $1 AND status IN ('draft', 'sent', 'partially_paid')
        ORDER BY created_at DESC LIMIT 1`,
       [projectId]
     );

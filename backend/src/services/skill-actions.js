@@ -407,7 +407,7 @@ async function fetchProjectsForMatching() {
     SELECT p.id, p.name, c.name AS client_name
     FROM projects p
     LEFT JOIN clients c ON c.id = p.client_id
-    WHERE p.status IN ('active', 'on_hold')
+    WHERE p.status IN ('active', 'paused')
     ORDER BY p.created_at DESC
     LIMIT 80
   `);
@@ -879,6 +879,9 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
 
     case 'create_expense': {
       const amount = extractAmount(message) || Number(params.amount) || 0;
+      if (!amount || amount <= 0) {
+        return { reply: 'Indiquez un montant (ex. « dépense 85$ matériaux »).', actions };
+      }
       let category = 'materiaux';
       if (/outil/i.test(message) || params.category === 'outils') category = 'outils';
       else if (/transport/i.test(message) || params.category === 'transport') category = 'transport';
@@ -906,9 +909,9 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
       const { rows } = await pool.query(`
         SELECT t.*, p.name as project_name FROM tasks t
         LEFT JOIN projects p ON p.id = t.project_id
-        WHERE DATE(t.start_time) = CURRENT_DATE
-           OR (t.start_time IS NOT NULL AND t.start_time <= NOW() + INTERVAL '1 day')
-        ORDER BY t.start_time LIMIT 15
+        WHERE t.start_time IS NOT NULL
+          AND DATE(t.start_time AT TIME ZONE 'America/Toronto') = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Toronto')::date
+        ORDER BY t.start_time LIMIT 20
       `);
       if (!rows.length) return { reply: 'Aucune tâche planifiée pour aujourd\'hui.', actions };
       const list = rows.map(t => `• ${t.title}${t.start_time ? ` (${new Date(t.start_time).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' })})` : ''}`).join('\n');
@@ -1581,13 +1584,18 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
     }
 
     case 'create_invoice': {
-      const clientId = pageContext?.type === 'client' ? pageContext.id : null;
-      if (!clientId) return { reply: 'Ouvrez la fiche client pour créer une facture.', actions };
+      let clientId = pageContext?.type === 'client' ? pageContext.id : null;
+      let projId = pageContext?.type === 'project' ? pageContext.id : null;
+      if (!clientId && projId) {
+        const { rows: pr } = await pool.query('SELECT client_id FROM projects WHERE id = $1', [projId]);
+        clientId = pr[0]?.client_id || null;
+      }
+      if (!clientId) return { reply: 'Ouvrez la fiche client (ou un projet lié à un client) pour créer une facture.', actions };
       const title = extractQuotedText(message) || extractAfterKeyword(message, ['facture', 'invoice']) || 'Facture';
       const amount = extractAmount(message) || 0;
       const inv = await createInvoiceRecord({
         client_id: clientId,
-        project_id: pageContext?.type === 'project' ? pageContext.id : null,
+        project_id: projId,
         title,
         lines: [{ description: title, qty: 1, price: amount }],
       });
@@ -1685,8 +1693,15 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
     case 'delete_expense': {
       const amount = extractAmount(message);
       const params = [];
-      let q = 'DELETE FROM expenses WHERE id IN (SELECT id FROM expenses';
-      if (projectId) { params.push(projectId); q += ` WHERE project_id=$${params.length}`; }
+      let q = 'DELETE FROM expenses WHERE id IN (SELECT id FROM expenses WHERE 1=1';
+      if (projectId) {
+        params.push(projectId);
+        q += ` AND project_id=$${params.length}`;
+      }
+      if (amount && amount > 0) {
+        params.push(amount);
+        q += ` AND amount=$${params.length}`;
+      }
       q += ' ORDER BY created_at DESC LIMIT 1) RETURNING *';
       const { rows } = await pool.query(q, params);
       if (!rows[0]) return { reply: 'Aucune dépense à supprimer.', actions };

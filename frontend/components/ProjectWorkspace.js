@@ -123,11 +123,17 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
   const [hoursPeople, setHoursPeople] = useState(() => normalizeHoursPeople(hoursLog));
   const [hoursRows, setHoursRows] = useState(() => normalizeHoursRows(hoursLog?.rows || [], normalizeHoursPeople(hoursLog)));
   const hoursDirtyRef = useRef(false);
+  const hoursBusyRef = useRef(false);
   const hoursAutosaveRef = useRef(null);
+  const hoursRowsRef = useRef(hoursRows);
+  const hoursPeopleRef = useRef(hoursPeople);
   const savedHoursSnapRef = useRef(hoursSnapshot(
     normalizeHoursPeople(hoursLog),
     normalizeHoursRows(hoursLog?.rows || [], normalizeHoursPeople(hoursLog))
   ));
+  const [notesDraft, setNotesDraft] = useState(project.notes || '');
+  const [notesBusy, setNotesBusy] = useState(false);
+  const [notesMsg, setNotesMsg] = useState('');
   const [clients, setClients] = useState([]);
   const [clientId, setClientId] = useState(project.client_id ? String(project.client_id) : '');
   const [clientBusy, setClientBusy] = useState(false);
@@ -169,6 +175,14 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
   }, [hoursDirty]);
 
   useEffect(() => {
+    hoursRowsRef.current = hoursRows;
+  }, [hoursRows]);
+
+  useEffect(() => {
+    hoursPeopleRef.current = hoursPeople;
+  }, [hoursPeople]);
+
+  useEffect(() => {
     const t = searchParams.get('tab');
     if (t && MODULES.some(m => m.id === t)) setTab(t);
     else if (!t) setTab('overview');
@@ -184,12 +198,51 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, []);
 
+  useEffect(() => {
+    setNotesDraft(project.notes || '');
+  }, [project.id, project.notes]);
+
   useEffect(() => () => {
     if (hoursAutosaveRef.current) clearTimeout(hoursAutosaveRef.current);
-  }, []);
+    // Flush best-effort si des heures non sauvées à la navigation SPA
+    if (hoursDirtyRef.current && project?.id) {
+      try {
+        const people = hoursPeopleRef.current;
+        const rows = hoursRowsRef.current;
+        const totals = {};
+        for (const p of people) totals[p] = sumPersonHours(rows, p);
+        const body = JSON.stringify({
+          hours_logbook: {
+            source: 'manuel',
+            people,
+            rows,
+            totals,
+            updated_at: new Date().toISOString(),
+          },
+        });
+        const root = typeof window !== 'undefined' ? `${window.location.origin}/api` : '';
+        const token = typeof window !== 'undefined' ? localStorage.getItem('neya_token') : null;
+        if (root && token) {
+          fetch(`${root}/projects/${project.id}/hours-logbook`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body,
+            keepalive: true,
+          }).catch(() => {});
+        }
+      } catch { /* best effort */ }
+    }
+  }, [project.id]);
 
   function markHoursDirty(nextPeople, nextRows) {
-    const snap = hoursSnapshot(nextPeople ?? hoursPeople, nextRows ?? hoursRows);
+    const people = nextPeople ?? hoursPeopleRef.current;
+    const rows = nextRows ?? hoursRowsRef.current;
+    hoursPeopleRef.current = people;
+    hoursRowsRef.current = rows;
+    const snap = hoursSnapshot(people, rows);
     const dirty = snap !== savedHoursSnapRef.current;
     setHoursDirty(dirty);
     hoursDirtyRef.current = dirty;
@@ -234,20 +287,28 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
 
   async function addMaterial(e) {
     e.preventDefault();
-    await api(`/analytics/projects/${project.id}/materials`, {
-      method: 'POST',
-      body: JSON.stringify(matForm),
-    });
-    setMatForm({ description: '', quantity: 1, unit_cost: 0 });
-    onReload();
+    try {
+      await api(`/analytics/projects/${project.id}/materials`, {
+        method: 'POST',
+        body: JSON.stringify(matForm),
+      });
+      setMatForm({ description: '', quantity: 1, unit_cost: 0 });
+      onReload();
+    } catch (err) {
+      window.alert(err.message || 'Impossible d’ajouter le matériau');
+    }
   }
 
   async function toggleTask(task) {
-    await api(`/tasks/${task.id}`, {
-      method: 'PUT',
-      body: JSON.stringify({ ...task, status: task.status === 'done' ? 'todo' : 'done' }),
-    });
-    onReload();
+    try {
+      await api(`/tasks/${task.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ ...task, status: task.status === 'done' ? 'todo' : 'done' }),
+      });
+      onReload();
+    } catch (err) {
+      window.alert(err.message || 'Impossible de mettre à jour la tâche');
+    }
   }
 
   async function addTask(e) {
@@ -329,35 +390,45 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
   async function saveHoursLogbook(opts = {}) {
     const silent = opts.silent === true;
     const confirmClear = opts.confirmClear === true;
-    if (hoursBusy) return;
+    if (hoursBusyRef.current) {
+      scheduleHoursAutosave();
+      return;
+    }
+    const people = hoursPeopleRef.current;
+    const rows = hoursRowsRef.current;
+    const snapAtStart = hoursSnapshot(people, rows);
+    hoursBusyRef.current = true;
     setHoursBusy(true);
     if (!silent) setHoursSaveMsg('');
     try {
       const totals = {};
-      for (const p of hoursPeople) totals[p] = sumPersonHours(hoursRows, p);
+      for (const p of people) totals[p] = sumPersonHours(rows, p);
       const payload = {
         source: hoursLog?.source || 'manuel',
-        people: hoursPeople,
-        rows: hoursRows,
+        people,
+        rows,
         totals,
         updated_at: new Date().toISOString(),
       };
       if (confirmClear) payload.confirm_clear = true;
 
-      const result = await api(`/projects/${project.id}/hours-logbook`, {
+      await api(`/projects/${project.id}/hours-logbook`, {
         method: 'PATCH',
         body: JSON.stringify({ hours_logbook: payload }),
       });
-      savedHoursSnapRef.current = hoursSnapshot(hoursPeople, hoursRows);
-      setHoursDirty(false);
-      hoursDirtyRef.current = false;
-      setHoursSaveMsg(silent ? 'Enregistré automatiquement' : 'Enregistré');
-      setTimeout(() => setHoursSaveMsg(''), 2000);
-      if (result?.project) {
-        // Recharge pour sync meta (prev inclus) sans perdre l’état local propre
+
+      const currentSnap = hoursSnapshot(hoursPeopleRef.current, hoursRowsRef.current);
+      if (currentSnap === snapAtStart) {
+        savedHoursSnapRef.current = snapAtStart;
+        setHoursDirty(false);
+        hoursDirtyRef.current = false;
+        setHoursSaveMsg(silent ? 'Enregistré automatiquement' : 'Enregistré');
+        setTimeout(() => setHoursSaveMsg(''), 2000);
         onReload();
       } else {
-        onReload();
+        // Saisie pendant l’enregistrement — ne pas écraser, re-sauver
+        setHoursSaveMsg('Enregistré — suite en cours…');
+        scheduleHoursAutosave();
       }
     } catch (err) {
       if (err?.code === 'HOURS_CLEAR_BLOCKED' || /effacer le carnet/i.test(err.message || '')) {
@@ -365,6 +436,7 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
           `${err.message}\n\nVoulez-vous vraiment effacer toutes les heures ?`
         );
         if (ok) {
+          hoursBusyRef.current = false;
           setHoursBusy(false);
           return saveHoursLogbook({ ...opts, confirmClear: true, silent: false });
         }
@@ -375,7 +447,27 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
         setHoursSaveMsg(err.message || 'Auto-save échoué');
       }
     } finally {
+      hoursBusyRef.current = false;
       setHoursBusy(false);
+    }
+  }
+
+  async function saveProjectNotes(e) {
+    e?.preventDefault?.();
+    setNotesBusy(true);
+    setNotesMsg('');
+    try {
+      await api(`/projects/${project.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ notes: notesDraft }),
+      });
+      setNotesMsg('Notes enregistrées');
+      setTimeout(() => setNotesMsg(''), 2000);
+      onReload();
+    } catch (err) {
+      setNotesMsg(err.message || 'Erreur enregistrement');
+    } finally {
+      setNotesBusy(false);
     }
   }
 
@@ -797,22 +889,29 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
         </div>
       )}
 
-      {tab === 'costs' && costs && (
-        <div className="card max-w-md space-y-3 text-sm">
-          {[
-            ['Matériaux', costs.materials],
-            ['Dépenses', costs.expenses],
-            ['Main-d\'œuvre', costs.labor],
-            ['Total coût', costs.cost_total],
-            ['Prix vente', costs.sale_price],
-            ['Marge', costs.margin],
-          ].map(([label, val]) => (
-            <div key={label} className="flex justify-between border-b border-neya-border/50 pb-2">
-              <span className="text-neya-muted">{label}</span>
-              <span className="font-medium">{formatMoney(val)}</span>
-            </div>
-          ))}
-        </div>
+      {tab === 'costs' && (
+        costs ? (
+          <div className="card max-w-md space-y-3 text-sm">
+            {[
+              ['Matériaux', costs.materials],
+              ['Dépenses', costs.expenses],
+              ['Main-d\'œuvre', costs.labor],
+              ['Total coût', costs.cost_total],
+              ['Prix vente', costs.sale_price],
+              ['Marge', costs.margin],
+            ].map(([label, val]) => (
+              <div key={label} className="flex justify-between border-b border-neya-border/50 pb-2">
+                <span className="text-neya-muted">{label}</span>
+                <span className="font-medium">{formatMoney(val)}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="card text-sm text-neya-muted space-y-2">
+            <p>Coûts indisponibles pour le moment.</p>
+            <button type="button" className="btn-secondary text-xs" onClick={() => onReload()}>Réessayer</button>
+          </div>
+        )
       )}
 
       {tab === 'purchases' && (
@@ -983,9 +1082,20 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
       )}
 
       {tab === 'notes' && (
-        <div className="card">
-          <p className="text-sm whitespace-pre-wrap">{project.notes || 'Aucune note'}</p>
-        </div>
+        <form onSubmit={saveProjectNotes} className="card space-y-3">
+          <textarea
+            className="input min-h-[160px] resize-y text-sm"
+            value={notesDraft}
+            onChange={e => setNotesDraft(e.target.value)}
+            placeholder="Notes projet, instructions atelier…"
+          />
+          <div className="flex items-center gap-2">
+            <button type="submit" className="btn-primary text-xs" disabled={notesBusy}>
+              {notesBusy ? '…' : 'Enregistrer'}
+            </button>
+            {notesMsg && <span className="text-[11px] text-neya-muted">{notesMsg}</span>}
+          </div>
+        </form>
       )}
     </div>
   );

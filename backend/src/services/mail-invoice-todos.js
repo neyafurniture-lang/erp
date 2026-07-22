@@ -127,7 +127,7 @@ async function syncErpSentInvoices(created) {
            c.name AS client_name
     FROM invoices i
     LEFT JOIN clients c ON c.id = i.client_id
-    WHERE i.status IN ('sent', 'overdue', 'partial')
+    WHERE i.status IN ('sent', 'overdue', 'partially_paid')
        OR (
          i.status NOT IN ('draft', 'cancelled', 'paid', 'void')
          AND COALESCE(i.amount_paid, 0) < COALESCE(i.total, 0)
@@ -176,7 +176,8 @@ export async function scanMailInvoicesToAdminTasks({ days = 30, max = 50 } = {})
 
   for (const m of messages) {
     try {
-      const full = m.body != null || m.labelIds ? m : await gmail.getMessage(m.id);
+      // searchMessages renvoie déjà body/labelIds (souvent vides) — toujours recharger le message complet
+      const full = await gmail.getMessage(m.id);
       const row = await upsertAdminTaskFromMailMessage(full, { people, ownEmails });
       if (row) {
         classified.push(row);

@@ -109,7 +109,10 @@ router.post('/', async (req, res) => {
 
     if (kind === 'catalog' && standard_id) {
       const { rows: standards } = await client.query('SELECT * FROM standards WHERE id = $1', [standard_id]);
-      if (!standards[0]) return res.status(404).json({ error: 'Fiche introuvable' });
+      if (!standards[0]) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Fiche introuvable' });
+      }
       const std = standards[0];
       const meta = parseMeta(std.meta);
       const qty = Math.max(1, Number(quantity) || 1);
@@ -140,7 +143,10 @@ router.post('/', async (req, res) => {
     }
 
     if (kind === 'custom') {
-      if (!name?.trim()) return res.status(400).json({ error: 'Nom du meuble requis' });
+      if (!name?.trim()) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Nom du meuble requis' });
+      }
       const { rows } = await client.query(
         `INSERT INTO projects (name, client_id, status, deadline, budget_estimated, quantity, production_priority, notes)
          VALUES ($1,$2,'active',$3,0,$4,$5,$6) RETURNING *`,
@@ -154,9 +160,10 @@ router.post('/', async (req, res) => {
       return res.status(201).json(project);
     }
 
+    await client.query('ROLLBACK');
     return res.status(400).json({ error: 'Type invalide — catalogue ou sur mesure' });
   } catch (err) {
-    await client.query('ROLLBACK');
+    try { await client.query('ROLLBACK'); } catch { /* */ }
     res.status(500).json({ error: err.message });
   } finally {
     client.release();

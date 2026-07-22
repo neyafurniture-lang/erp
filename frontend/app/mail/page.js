@@ -15,7 +15,7 @@ export default function MailPage() {
         flushMobile
       >
         <div className="mail-page-flush">
-          <div className="mail-supplier-strip hidden 2xl:block">
+          <div className="mail-supplier-strip px-3 pt-2 sm:px-4">
             <SupplierInvoiceQueue compact />
           </div>
           <GmailInbox />

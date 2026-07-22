@@ -183,7 +183,7 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
     }
   }
 
-  if (!pending.length && compact) return null;
+  // Toujours afficher la bandeau compact (scan accessible même sans pending)
 
   if (compact) {
     return (

@@ -105,7 +105,10 @@ router.post('/from-standard/:standardId', async (req, res) => {
   try {
     await client.query('BEGIN');
     const { rows: standards } = await client.query('SELECT * FROM standards WHERE id = $1', [req.params.standardId]);
-    if (!standards[0]) return res.status(404).json({ error: 'Standard introuvable' });
+    if (!standards[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Standard introuvable' });
+    }
 
     const std = standards[0];
     const { client_id, name, deadline } = req.body;
@@ -118,7 +121,12 @@ router.post('/from-standard/:standardId', async (req, res) => {
     );
     const project = projects[0];
 
-    const steps = std.steps || [];
+    let steps = std.steps || [];
+    if (typeof steps === 'string') {
+      try { steps = JSON.parse(steps); } catch { steps = []; }
+    }
+    if (!Array.isArray(steps)) steps = [];
+
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i];
       await client.query(
@@ -134,7 +142,7 @@ router.post('/from-standard/:standardId', async (req, res) => {
     if (driveFolder?.folder_id) project.drive_folder_id = driveFolder.folder_id;
     res.status(201).json(project);
   } catch (err) {
-    await client.query('ROLLBACK');
+    try { await client.query('ROLLBACK'); } catch { /* */ }
     res.status(500).json({ error: err.message });
   } finally {
     client.release();
@@ -173,10 +181,13 @@ router.put('/:id', async (req, res) => {
     let nextMeta = parseProjectMeta(cur.meta);
     if (b.meta && typeof b.meta === 'object') {
       const incomingMeta = { ...b.meta };
-      // Empêcher un meta partiel d’effacer le carnet d’heures
+      // Empêcher un meta partiel d’effacer le carnet d’heures (null ou rows vides)
       if (
-        incomingMeta.hours_logbook
-        && isClearingHoursLogbook(nextMeta.hours_logbook, incomingMeta.hours_logbook)
+        Object.prototype.hasOwnProperty.call(incomingMeta, 'hours_logbook')
+        && (
+          incomingMeta.hours_logbook == null
+          || isClearingHoursLogbook(nextMeta.hours_logbook, incomingMeta.hours_logbook || { rows: [] })
+        )
       ) {
         delete incomingMeta.hours_logbook;
       }
