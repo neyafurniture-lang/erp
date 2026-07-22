@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { api, formatMoney, formatDate, TASK_TYPES, resolveUploadUrl, PROJECT_STATUS, projectStatusMeta, normalizeProjectStatusValue, isProjectPriority } from '../lib/api';
+import { api, formatMoney, formatDate, TASK_TYPES, PROJECT_STATUS, projectStatusMeta, normalizeProjectStatusValue, isProjectPriority } from '../lib/api';
 import UploadFilePreview from './UploadFilePreview';
 import { isCustomProject, checklistProgress } from '../lib/projects';
 import { PRODUCTION_STAGES, computeProductionStage, resolveProject3dUrl } from '../lib/production';
