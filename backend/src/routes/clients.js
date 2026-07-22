@@ -4,6 +4,10 @@ import {
   scanClientCandidatesFromMail,
   importClientsFromCandidates,
 } from '../services/clients-from-mail.js';
+import {
+  enrichClientFromMail,
+  enrichIncompleteClientsFromMail,
+} from '../services/client-contact-enrich.js';
 
 const router = Router();
 
@@ -76,6 +80,32 @@ router.post('/from-mail/import', async (req, res) => {
     res.status(201).json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Remplit les champs manquants (tél., adresse, mail…) depuis les mails liés.
+ * N’écrase jamais une valeur déjà saisie.
+ */
+router.post('/enrich-from-mail', async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.body?.limit) || 40, 100);
+    const useAi = req.body?.use_ai === true;
+    const result = await enrichIncompleteClientsFromMail({ limit, useAi });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/:id/enrich-from-mail', async (req, res) => {
+  try {
+    const useAi = req.body?.use_ai !== false;
+    const result = await enrichClientFromMail(Number(req.params.id), { useAi });
+    res.json(result);
+  } catch (err) {
+    const status = /introuvable/i.test(err.message) ? 404 : 500;
+    res.status(status).json({ error: err.message });
   }
 });
 

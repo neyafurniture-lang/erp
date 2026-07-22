@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Search, Plus, Mail, MapPin, Phone, ChevronRight, Inbox } from 'lucide-react';
+import { Search, Plus, Mail, MapPin, Phone, ChevronRight, Inbox, Sparkles } from 'lucide-react';
 import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
 import { api, formatMoney } from '../../lib/api';
@@ -75,6 +75,9 @@ function ClientsContent() {
   const [candidates, setCandidates] = useState([]);
   const [selected, setSelected] = useState({});
   const [nameEdits, setNameEdits] = useState({});
+  const [enriching, setEnriching] = useState(false);
+  const [enrichInfo, setEnrichInfo] = useState('');
+  const [enrichErr, setEnrichErr] = useState('');
 
   const load = () => api('/clients').then(setClients);
 
@@ -146,6 +149,26 @@ function ClientsContent() {
     }
   }
 
+  async function enrichFromMail() {
+    setEnriching(true);
+    setEnrichErr('');
+    setEnrichInfo('');
+    try {
+      const result = await api('/clients/enrich-from-mail', {
+        method: 'POST',
+        body: JSON.stringify({ limit: 60, use_ai: true }),
+      });
+      setEnrichInfo(
+        `${result.updated || 0} fiche${(result.updated || 0) !== 1 ? 's' : ''} complétée${(result.updated || 0) !== 1 ? 's' : ''} sur ${result.scanned || 0} client(s) incomplets (champs vides seulement).`
+      );
+      await load();
+    } catch (err) {
+      setEnrichErr(err.message || 'Enrichissement impossible');
+    } finally {
+      setEnriching(false);
+    }
+  }
+
   function toggleAll(on) {
     const next = {};
     candidates.forEach(c => { next[c.email] = on; });
@@ -208,6 +231,16 @@ function ClientsContent() {
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
+            onClick={enrichFromMail}
+            disabled={enriching}
+            className="btn-secondary gap-1.5 shrink-0"
+            title="Remplit tél., adresse, mail manquants depuis les courriels liés"
+          >
+            <Sparkles className="h-4 w-4" />
+            {enriching ? 'Complétion…' : 'Compléter depuis les mails'}
+          </button>
+          <button
+            type="button"
             onClick={openMailImport}
             className="btn-secondary gap-1.5 shrink-0"
           >
@@ -226,6 +259,12 @@ function ClientsContent() {
           </button>
         </div>
       </div>
+
+      {(enrichInfo || enrichErr) && (
+        <p className={`text-sm ${enrichErr ? 'text-red-700' : 'text-emerald-700'}`}>
+          {enrichErr || enrichInfo}
+        </p>
+      )}
 
       {importOpen && (
         <div className="card rounded-2xl space-y-4 border-neya-orange/20">
