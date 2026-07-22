@@ -75,11 +75,15 @@ export async function getProjectDocuments(projectId) {
     `, [pid]).then(r => r.rows).catch(() => []),
   ]);
 
+  const meta = parseMeta(proj[0].meta);
+  const sketchup_files = Array.isArray(meta.sketchup_files) ? meta.sketchup_files : [];
+
   return {
     project: { id: proj[0].id, name: proj[0].name, client_id: proj[0].client_id },
     quotes,
     mail_files,
     plans,
+    sketchup_files,
     emails,
     threads,
   };
@@ -87,7 +91,7 @@ export async function getProjectDocuments(projectId) {
 
 function looksLikeDocument(att) {
   const hay = `${att.filename || ''} ${att.mimeType || ''}`.toLowerCase();
-  return /pdf|word|doc|xls|sheet|image|png|jpe?g|webp|devis|facture|quote|invoice|plan|contrat/.test(hay);
+  return /pdf|word|doc|xls|sheet|image|png|jpe?g|webp|devis|facture|quote|invoice|plan|contrat|\.skp|sketchup/.test(hay);
 }
 
 /**
