@@ -334,6 +334,21 @@ export async function syncInstallationInvoice(projectId) {
         `UPDATE invoices SET lines = $1, subtotal = $2, total = $3 WHERE id = $4`,
         [JSON.stringify(lines), subtotal, total, invoiceId]
       );
+      // Réaligner statut selon montant déjà payé
+      const { rows: paidRows } = await pool.query(
+        'SELECT total, amount_paid, due_date, status FROM invoices WHERE id = $1',
+        [invoiceId]
+      );
+      const inv = paidRows[0];
+      if (inv && inv.status !== 'cancelled' && inv.status !== 'void' && inv.status !== 'draft') {
+        const t = Number(inv.total) || 0;
+        const paid = Number(inv.amount_paid) || 0;
+        let st = 'sent';
+        if (paid >= t && t > 0) st = 'paid';
+        else if (paid > 0) st = 'partially_paid';
+        else if (inv.due_date && new Date(inv.due_date) < new Date()) st = 'overdue';
+        await pool.query('UPDATE invoices SET status = $1 WHERE id = $2', [st, invoiceId]);
+      }
     }
   }
 
@@ -357,6 +372,20 @@ export async function syncInstallationInvoice(projectId) {
         `UPDATE invoices SET lines = $1, subtotal = $2, total = $3 WHERE id = $4`,
         [JSON.stringify(lines), subtotal, total, invoiceId]
       );
+      const { rows: paidRows } = await pool.query(
+        'SELECT total, amount_paid, due_date, status FROM invoices WHERE id = $1',
+        [invoiceId]
+      );
+      const inv = paidRows[0];
+      if (inv && inv.status !== 'cancelled' && inv.status !== 'void' && inv.status !== 'draft') {
+        const t = Number(inv.total) || 0;
+        const paid = Number(inv.amount_paid) || 0;
+        let st = 'sent';
+        if (paid >= t && t > 0) st = 'paid';
+        else if (paid > 0) st = 'partially_paid';
+        else if (inv.due_date && new Date(inv.due_date) < new Date()) st = 'overdue';
+        await pool.query('UPDATE invoices SET status = $1 WHERE id = $2', [st, invoiceId]);
+      }
     } else {
       const invoice_number = await nextInvoiceNumber();
       const { subtotal, total } = calcDocTotals(installLines);

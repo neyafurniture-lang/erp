@@ -49,7 +49,6 @@ export const ACTION_CATALOG = [
   { type: 'list_expenses', usage: 'Lister dépenses', params: {} },
   { type: 'search_memory', usage: 'Mémoire atelier', params: { query: 'string' } },
   { type: 'erp_manual', usage: 'Aide manuel ERP', params: { topic: 'string?' } },
-  { type: 'demande_modification_erp', usage: 'Lancer Cursor VPS (code/UI)', params: { prompt: 'string?', feature: 'mail_planning|ui_change|…?' } },
   { type: 'atelier_habits', usage: 'Habitudes atelier', params: { rule: 'string?', section: 'string?' } },
   { type: 'list_skills', usage: 'Lister skills', params: {} },
   { type: 'create_skill', usage: 'Créer skill', params: { name: 'string', description: 'string?', triggers: 'string[]?' } },
@@ -174,7 +173,7 @@ export async function buildAssistantProtocol({ includeAutonomyRules = true } = {
         'Agir seule : lancer l’action plutôt que décrire quoi cliquer.',
         'Après chaque ACTION_CHECK : autre action ou réponse finale (done:true).',
         'create_project_from_quote_email pour devis Gmail/PDF → projets.',
-        'demande_modification_erp pour changer le code/UI (pas create_invoice).',
+        'Pour changer le code/UI : demander explicitement Cursor (pas create_invoice).',
       ]
       : [],
   };

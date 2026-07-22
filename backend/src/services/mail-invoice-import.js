@@ -8,7 +8,7 @@ import pool from '../db/pool.js';
 import * as gmail from './google-gmail.js';
 import { extractAllAttachments, classifyAndStudyAttachments } from './attachment-extract.js';
 import { ingestMessage, matchProjectFromRules, extractKeywords } from './invoice-email-router.js';
-import { extractAmount } from './skill-actions.js';
+import { extractMoneyAmount } from './skill-actions.js';
 import { buildGmailSearchQuery } from './mail-search-query.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -134,7 +134,7 @@ export async function importAttachmentFromEmail(message, pageContext = null, par
     },
   }];
 
-  const amount = extractAmount(message) || study.amount || null;
+  const amount = Number(params.amount) || study.amount || extractMoneyAmount(message) || null;
   const lines = [
     `Courriel : ${full.from}`,
     `Objet : ${full.subject}`,

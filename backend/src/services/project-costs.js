@@ -103,9 +103,9 @@ export async function computeProjectCosts(projectId) {
   const logbook = await laborFromHoursLogbook(project, rateMap);
   const entriesCost = laborEntries.rows[0]?.total || 0;
   const entriesHours = laborEntries.rows[0]?.hours || 0;
-  // Carnet d’heures = source principale ; time_entries en complément
-  const laborCost = logbook.cost + entriesCost;
-  const laborHours = logbook.hours + entriesHours;
+  // Carnet d’heures = source principale si présent ; sinon time_entries (évite double comptage)
+  const laborCost = logbook.hours > 0 ? logbook.cost : entriesCost;
+  const laborHours = logbook.hours > 0 ? logbook.hours : entriesHours;
 
   const materialsCost = materials.rows[0]?.total || 0;
   const expensesCost = expenses.rows[0]?.total || 0;

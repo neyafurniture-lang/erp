@@ -67,12 +67,14 @@ router.get('/', async (req, res) => {
 router.post('/', upload.single('receipt'), async (req, res) => {
   try {
     const { amount, category, description, project_id, date } = req.body;
+    const amt = Number(amount);
+    if (!(amt > 0)) return res.status(400).json({ error: 'Montant invalide' });
     const receipt_url = req.file ? `/uploads/${req.file.filename}` : null;
     const expenseDate = normalizePurchaseDate(date) || todayISODate();
     const { rows } = await pool.query(
       `INSERT INTO expenses (amount, category, description, project_id, receipt_url, date)
        VALUES ($1,$2,$3,$4,$5,$6::date) RETURNING *`,
-      [amount, category || 'materiaux', description, project_id || null, receipt_url, expenseDate]
+      [amt, category || 'materiaux', description, project_id || null, receipt_url, expenseDate]
     );
     res.status(201).json(rows[0]);
   } catch (err) {

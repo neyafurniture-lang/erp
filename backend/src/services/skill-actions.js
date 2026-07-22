@@ -58,6 +58,13 @@ export function extractAmount(text) {
   return m ? parseFloat(m[1].replace(',', '.')) : null;
 }
 
+/** Montant monétaire explicite ($ / CAD / dollars) — évite « du 15 » → 15$. */
+export function extractMoneyAmount(text) {
+  const m = String(text || '').match(/(\d+(?:[.,]\d+)?)\s*(?:\$|cad|dollars?)\b/i)
+    || String(text || '').match(/(?:\$|cad)\s*(\d+(?:[.,]\d+)?)/i);
+  return m ? parseFloat(m[1].replace(',', '.')) : null;
+}
+
 export function extractDuration(text) {
   const h = text.match(/(\d+)\s*h/i);
   if (h) return parseInt(h[1]) * 60;
@@ -889,7 +896,7 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
       return listTomorrow();
 
     case 'create_expense': {
-      const amount = extractAmount(message) || Number(params.amount) || 0;
+      const amount = Number(params.amount) || extractMoneyAmount(message) || extractAmount(message) || 0;
       if (!amount || amount <= 0) {
         return { reply: 'Indiquez un montant (ex. « dépense 85$ matériaux »).', actions };
       }

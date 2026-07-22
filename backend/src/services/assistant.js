@@ -3,6 +3,7 @@ import { tryMemoryCommand } from './assistant-memory.js';
 import {
   ACTION_TYPES,
   extractAmount,
+  extractMoneyAmount,
   extractQuotedText,
   extractAfterKeyword,
   createProjectFromStandard,
@@ -332,7 +333,10 @@ export function detectAttachmentIntent(message, attachments = []) {
   if (/(?:voici (?:le |la |un |une )?(?:plan|photo|fichier|pdf|reçu|recu))/i.test(m)) {
     return { hint: 'le fichier mentionné' };
   }
-  if (/(?:dépense|depense|reçu|recu|facture)/i.test(m) && /\d+/.test(m)) {
+  // Ne pas bloquer « dépense 85$ » / « créer facture 500 » — montant explicite = skill, pas PJ
+  if (/(?:dépense|depense|reçu|recu|facture)/i.test(m) && /\d+/.test(m)
+    && !/(\d+(?:[.,]\d+)?)\s*\$/.test(m)
+    && !/(?:cr[eé]er?|nouvelle?|enregistrer|ajoute|ajouter|saisir)\b/i.test(m)) {
     return { hint: 'le reçu ou la facture' };
   }
   return null;
@@ -725,7 +729,7 @@ async function handleAttachments(message, attachments, pageContext = null, preEx
 }
 
 async function maybeCreateExpenseFromAttachments(message, attachments, pageContext = null, study = null) {
-  const amount = extractAmount(message) || study?.amount || null;
+  const amount = Number(study?.amount) || extractMoneyAmount(message) || null;
   if (!amount && !/dépense|reçu|facture/i.test(message) && study?.doc_type !== 'receipt') {
     // facture fournisseur sans montant : ne pas créer 0$
     if (study?.doc_type === 'supplier_invoice') return null;
