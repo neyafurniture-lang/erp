@@ -5,7 +5,7 @@ import { computeProjectCostsBatch } from '../services/project-costs.js';
 import { syncAdminTasksFromModules, seedOpsLiveTasks } from '../services/admin-task-sync.js';
 import { scanInboxForSupplierInvoices } from '../services/invoice-email-router.js';
 import { syncProjectStatusFromTasks } from '../services/project-status-sync.js';
-import { cleanupClientMailPayableTodos } from '../services/mail-invoice-todos.js';
+import { cleanupClientMailPayableTodos, cleanupHandledSupplierPayableTodos } from '../services/mail-invoice-todos.js';
 import { resolveMailTaskHref } from '../services/mail-deep-link.js';
 
 const router = Router();
@@ -24,7 +24,7 @@ const SOURCE_LABEL = {
 async function buildLiveTodo() {
   await seedOpsLiveTasks().catch(() => {});
   await cleanupClientMailPayableTodos().catch(() => {});
-
+  await cleanupHandledSupplierPayableTodos().catch(() => {});
   const [adminOpen, atelierOpen, rdvToday, manualTodos] = await Promise.all([
     pool.query(`
       SELECT *

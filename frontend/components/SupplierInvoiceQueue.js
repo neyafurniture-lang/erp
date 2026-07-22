@@ -2,8 +2,16 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { api } from '../lib/api';
+import { api, EXPENSE_CATEGORIES } from '../lib/api';
 import { decodeHtmlEntities } from '../lib/mail-text';
+
+const CATEGORY_LABELS = {
+  materiaux: 'Matériaux',
+  outils: 'Outils',
+  transport: 'Transport',
+  atelier: 'Atelier',
+  admin: 'Admin',
+};
 
 function groupPendingBySupplier(items = []) {
   const map = new Map();
@@ -18,26 +26,29 @@ function groupPendingBySupplier(items = []) {
 }
 
 function AssignModal({ item, projects, onClose, onDone }) {
-  const [projectId, setProjectId] = useState(item.suggested_project_id || '');
-  const [amount, setAmount] = useState('');
-  const [remember, setRemember] = useState(true);
+  const [projectId, setProjectId] = useState(
+    item.suggested_project_id != null ? String(item.suggested_project_id) : ''
+  );
+  const [amount, setAmount] = useState(
+    item.suggested_amount != null ? String(item.suggested_amount) : ''
+  );
+  const [category, setCategory] = useState('atelier');
+  const [remember, setRemember] = useState(Boolean(item.suggested_project_id));
   const [keyword, setKeyword] = useState(item.keywords?.[0] || '');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
 
-  async function submit(e) {
-    e.preventDefault();
-    if (!projectId) return;
+  async function assign() {
     setSaving(true);
     setErr('');
     try {
       await api(`/supplier-invoices/${item.id}/assign`, {
         method: 'POST',
         body: JSON.stringify({
-          project_id: Number(projectId),
+          project_id: projectId ? Number(projectId) : null,
           amount: amount ? Number(amount) : null,
-          category: 'materiaux',
-          remember_rule: remember,
+          category: projectId ? category : (category || 'atelier'),
+          remember_rule: Boolean(remember && projectId),
           keyword_pattern: keyword.trim() || undefined,
         }),
       });
@@ -50,10 +61,27 @@ function AssignModal({ item, projects, onClose, onDone }) {
     }
   }
 
+  async function submit(e) {
+    e.preventDefault();
+    await assign();
+  }
+
+  async function markPaid() {
+    await assign();
+  }
+
   async function dismiss() {
-    await api(`/supplier-invoices/${item.id}/dismiss`, { method: 'POST' });
-    onDone();
-    onClose();
+    setSaving(true);
+    setErr('');
+    try {
+      await api(`/supplier-invoices/${item.id}/dismiss`, { method: 'POST' });
+      onDone();
+      onClose();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -71,43 +99,72 @@ function AssignModal({ item, projects, onClose, onDone }) {
 
         <form onSubmit={submit} className="space-y-4">
           <div>
-            <label className="label">Projet</label>
-            <select className="input" value={projectId} onChange={e => setProjectId(e.target.value)} required>
-              <option value="">— Choisir un projet —</option>
+            <label className="label">Projet <span className="text-neya-muted font-normal">(optionnel)</span></label>
+            <select className="input" value={projectId} onChange={e => {
+              const v = e.target.value;
+              setProjectId(v);
+              if (!v) {
+                setRemember(false);
+                setCategory('atelier');
+              } else if (category === 'atelier') {
+                setCategory('materiaux');
+              }
+            }}>
+              <option value="">— Général atelier / hors projet —</option>
               {projects.map(p => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
+            <p className="text-[11px] text-neya-muted mt-1">
+              Frais d’atelier, quincaillerie générale, etc. → laisser hors projet.
+            </p>
             {item.suggested_project_name && !projectId && (
               <p className="text-xs text-neya-muted mt-1">Suggestion : {item.suggested_project_name}</p>
             )}
           </div>
-          <div>
-            <label className="label">Montant (optionnel)</label>
-            <input type="number" step="0.01" min="0" className="input" placeholder="0.00 $" value={amount} onChange={e => setAmount(e.target.value)} />
-          </div>
-          <label className="flex items-start gap-2 cursor-pointer">
-            <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} className="mt-1 accent-neya-orange" />
-            <span className="text-sm">
-              Mémoriser pour la prochaine fois
-              {keyword && (
-                <span className="block text-xs text-neya-muted mt-0.5">
-                  {item.supplier_label} + « {keyword} » → ce projet
-                </span>
-              )}
-            </span>
-          </label>
-          {remember && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="label text-xs">Mot-clé à retenir</label>
-              <input className="input text-sm" value={keyword} onChange={e => setKeyword(e.target.value)} placeholder="ex. cedre, sauna, vis..." />
+              <label className="label">Montant (optionnel)</label>
+              <input type="number" step="0.01" min="0" className="input" placeholder="0.00 $" value={amount} onChange={e => setAmount(e.target.value)} />
             </div>
-          )}
+            <div>
+              <label className="label">Catégorie</label>
+              <select className="input" value={category} onChange={e => setCategory(e.target.value)}>
+                {EXPENSE_CATEGORIES.map(c => (
+                  <option key={c} value={c}>{CATEGORY_LABELS[c] || c}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {projectId ? (
+            <>
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} className="mt-1 accent-neya-orange" />
+                <span className="text-sm">
+                  Mémoriser pour la prochaine fois
+                  {keyword && (
+                    <span className="block text-xs text-neya-muted mt-0.5">
+                      {item.supplier_label} + « {keyword} » → ce projet
+                    </span>
+                  )}
+                </span>
+              </label>
+              {remember && (
+                <div>
+                  <label className="label text-xs">Mot-clé à retenir</label>
+                  <input className="input text-sm" value={keyword} onChange={e => setKeyword(e.target.value)} placeholder="ex. cedre, sauna, vis..." />
+                </div>
+              )}
+            </>
+          ) : null}
           <div className="flex flex-wrap gap-2 pt-2">
-            <button type="submit" disabled={saving || !projectId} className="btn-primary flex-1 sm:flex-none">
+            <button type="submit" disabled={saving} className="btn-primary flex-1 sm:flex-none">
               {saving ? 'Enregistrement…' : 'Classer la facture'}
             </button>
-            <button type="button" onClick={dismiss} className="btn-secondary text-sm">Ignorer</button>
+            <button type="button" onClick={markPaid} disabled={saving} className="btn-secondary text-sm">
+              Déjà payée
+            </button>
+            <button type="button" onClick={dismiss} disabled={saving} className="btn-secondary text-sm">Ignorer</button>
             <Link href="/mail" className="btn-secondary text-sm">Voir dans Gmail</Link>
           </div>
         </form>
@@ -150,7 +207,10 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
           const todoBit = result.admin_todos?.created
             ? ` · ${result.admin_todos.created} todo(s) admin`
             : '';
-          setScanInfo(`${result.ingested || 0} facture(s) détectée(s) sur ${result.scanned} message(s) scanné(s)${todoBit}`);
+          const closedBit = result.admin_todos?.cleaned_handled_supplier_payables
+            ? ` · ${result.admin_todos.cleaned_handled_supplier_payables} todo(s) fermée(s)`
+            : '';
+          setScanInfo(`${result.ingested || 0} facture(s) détectée(s) sur ${result.scanned} message(s) scanné(s)${todoBit}${closedBit}`);
           if ((result.ingested || 0) > 0 && compact) setExpanded(true);
         }
         if (result.errors?.length) {
@@ -171,7 +231,10 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
       const todoBit = result.admin_todos?.created
         ? ` · ${result.admin_todos.created} todo(s) admin`
         : '';
-      setScanInfo(`${result.ingested || 0} facture(s) détectée(s) sur ${result.scanned || 0} message(s) scanné(s)${todoBit}`);
+      const closedBit = result.admin_todos?.cleaned_handled_supplier_payables
+        ? ` · ${result.admin_todos.cleaned_handled_supplier_payables} todo(s) fermée(s)`
+        : '';
+      setScanInfo(`${result.ingested || 0} facture(s) détectée(s) sur ${result.scanned || 0} message(s) scanné(s)${todoBit}${closedBit}`);
       if (result.errors?.length) {
         setScanErr(`${result.errors.length} message(s) en erreur — ${result.errors[0].error}`);
       }
@@ -270,7 +333,7 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
                 : 'Factures fournisseurs'}
             </h2>
             <p className="text-xs text-neya-muted mt-0.5">
-              Home Depot, Rona, etc.
+              Projet ou frais atelier — Home Depot, Rona, etc.
             </p>
           </div>
           <button type="button" onClick={scan} disabled={scanning} className="btn-secondary text-xs shrink-0 min-h-[36px]">

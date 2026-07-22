@@ -208,10 +208,19 @@ export async function scanInboxForSupplierInvoices({ max = 40, year = null } = {
   return { ingested, pending, scanned: messages?.length || 0, errors, query: q };
 }
 
+export function normalizeAssignProjectId(project_id) {
+  if (project_id == null || project_id === '' || project_id === 'null' || project_id === 'none') {
+    return null;
+  }
+  const n = Number(project_id);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 export async function assignSupplierInvoice(id, { project_id, amount, category, description, remember_rule, keyword_pattern }) {
   const { rows: existing } = await pool.query('SELECT * FROM supplier_invoice_emails WHERE id = $1', [id]);
   if (!existing[0]) throw new Error('Facture courriel introuvable');
   const inv = existing[0];
+  const resolvedProjectId = normalizeAssignProjectId(project_id);
 
   let expenseId = null;
   if (amount && Number(amount) > 0) {
@@ -225,10 +234,11 @@ export async function assignSupplierInvoice(id, { project_id, amount, category, 
         supplierDbId = await resolveSupplierIdFromSlug(inv.supplier_id);
       }
     } catch { /* catalogue optionnel */ }
+    const expenseCategory = category || (resolvedProjectId ? 'materiaux' : 'atelier');
     const { rows: exp } = await pool.query(
       `INSERT INTO expenses (project_id, amount, category, description, date, supplier_id)
        VALUES ($1,$2,$3,$4,CURRENT_DATE,$5) RETURNING id`,
-      [project_id, Number(amount), category || 'materiaux', desc, supplierDbId]
+      [resolvedProjectId, Number(amount), expenseCategory, desc, supplierDbId]
     );
     expenseId = exp[0].id;
   }
@@ -237,26 +247,39 @@ export async function assignSupplierInvoice(id, { project_id, amount, category, 
     `UPDATE supplier_invoice_emails SET
       project_id = $1, status = 'assigned', assigned_at = NOW(), expense_id = $2
      WHERE id = $3 RETURNING *`,
-    [project_id, expenseId, id]
+    [resolvedProjectId, expenseId, id]
   );
 
-  await pool.query(
-    `INSERT INTO project_emails (project_id, gmail_message_id, thread_id, subject, from_email, snippet)
-     VALUES ($1,$2,$3,$4,$5,$6)
-     ON CONFLICT (gmail_message_id) DO UPDATE SET project_id = $1`,
-    [project_id, inv.gmail_message_id, inv.thread_id, inv.subject, inv.from_email, inv.snippet]
-  );
+  // Pas de lien projet = frais généraux / atelier — ne pas forcer project_emails
+  if (resolvedProjectId) {
+    await pool.query(
+      `INSERT INTO project_emails (project_id, gmail_message_id, thread_id, subject, from_email, snippet)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (gmail_message_id) DO UPDATE SET project_id = $1`,
+      [resolvedProjectId, inv.gmail_message_id, inv.thread_id, inv.subject, inv.from_email, inv.snippet]
+    );
+  }
 
-  if (remember_rule) {
+  if (remember_rule && resolvedProjectId) {
     const kw = keyword_pattern || (inv.keywords?.[0] || norm(inv.subject).split(/\s+/).find(w => w.length >= 4));
     if (kw) {
       await upsertRoutingRule({
         supplier_id: inv.supplier_id,
         keyword_pattern: kw,
-        project_id,
+        project_id: resolvedProjectId,
       });
     }
   }
+
+  try {
+    const { closeMailPayableTodoForMessage } = await import('./mail-invoice-todos.js');
+    const reason = resolvedProjectId
+      ? 'Facture classée sur un projet'
+      : (expenseId ? 'Facture classée en frais atelier' : 'Facture marquée réglée / hors projet');
+    await closeMailPayableTodoForMessage(inv.gmail_message_id, reason, {
+      supplierLabel: inv.supplier_label,
+    });
+  } catch { /* todos optionnels */ }
 
   return rows[0];
 }

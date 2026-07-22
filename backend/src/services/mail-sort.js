@@ -24,6 +24,15 @@ export const GMAIL_CATEGORY_LABELS = {
 
 const NEYA_LABEL_PREFIX = 'NEYA/';
 
+let mailCategoryColumnsReady = false;
+
+/** Garantit les colonnes de tri mail même si initDb a échoué plus tôt. */
+export async function ensureMailCategoryColumns() {
+  if (mailCategoryColumnsReady) return;
+  await pool.query(`ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS mail_category TEXT`);
+  await pool.query(`ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS mail_category_manual BOOLEAN DEFAULT false`);
+  mailCategoryColumnsReady = true;
+}
 let neyaLabelIdCache = null;
 let neyaLabelIdCacheAt = 0;
 
@@ -317,6 +326,7 @@ export async function autoLinkThreadFromAddresses(threadRow, addresses = []) {
 }
 
 export async function enrichInboxMessages(messages = []) {
+  await ensureMailCategoryColumns();
   if (!messages.length) {
     return { messages: [], sections: MAIL_SECTIONS.map(s => ({ ...s, count: 0 })) };
   }
@@ -425,6 +435,7 @@ export async function sortInbox({ max = 40 } = {}) {
 }
 
 export async function classifyAndStoreThread(threadDbId, { force = false } = {}) {
+  await ensureMailCategoryColumns();
   const { rows } = await pool.query(
     `SELECT t.*, s.needs_response, s.client_intent
      FROM email_threads t
@@ -496,6 +507,7 @@ export async function classifyAndStoreThread(threadDbId, { force = false } = {})
 
 /** Classement manuel d’un fil (verrouille jusqu’au prochain tri forcé). */
 export async function setThreadMailCategory(threadDbId, category) {
+  await ensureMailCategoryColumns();
   if (!isValidMailCategory(category)) {
     throw new Error(`Catégorie invalide (attendu : ${[...VALID_CATEGORIES].join(', ')})`);
   }
