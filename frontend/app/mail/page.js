@@ -13,7 +13,7 @@ function MailPageInner() {
 
   return (
     <>
-      <div className="mail-supplier-strip hidden 2xl:block">
+      <div className="mail-supplier-strip px-3 pt-3 lg:px-4">
         <SupplierInvoiceQueue compact />
       </div>
       <GmailInbox initialMessageId={initialMessageId} />
