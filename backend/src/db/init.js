@@ -237,6 +237,7 @@ export async function initDb() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_email_threads_last_msg ON email_threads(last_message_at DESC)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_email_messages_thread ON email_messages(thread_id)`);
   await pool.query(`ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS mail_category TEXT`);
+  await pool.query(`ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS mail_category_manual BOOLEAN DEFAULT false`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_email_threads_category ON email_threads(mail_category)`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS integration_tokens (

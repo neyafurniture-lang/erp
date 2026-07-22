@@ -83,10 +83,12 @@ export async function applyGmailLabelsForMessages(messages = []) {
 }
 
 // Newsletters / marketing — suffisamment précis pour éviter GitHub/banques
-const PROMO_RE = /unsubscribe|d[ée]sinscription|newsletter|infolettre|promotions?\b|marketing|mailchimp|klaviyo|sendgrid|constant.?contact|info@shop|deals@|offres@|soldes?@|updates@|newsletter@|noreply@.*news|no-?reply@.*mail|livraison\s+gratuite|free\s+shipping|last\s+chance|derni[eè]re\s+chance|%\s*off|rabais|promo\b/i;
-const PROMO_DOMAIN_RE = /\b(leevalley|leevalleynews|mailchimp|klaviyo|sendgrid|shopifyemail|exacttarget|cmail|campaign-archive|list-manage)\b/i;
+const PROMO_RE = /unsubscribe|d[ée]sinscription|newsletter|infolettre|promotions?\b|marketing|mailchimp|klaviyo|sendgrid|hubspot|beehiiv|constant.?contact|info@shop|deals@|offres@|soldes?@|updates@|newsletter@|noreply@.*news|no-?reply@.*mail|livraison\s+gratuite|free\s+shipping|last\s+chance|derni[eè]re\s+chance|%\s*off|rabais|promo\b|ne\s+manquez\s+pas|flash\s+sale|black\s+friday|cyber\s+monday|code\s+promo| exclusive\s+offer/i;
+const PROMO_DOMAIN_RE = /\b(leevalley|leevalleynews|mailchimp|klaviyo|sendgrid|shopifyemail|exacttarget|cmail|campaign-archive|list-manage|hubspotemail|beehiiv|mailgun|postmarkapp|createsend|constantcontact)\b/i;
 const NOT_PROMO_FROM_RE = /github\.com|gitlab\.com|bitbucket\.org|cursor\.com|google\.com|accounts\.google/i;
 const CLIENT_INTENTS = new Set(['devis', 'suivi', 'plainte', 'confirmation']);
+/** Indices qu’un humain doit répondre (sans synthèse IA). */
+const REPLY_NEEDED_RE = /\b(urgent|asap|rappel|relance|merci\s+de\s+(me\s+)?(rappeler|confirmer|r[ée]pondre)|pouvez[- ]vous|can\s+you|please\s+confirm|besoin\s+de\s+votre|attente\s+de\s+votre|r[ée]ponse\s+souhait)\b/i;
 const WEAK_LINK_SOURCES = new Set([
   'client_name',
   'client_name_parts',
@@ -97,6 +99,7 @@ const WEAK_LINK_SOURCES = new Set([
   'synth_client_suggest',
   'project_name',
 ]);
+const VALID_CATEGORIES = new Set(MAIL_SECTIONS.map(s => s.id).filter(id => id !== 'inbox'));
 
 export function isPromotion(from, subject, snippet) {
   if (NOT_PROMO_FROM_RE.test(String(from || ''))) return false;
@@ -110,6 +113,10 @@ function isWeakAutoLink(thread) {
   if (source.startsWith('client_name')) return true;
   const conf = Number(thread?.link_confidence);
   return Number.isFinite(conf) && conf > 0 && conf < 0.9;
+}
+
+export function isValidMailCategory(category) {
+  return VALID_CATEGORIES.has(String(category || ''));
 }
 
 let clientEmailCache = null;
@@ -183,9 +190,6 @@ export function classifyMailMessage({
   ownEmails = null,
   preferStored = false,
 } = {}) {
-  // Ne plus coller une mauvaise catégorie pour toujours — recalcul live par défaut.
-  if (preferStored && thread?.mail_category) return thread.mail_category;
-
   const emails = clientEmails || new Set();
   const addresses = collectAddresses(
     { from, to, cc, participants: thread?.participant_emails },
@@ -210,14 +214,26 @@ export function classifyMailMessage({
   // Facture explicite (pas juste « votre commande » dans une newsletter)
   const hardInvoice = /\b(facture|invoice|receipt|re[cç]u|order confirmation|confirmation de commande)\b/i
     .test(`${subject} ${snippet}`);
+  const replyHint = !isOutbound && !promo && (
+    REPLY_NEEDED_RE.test(`${subject} ${snippet}`)
+    || /\?\s*$/.test(String(subject || '').trim())
+  );
+
+  // Catégorie verrouillée manuellement (ou preferStored)
+  if ((preferStored || thread?.mail_category_manual) && isValidMailCategory(thread?.mail_category)) {
+    return thread.mail_category;
+  }
 
   // Newsletters / promos d’abord — sauf client ERP exact (email) ou vraie facture
   if (promo && !matchedClientEmail && !hardInvoice) return 'promotions';
   if (isSupplierInvoice) return 'fournisseurs';
-  if (needsResponse || (isUnread && hasStrongClient && !isOutbound)) return 'a_repondre';
+  // À répondre : synthèse needs_response, indices de réponse, ou non-lu + client fort
+  if (needsResponse || replyHint) return 'a_repondre';
+  if (isUnread && hasStrongClient && !isOutbound) return 'a_repondre';
   if (hasProject) return 'projets';
   if (hasClient || CLIENT_INTENTS.has(clientIntent)) return 'clients';
-  if (detectSupplier(from, subject, snippet)) return 'autres';
+  // Fournisseur connu sans facture → promotions (pas Non classés)
+  if (detectSupplier(from, subject, snippet)) return 'promotions';
   return 'autres';
 }
 
@@ -254,6 +270,8 @@ export function computeMailCategoryForThread(threadRow, synthesis = null, { ownE
       project_id: threadRow.project_id,
       link_source: threadRow.link_source,
       link_confidence: threadRow.link_confidence,
+      mail_category: threadRow.mail_category,
+      mail_category_manual: threadRow.mail_category_manual,
       needs_response: synthesis?.needs_response,
       client_intent: synthesis?.client_intent,
       participant_emails: participants,
@@ -406,7 +424,7 @@ export async function sortInbox({ max = 40 } = {}) {
   return enrichInboxMessages(raw || []);
 }
 
-export async function classifyAndStoreThread(threadDbId) {
+export async function classifyAndStoreThread(threadDbId, { force = false } = {}) {
   const { rows } = await pool.query(
     `SELECT t.*, s.needs_response, s.client_intent
      FROM email_threads t
@@ -420,6 +438,17 @@ export async function classifyAndStoreThread(threadDbId) {
   if (!rows[0]) return null;
 
   let threadRow = rows[0];
+
+  // Respecter le classement manuel sauf force
+  if (!force && threadRow.mail_category_manual && isValidMailCategory(threadRow.mail_category)) {
+    if (threadRow.gmail_thread_id) {
+      try {
+        await applyGmailCategoryLabel(threadRow.gmail_thread_id, threadRow.mail_category);
+      } catch { /* optional */ }
+    }
+    return threadRow.mail_category;
+  }
+
   const [clientEmails, ownEmails] = await Promise.all([getClientEmailSet(), getOwnEmailSet()]);
   const addresses = collectAddresses(
     { participants: threadRow.participant_emails },
@@ -435,7 +464,7 @@ export async function classifyAndStoreThread(threadDbId) {
     } catch { /* optional */ }
   }
 
-  if (!threadRow.client_id && addresses.length) {
+  if (!threadRow.client_id && addresses.length && !isPromotion(fromHint, threadRow.subject || '', '')) {
     threadRow = await autoLinkThreadFromAddresses(threadRow, addresses);
   }
 
@@ -446,7 +475,11 @@ export async function classifyAndStoreThread(threadDbId) {
   );
 
   await pool.query(
-    'UPDATE email_threads SET mail_category = $1, updated_at = NOW() WHERE id = $2',
+    `UPDATE email_threads SET
+       mail_category = $1,
+       mail_category_manual = false,
+       updated_at = NOW()
+     WHERE id = $2`,
     [category, threadDbId]
   );
 
@@ -461,12 +494,39 @@ export async function classifyAndStoreThread(threadDbId) {
   return category;
 }
 
-export async function sortRecentInbox(max = 25) {
+/** Classement manuel d’un fil (verrouille jusqu’au prochain tri forcé). */
+export async function setThreadMailCategory(threadDbId, category) {
+  if (!isValidMailCategory(category)) {
+    throw new Error(`Catégorie invalide (attendu : ${[...VALID_CATEGORIES].join(', ')})`);
+  }
+  const { rows } = await pool.query(
+    `UPDATE email_threads SET
+       mail_category = $1,
+       mail_category_manual = true,
+       updated_at = NOW()
+     WHERE id = $2
+     RETURNING *`,
+    [category, threadDbId]
+  );
+  if (!rows[0]) throw new Error('Fil introuvable');
+
+  if (rows[0].gmail_thread_id) {
+    try {
+      await applyGmailCategoryLabel(rows[0].gmail_thread_id, category);
+    } catch (err) {
+      console.warn('Gmail label:', err.message);
+    }
+  }
+
+  return rows[0];
+}
+
+export async function sortRecentInbox(max = 40) {
   const { processRecentInbox } = await import('./email-threads.js');
   const result = await processRecentInbox(max);
 
   for (const thread of result.threads || []) {
-    if (thread?.id) await classifyAndStoreThread(thread.id);
+    if (thread?.id) await classifyAndStoreThread(thread.id, { force: false });
   }
 
   const sorted = await sortInbox({ max });

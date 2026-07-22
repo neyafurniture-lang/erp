@@ -52,6 +52,39 @@ describe('classifyMailMessage promotions', () => {
     });
     assert.equal(cat, 'a_repondre');
   });
+
+  it('classe un fournisseur connu sans facture en promotions', () => {
+    const cat = classifyMailMessage({
+      from: 'Home Depot <noreply@homedepot.ca>',
+      subject: 'Nouveautés de la semaine',
+      snippet: 'Découvrez nos outils',
+      isUnread: true,
+    });
+    assert.equal(cat, 'promotions');
+  });
+
+  it('classe une vraie facture fournisseur en fournisseurs', () => {
+    const cat = classifyMailMessage({
+      from: 'Home Depot <orders@homedepot.ca>',
+      subject: 'Votre facture #12345',
+      snippet: 'Voici votre facture Home Depot',
+      isUnread: true,
+    });
+    assert.equal(cat, 'fournisseurs');
+  });
+
+  it('respecte un classement manuel verrouillé', () => {
+    const cat = classifyMailMessage({
+      from: 'Lee Valley <updates@email.leevalleynews.com>',
+      subject: 'Promo',
+      snippet: 'newsletter',
+      thread: {
+        mail_category: 'clients',
+        mail_category_manual: true,
+      },
+    });
+    assert.equal(cat, 'clients');
+  });
 });
 
 describe('clientNameAppearsInText', () => {
