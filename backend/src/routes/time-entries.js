@@ -41,6 +41,10 @@ async function fetchEntry(id) {
 router.use(async (req, res, next) => {
   try {
     await ensureTimeEntriesColumns();
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+  try {
     req.account = await getUserAccount(req);
     if (!canAccessHours(req.account)) {
       return res.status(403).json({ error: 'Accès aux heures / shifts requis' });
