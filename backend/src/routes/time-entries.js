@@ -6,6 +6,7 @@ import {
   canManageTeamCalendar,
   getUserAccount,
 } from '../services/user-account.js';
+import { ensureTimeEntriesColumns } from '../services/time-entries-schema.js';
 
 const router = Router();
 
@@ -38,6 +39,11 @@ async function fetchEntry(id) {
 }
 
 router.use(async (req, res, next) => {
+  try {
+    await ensureTimeEntriesColumns();
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
   try {
     req.account = await getUserAccount(req);
     if (!canAccessHours(req.account)) {

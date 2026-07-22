@@ -389,6 +389,12 @@ CREATE TABLE IF NOT EXISTS time_entries (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Tables déjà créées sans ces colonnes : ALTER avant les index (sinon init échoue)
+ALTER TABLE time_entries ADD COLUMN IF NOT EXISTS shift_id INT REFERENCES shifts(id) ON DELETE SET NULL;
+ALTER TABLE time_entries ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'manual';
+ALTER TABLE time_entries ADD COLUMN IF NOT EXISTS created_by INT REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE time_entries ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_time_entries_shift_unique
   ON time_entries(shift_id) WHERE shift_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_time_entries_employee_started

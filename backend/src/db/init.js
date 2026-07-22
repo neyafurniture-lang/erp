@@ -9,12 +9,42 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export async function initDb() {
   const schemaPath = path.join(__dirname, 'schema.sql');
   const schema = fs.readFileSync(schemaPath, 'utf8');
+  try {
     await pool.query(schema);
+  } catch (err) {
+    // Ex. index sur colonne pas encore migrée — on continue avec les ALTER critiques
+    console.warn('schema.sql (non bloquant):', err.message);
+  }
 
   // Colonnes mail critiques tôt (CREATE IF NOT EXISTS ne met pas à jour les tables existantes)
   await pool.query(`ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS mail_category TEXT`);
   await pool.query(`ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS mail_category_manual BOOLEAN DEFAULT false`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_email_threads_category ON email_threads(mail_category)`);
+
+  // Mes heures : shift_id manquant sur les bases déjà créées (sinon pending-shifts / insert cassent)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS time_entries (
+      id SERIAL PRIMARY KEY,
+      employee_id INT REFERENCES employees(id) ON DELETE CASCADE,
+      project_id INT REFERENCES projects(id) ON DELETE SET NULL,
+      task_id INT REFERENCES tasks(id) ON DELETE SET NULL,
+      started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ended_at TIMESTAMPTZ,
+      notes TEXT
+    )
+  `);
+  await pool.query('ALTER TABLE time_entries ADD COLUMN IF NOT EXISTS shift_id INT REFERENCES shifts(id) ON DELETE SET NULL');
+  await pool.query(`ALTER TABLE time_entries ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'manual'`);
+  await pool.query('ALTER TABLE time_entries ADD COLUMN IF NOT EXISTS created_by INT REFERENCES users(id) ON DELETE SET NULL');
+  await pool.query('ALTER TABLE time_entries ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()');
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_time_entries_shift_unique
+    ON time_entries(shift_id) WHERE shift_id IS NOT NULL
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_time_entries_employee_started
+    ON time_entries(employee_id, started_at DESC)
+  `);
 
   await pool.query(`
     UPDATE tasks t SET sort_order = sub.rn
