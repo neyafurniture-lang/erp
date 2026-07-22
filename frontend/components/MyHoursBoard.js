@@ -64,6 +64,12 @@ function EntryModal({
     setErr('');
   }, [data]);
 
+  // Si la liste arrive après l’ouverture du modal, préremplir l’employé
+  useEffect(() => {
+    if (!canManageAll || form.employee_id || !employees.length) return;
+    setForm(f => (f.employee_id ? f : { ...f, employee_id: String(employees[0].id) }));
+  }, [canManageAll, employees, form.employee_id]);
+
   const duration = hoursBetweenLocal(form.started_at, form.ended_at);
 
   function applyQuickHours(h) {
@@ -78,6 +84,11 @@ function EntryModal({
     setSaving(true);
     setErr('');
     try {
+      if (canManageAll && !form.employee_id) {
+        setErr('Choisissez un employé.');
+        setSaving(false);
+        return;
+      }
       const payload = {
         started_at: fromDatetimeLocal(form.started_at),
         ended_at: fromDatetimeLocal(form.ended_at),
@@ -134,14 +145,21 @@ function EntryModal({
               <label className="label">Employé</label>
               <select
                 className="input"
-                value={form.employee_id || ''}
+                value={form.employee_id ? String(form.employee_id) : ''}
                 onChange={e => setForm({ ...form, employee_id: e.target.value })}
                 disabled={Boolean(form.shift_id)}
+                required
               >
+                <option value="">— Choisir un employé —</option>
                 {employees.map(e => (
-                  <option key={e.id} value={e.id}>{e.name}</option>
+                  <option key={e.id} value={String(e.id)}>{e.name}</option>
                 ))}
               </select>
+              {!employees.length && (
+                <p className="mt-1.5 text-xs text-amber-800">
+                  Aucun employé trouvé. Vérifiez Paramètres → équipe / profils atelier.
+                </p>
+              )}
             </div>
           )}
 
@@ -258,19 +276,15 @@ export default function MyHoursBoard() {
       const qs = new URLSearchParams({ from: range.from, to: range.to });
       if (employeeFilter) qs.set('employee_id', employeeFilter);
 
-      const reqs = [
+      const [entriesRes, pendingRes, projectsRes] = await Promise.all([
         api(`/time-entries?${qs}`),
         api(`/time-entries/pending-shifts?${qs}`),
         api('/projects').catch(() => []),
-      ];
-      if (canManageAll) reqs.push(api('/employees').catch(() => []));
-
-      const results = await Promise.all(reqs);
-      setEntries(Array.isArray(results[0]) ? results[0] : []);
-      setPending(Array.isArray(results[1]) ? results[1] : []);
-      const projs = Array.isArray(results[2]) ? results[2] : [];
+      ]);
+      setEntries(Array.isArray(entriesRes) ? entriesRes : []);
+      setPending(Array.isArray(pendingRes) ? pendingRes : []);
+      const projs = Array.isArray(projectsRes) ? projectsRes : [];
       setProjects(projs.filter(p => p.status === 'active' || p.status === 'done' || !p.status));
-      if (canManageAll) setEmployees(Array.isArray(results[3]) ? results[3].filter(e => e.active !== false) : []);
     } catch (e) {
       setErr(e.message || 'Impossible de charger les heures');
       setEntries([]);
@@ -278,9 +292,25 @@ export default function MyHoursBoard() {
     } finally {
       setLoading(false);
     }
-  }, [canManageAll, employeeFilter, range.from, range.to]);
+  }, [employeeFilter, range.from, range.to]);
+
+  const loadEmployees = useCallback(async () => {
+    if (!canManageAll) {
+      setEmployees([]);
+      return;
+    }
+    try {
+      const list = await api('/employees');
+      const active = (Array.isArray(list) ? list : []).filter(e => e.active !== false);
+      setEmployees(active);
+    } catch (e) {
+      setEmployees([]);
+      setErr(prev => prev || e.message || 'Impossible de charger les employés');
+    }
+  }, [canManageAll]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadEmployees(); }, [loadEmployees]);
 
   const weekHours = useMemo(() => {
     const start = new Date();
@@ -292,7 +322,11 @@ export default function MyHoursBoard() {
   }, [entries]);
 
   function openNew() {
-    setModal(defaultForm(employeeFilter || myEmployeeId || employees[0]?.id || ''));
+    const preferred = employeeFilter
+      || (myEmployeeId ? String(myEmployeeId) : '')
+      || (employees[0] ? String(employees[0].id) : '');
+    setModal(defaultForm(preferred));
+    if (canManageAll && !employees.length) loadEmployees();
   }
 
   function openFromShift(shift) {
