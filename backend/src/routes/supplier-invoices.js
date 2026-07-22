@@ -88,6 +88,12 @@ router.post('/:id/dismiss', async (req, res) => {
       [Number(req.params.id)]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Introuvable' });
+    try {
+      const { closeMailPayableTodoForMessage } = await import('../services/mail-invoice-todos.js');
+      await closeMailPayableTodoForMessage(rows[0].gmail_message_id, 'Facture fournisseur ignorée', {
+        supplierLabel: rows[0].supplier_label,
+      });
+    } catch { /* optional */ }
     res.json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });

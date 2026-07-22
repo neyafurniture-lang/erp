@@ -90,6 +90,81 @@ export async function backfillMailTodoDeepLinks() {
 }
 
 /**
+ * Ferme la todo « À payer » liée à un message Gmail (facture fournisseur réglée / classée).
+ * Optionnellement ferme aussi les todos ouvertes dont le titre cite le fournisseur.
+ */
+export async function closeMailPayableTodoForMessage(
+  gmailMessageId,
+  reason = 'Facture classée / réglée',
+  { supplierLabel = null } = {}
+) {
+  const mid = String(gmailMessageId || '').trim();
+  const note = `[auto] ${reason}`;
+  const label = String(supplierLabel || '').trim();
+
+  if (mid) {
+    await pool.query(
+      `UPDATE admin_tasks
+       SET status = 'done',
+           completed_at = COALESCE(completed_at, NOW()),
+           notes = CASE
+             WHEN notes IS NULL OR BTRIM(notes) = '' THEN $2
+             WHEN notes LIKE '%' || $2 || '%' THEN notes
+             ELSE notes || E'\\n' || $2
+           END
+       WHERE status != 'done'
+         AND (
+           source_key = $1
+           OR source_key = 'mail_payable_' || $3
+         )`,
+      [`mail_payable_${mid}`, note, mid]
+    );
+  }
+
+  if (label && !/^(fournisseur|other|autre)$/i.test(label)) {
+    await pool.query(
+      `UPDATE admin_tasks
+       SET status = 'done',
+           completed_at = COALESCE(completed_at, NOW()),
+           notes = CASE
+             WHEN notes IS NULL OR BTRIM(notes) = '' THEN $2
+             WHEN notes LIKE '%' || $2 || '%' THEN notes
+             ELSE notes || E'\\n' || $2
+           END
+       WHERE status != 'done'
+         AND category = 'a_payer'
+         AND title ILIKE $1`,
+      [`%facture%${label}%`, note]
+    );
+  }
+
+  return 1;
+}
+
+/**
+ * Ferme les todos « À payer » dont la facture fournisseur est déjà classée / ignorée.
+ */
+export async function cleanupHandledSupplierPayableTodos() {
+  const { rows } = await pool.query(`
+    SELECT s.gmail_message_id, s.status, s.supplier_label
+    FROM supplier_invoice_emails s
+    WHERE s.status IN ('assigned', 'dismissed')
+      AND s.gmail_message_id IS NOT NULL
+  `);
+  let closed = 0;
+  for (const row of rows) {
+    const reason = row.status === 'dismissed'
+      ? `Facture ${row.supplier_label || 'fournisseur'} ignorée`
+      : `Facture ${row.supplier_label || 'fournisseur'} classée / déjà payée`;
+    await closeMailPayableTodoForMessage(row.gmail_message_id, reason, {
+      supplierLabel: row.supplier_label,
+    });
+    closed += 1;
+  }
+  return closed;
+}
+
+/**
  * Ferme les todos « À payer » créées à tort pour des factures clients
  * (ex. DELFINE INVOICE = argent à recevoir, pas à payer).
  */
@@ -155,6 +230,27 @@ export async function upsertAdminTaskFromMailMessage(msg, {
     people: directory,
   });
   if (!kind) return null;
+
+  // Facture fournisseur déjà classée / payée / ignorée → pas de nouvelle todo « À payer »
+  if (kind === 'a_payer') {
+    try {
+      const { rows: handled } = await pool.query(
+        `SELECT status FROM supplier_invoice_emails
+         WHERE gmail_message_id = $1 AND status IN ('assigned', 'dismissed')
+         LIMIT 1`,
+        [msg.id]
+      );
+      if (handled[0]) {
+        await closeMailPayableTodoForMessage(
+          msg.id,
+          handled[0].status === 'dismissed'
+            ? 'Facture fournisseur ignorée'
+            : 'Facture fournisseur déjà classée / payée'
+        );
+        return null;
+      }
+    } catch { /* table optionnelle au boot */ }
+  }
 
   const person = guessPersonFromMessage(msg, kind, directory);
   const title = buildInvoiceTaskTitle(kind, person);
@@ -239,10 +335,16 @@ export async function scanMailInvoicesToAdminTasks({ days = 30, max = 50 } = {})
   const people = await loadPeopleDirectory();
 
   let cleaned = 0;
+  let cleanedHandled = 0;
   try {
     cleaned = await cleanupClientMailPayableTodos(people);
   } catch (err) {
     errors.push({ stage: 'cleanup_client_payables', error: err.message });
+  }
+  try {
+    cleanedHandled = await cleanupHandledSupplierPayableTodos();
+  } catch (err) {
+    errors.push({ stage: 'cleanup_handled_supplier_payables', error: err.message });
   }
 
   const q = `newer_than:${Math.max(1, Number(days) || 30)}d (facture OR invoice OR facturation OR receipt OR reçu OR "à payer")`;
@@ -281,6 +383,7 @@ export async function scanMailInvoicesToAdminTasks({ days = 30, max = 50 } = {})
     classified: classified.length,
     created: created.length,
     cleaned_client_payables: cleaned,
+    cleaned_handled_supplier_payables: cleanedHandled,
     payable,
     receivable,
     tasks: classified,

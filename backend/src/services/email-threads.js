@@ -513,6 +513,7 @@ async function callSynthesisLLM(prompt, { maxTokens = 4096 } = {}) {
     const key = await getAnthropicKey();
     if (!key) return null;
     const model = await getAnthropicModel();
+    // Pas de prefill assistant `{` : plusieurs modèles Claude le refusent (400 invalid_request).
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -526,7 +527,6 @@ async function callSynthesisLLM(prompt, { maxTokens = 4096 } = {}) {
         system,
         messages: [
           { role: 'user', content: userPrompt },
-          { role: 'assistant', content: '{' },
         ],
       }),
     });
@@ -534,7 +534,7 @@ async function callSynthesisLLM(prompt, { maxTokens = 4096 } = {}) {
     if (!res.ok) throw new Error(`Claude ${res.status}: ${raw.slice(0, 180)}`);
     const data = JSON.parse(raw);
     const text = data.content?.find(b => b.type === 'text')?.text || data.content?.[0]?.text || '';
-    return parseLlmJson(`{${text}`);
+    return parseLlmJson(text);
   }
 
   async function runProvider(fn, label) {
