@@ -377,10 +377,15 @@ export default function DriveExplorer({ projectId = null, initialFolderId = 'roo
   async function createFolder(e) {
     e.preventDefault();
     if (!newFolder.trim()) return;
-    await api('/drive/folders', { method: 'POST', body: JSON.stringify({ name: newFolder, parentId: folderId }) });
-    setNewFolder('');
-    setShowNewFolder(false);
-    loadFiles(folderId, search);
+    setErr('');
+    try {
+      await api('/drive/folders', { method: 'POST', body: JSON.stringify({ name: newFolder, parentId: folderId }) });
+      setNewFolder('');
+      setShowNewFolder(false);
+      loadFiles(folderId, search);
+    } catch (e) {
+      setErr(e.message || 'Impossible de créer le dossier');
+    }
   }
 
   async function uploadBlob(file) {
@@ -407,39 +412,60 @@ export default function DriveExplorer({ projectId = null, initialFolderId = 'roo
   }
 
   async function downloadFile(f) {
-    const res = await fetch(`${getApiUrl()}/drive/files/${f.id}/download`, {
-      headers: { Authorization: `Bearer ${getToken()}` },
-    });
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = f.name;
-    a.click();
-    URL.revokeObjectURL(url);
+    setErr('');
+    try {
+      const res = await fetch(`${getApiUrl()}/drive/files/${f.id}/download`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      if (!res.ok) throw new Error('Téléchargement impossible');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = f.name;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setErr(e.message || 'Téléchargement impossible');
+    }
   }
 
   async function deleteFile(f) {
     if (!confirm(`Supprimer « ${f.name} » sur Drive ?`)) return;
-    await api(`/drive/files/${f.id}?confirm=1`, { method: 'DELETE' });
-    setSelected(null);
-    setPreviewFile(null);
-    loadFiles(folderId, search);
+    setErr('');
+    try {
+      await api(`/drive/files/${f.id}?confirm=1`, { method: 'DELETE' });
+      setSelected(null);
+      setPreviewFile(null);
+      loadFiles(folderId, search);
+    } catch (e) {
+      setErr(e.message || 'Suppression impossible');
+    }
   }
 
   async function renameFile(f) {
     const name = prompt('Nouveau nom', f.name);
     if (!name || name === f.name) return;
-    await api(`/drive/files/${f.id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
-    loadFiles(folderId, search);
+    setErr('');
+    try {
+      await api(`/drive/files/${f.id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
+      loadFiles(folderId, search);
+    } catch (e) {
+      setErr(e.message || 'Renommage impossible');
+    }
   }
 
   async function ensureProjectFolder() {
-    const r = await api(`/integrations/projects/${projectId}/drive-folder`, { method: 'POST' });
-    setProjectRootId(r.folder_id);
-    setFolderId(r.folder_id);
-    setBreadcrumbs([{ id: r.folder_id, name: r.name || 'Dossier projet' }]);
-    loadFiles(r.folder_id);
+    setErr('');
+    try {
+      const r = await api(`/integrations/projects/${projectId}/drive-folder`, { method: 'POST' });
+      setProjectRootId(r.folder_id);
+      setFolderId(r.folder_id);
+      setBreadcrumbs([{ id: r.folder_id, name: r.name || 'Dossier projet' }]);
+      loadFiles(r.folder_id);
+    } catch (e) {
+      setErr(e.message || 'Impossible de créer le dossier projet');
+    }
   }
 
   function onDragOver(e) {

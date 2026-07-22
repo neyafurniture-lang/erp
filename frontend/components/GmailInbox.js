@@ -1001,10 +1001,14 @@ export default function GmailInbox({ projectId = null, linkProjectId = null }) {
       setReply('');
       setPrevReply(null);
       showUndo('Message envoyé', async () => {
-        if (sent?.id) {
-          await api(`/gmail/messages/${sent.id}?confirm=1`, { method: 'DELETE' });
-          setReply(body);
-          await load(search, activeFolder);
+        try {
+          if (sent?.id) {
+            await api(`/gmail/messages/${sent.id}?confirm=1`, { method: 'DELETE' });
+            setReply(body);
+            await load(search, activeFolder);
+          }
+        } catch (undoErr) {
+          setErr(undoErr.message || 'Annulation impossible');
         }
       });
       load(search, activeFolder);

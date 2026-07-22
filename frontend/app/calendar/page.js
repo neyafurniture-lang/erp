@@ -289,15 +289,20 @@ function CraftCalendar() {
     const duration = Math.max(15 * 60 * 1000, baseEnd - baseStart);
     const newEnd = new Date(newStart.getTime() + duration);
 
-    await api(`/tasks/${taskId}/schedule`, {
-      method: 'PATCH',
-      body: JSON.stringify({
-        start_time: newStart.toISOString(),
-        end_time: newEnd.toISOString(),
-      }),
-    });
-    setSelected(dateKey);
-    await load();
+    try {
+      await api(`/tasks/${taskId}/schedule`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          start_time: newStart.toISOString(),
+          end_time: newEnd.toISOString(),
+        }),
+      });
+      setSelected(dateKey);
+      await load();
+    } catch (errMove) {
+      setErr(errMove.message || 'Impossible de déplacer la tâche');
+      throw errMove;
+    }
   }
 
   async function onDayDrop(e, dateKey) {

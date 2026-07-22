@@ -33,12 +33,16 @@ export default function StandardDetailPage() {
   } : null);
 
   async function createFromStandard() {
-    await api(`/projects/from-standard/${id}`, {
-      method: 'POST',
-      body: JSON.stringify({ client_id: form.client_id || null, name: form.name || null }),
-    });
-    setCreateProject(false);
-    alert('Projet créé avec toutes les étapes de fabrication !');
+    try {
+      await api(`/projects/from-standard/${id}`, {
+        method: 'POST',
+        body: JSON.stringify({ client_id: form.client_id || null, name: form.name || null }),
+      });
+      setCreateProject(false);
+      alert('Projet créé avec toutes les étapes de fabrication !');
+    } catch (err) {
+      alert(err.message || 'Impossible de créer le projet');
+    }
   }
 
   if (error) {

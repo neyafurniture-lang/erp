@@ -85,15 +85,19 @@ function ClientsContent() {
 
   async function save(e) {
     e.preventDefault();
-    if (editId) {
-      await api(`/clients/${editId}`, { method: 'PUT', body: JSON.stringify(form) });
-    } else {
-      await api('/clients', { method: 'POST', body: JSON.stringify(form) });
+    try {
+      if (editId) {
+        await api(`/clients/${editId}`, { method: 'PUT', body: JSON.stringify(form) });
+      } else {
+        await api('/clients', { method: 'POST', body: JSON.stringify(form) });
+      }
+      setShowForm(false);
+      setEditId(null);
+      setForm({ name: '', contact: '', email: '', phone: '', address: '', city: '', notes: '' });
+      load();
+    } catch (err) {
+      window.alert(err.message || 'Impossible d’enregistrer le client');
     }
-    setShowForm(false);
-    setEditId(null);
-    setForm({ name: '', contact: '', email: '', phone: '', address: '', city: '', notes: '' });
-    load();
   }
 
   function startEdit(c) {

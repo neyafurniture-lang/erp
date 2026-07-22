@@ -173,6 +173,8 @@ export default function AdminTasksPanel() {
       setForm({ title: '', category: 'a_payer', notes: '' });
       setShowAdd(false);
       await load();
+    } catch (err) {
+      window.alert(err.message || 'Impossible d’ajouter la tâche');
     } finally {
       setSaving(false);
     }

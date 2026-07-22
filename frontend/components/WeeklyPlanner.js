@@ -393,33 +393,45 @@ export default function WeeklyPlanner({ showTasks = true, showShifts = true, tit
   }, [employees, unscheduledTasks]);
 
   async function createShift(employeeId, start, end, projectId = null) {
-    await api('/shifts', {
-      method: 'POST',
-      body: JSON.stringify({
-        employee_id: Number(employeeId),
-        project_id: projectId || selectedProjectId || null,
-        start_at: toIso(start),
-        end_at: toIso(end),
-      }),
-    });
-    setHint(`Shift créé — ${new Date(start).toLocaleString('fr-CA', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`);
-    load();
+    try {
+      await api('/shifts', {
+        method: 'POST',
+        body: JSON.stringify({
+          employee_id: Number(employeeId),
+          project_id: projectId || selectedProjectId || null,
+          start_at: toIso(start),
+          end_at: toIso(end),
+        }),
+      });
+      setHint(`Shift créé — ${new Date(start).toLocaleString('fr-CA', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`);
+      load();
+    } catch (e) {
+      setHint(e.message || 'Impossible de créer le shift');
+    }
   }
 
   async function moveShift(shiftId, start, end) {
-    await api(`/shifts/${shiftId}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ start_at: toIso(start), end_at: toIso(end) }),
-    });
-    load();
+    try {
+      await api(`/shifts/${shiftId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ start_at: toIso(start), end_at: toIso(end) }),
+      });
+      load();
+    } catch (e) {
+      setHint(e.message || 'Impossible de déplacer le shift');
+    }
   }
 
   async function scheduleTask(taskId, start, end) {
-    await api(`/tasks/${taskId}/schedule`, {
-      method: 'PATCH',
-      body: JSON.stringify({ start_time: toIso(start), end_time: toIso(end) }),
-    });
-    load();
+    try {
+      await api(`/tasks/${taskId}/schedule`, {
+        method: 'PATCH',
+        body: JSON.stringify({ start_time: toIso(start), end_time: toIso(end) }),
+      });
+      load();
+    } catch (e) {
+      setHint(e.message || 'Impossible de planifier la tâche');
+    }
   }
 
   const shiftEvents = showShifts
@@ -479,13 +491,11 @@ export default function WeeklyPlanner({ showTasks = true, showShifts = true, tit
       return;
     }
     if (showTasks && info.event.id && !String(info.event.id).startsWith('shift-')) {
-      api(`/tasks/${info.event.id}/schedule`, {
-        method: 'PATCH',
-        body: JSON.stringify({
-          start_time: toIso(info.event.start),
-          end_time: toIso(info.event.end || new Date(info.event.start.getTime() + 3600000)),
-        }),
-      }).then(load);
+      scheduleTask(
+        info.event.id,
+        info.event.start,
+        info.event.end || new Date(info.event.start.getTime() + 3600000)
+      );
     }
   }
 

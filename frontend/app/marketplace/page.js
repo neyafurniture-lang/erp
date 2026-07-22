@@ -124,8 +124,14 @@ export default function MarketplacePage() {
 
   async function remove(id) {
     if (!confirm('Supprimer cette vente ? (la facture liée n’est pas effacée)')) return;
-    await api(`/marketplace/${id}`, { method: 'DELETE' });
-    load();
+    setErr('');
+    setOk('');
+    try {
+      await api(`/marketplace/${id}`, { method: 'DELETE' });
+      await load();
+    } catch (e) {
+      setErr(e.message || 'Suppression impossible');
+    }
   }
 
   const totals = summary?.totals || { count: 0, gross: 0, fees: 0, net: 0 };

@@ -200,10 +200,16 @@ function CustomBlock({ block, standardId, onUpdate, onDelete, onMove, isFirst, i
   async function uploadImage(e) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const fd = new FormData();
-    fd.append('image', file);
-    const { url } = await api(`/standards/${standardId}/upload`, { method: 'POST', body: fd });
-    onUpdate({ url });
+    try {
+      const fd = new FormData();
+      fd.append('image', file);
+      const { url } = await api(`/standards/${standardId}/upload`, { method: 'POST', body: fd });
+      onUpdate({ url });
+    } catch (err) {
+      window.alert(err.message || 'Upload de l’image impossible');
+    } finally {
+      e.target.value = '';
+    }
   }
 
   return (

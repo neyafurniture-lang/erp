@@ -36,18 +36,22 @@ export default function ProjectsPage() {
 
   async function create(e) {
     e.preventDefault();
-    await api('/projects', {
-      method: 'POST',
-      body: JSON.stringify({
-        name: form.name.trim(),
-        client_id: form.client_id ? Number(form.client_id) : null,
-        deadline: form.deadline || null,
-        budget_estimated: Number(form.budget_estimated) || 0,
-      }),
-    });
-    setShowForm(false);
-    setForm({ name: '', client_id: '', deadline: '', budget_estimated: '' });
-    load();
+    try {
+      await api('/projects', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: form.name.trim(),
+          client_id: form.client_id ? Number(form.client_id) : null,
+          deadline: form.deadline || null,
+          budget_estimated: Number(form.budget_estimated) || 0,
+        }),
+      });
+      setShowForm(false);
+      setForm({ name: '', client_id: '', deadline: '', budget_estimated: '' });
+      load();
+    } catch (err) {
+      window.alert(err.message || 'Impossible de créer le projet');
+    }
   }
 
   async function toggleDone(e, project) {

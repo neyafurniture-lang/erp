@@ -169,33 +169,49 @@ export default function SaunaCloudPage() {
 
   async function toggleFrame(frame) {
     const next = frame.status === 'done' ? 'todo' : 'done';
-    const res = await api(`/sauna-cloud/frames/${frame.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status: next }),
-    });
-    setBoard(res.board);
+    try {
+      const res = await api(`/sauna-cloud/frames/${frame.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: next }),
+      });
+      setBoard(res.board);
+    } catch (e) {
+      setError(e.message || 'Mise à jour impossible');
+    }
   }
 
   async function saveFrameNotes(id, notes) {
-    const res = await api(`/sauna-cloud/frames/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ notes }),
-    });
-    setBoard(res.board);
+    try {
+      const res = await api(`/sauna-cloud/frames/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ notes }),
+      });
+      setBoard(res.board);
+    } catch (e) {
+      setError(e.message || 'Notes non enregistrées');
+    }
   }
 
   async function renameFrame(id, title) {
-    const res = await api(`/sauna-cloud/frames/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ title }),
-    });
-    setBoard(res.board);
+    try {
+      const res = await api(`/sauna-cloud/frames/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ title }),
+      });
+      setBoard(res.board);
+    } catch (e) {
+      setError(e.message || 'Renommage impossible');
+    }
   }
 
   async function deleteFrame(frame) {
     if (!confirm(`Supprimer « ${frame.title} » ?`)) return;
-    const res = await api(`/sauna-cloud/frames/${frame.id}`, { method: 'DELETE' });
-    setBoard(res.board);
+    try {
+      const res = await api(`/sauna-cloud/frames/${frame.id}`, { method: 'DELETE' });
+      setBoard(res.board);
+    } catch (e) {
+      setError(e.message || 'Suppression impossible');
+    }
   }
 
   async function addFrame(e) {
