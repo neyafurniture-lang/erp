@@ -1684,12 +1684,24 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
 
     case 'delete_expense': {
       const amount = extractAmount(message);
-      const params = [];
-      let q = 'DELETE FROM expenses WHERE id IN (SELECT id FROM expenses';
-      if (projectId) { params.push(projectId); q += ` WHERE project_id=$${params.length}`; }
+      if (amount == null) {
+        return {
+          reply: 'Pour supprimer une dépense, précisez le montant (ex. « supprimer dépense 45,99$ »).',
+          actions: [],
+        };
+      }
+      const params = [Number(amount)];
+      let q = `DELETE FROM expenses WHERE id IN (
+        SELECT id FROM expenses WHERE ABS(amount - $1) < 0.02`;
+      if (projectId) {
+        params.push(projectId);
+        q += ` AND project_id = $${params.length}`;
+      }
       q += ' ORDER BY created_at DESC LIMIT 1) RETURNING *';
       const { rows } = await pool.query(q, params);
-      if (!rows[0]) return { reply: 'Aucune dépense à supprimer.', actions };
+      if (!rows[0]) {
+        return { reply: `Aucune dépense trouvée à ${Number(amount).toFixed(2)} $.`, actions: [] };
+      }
       actions.push({ type: 'delete_expense', data: rows[0] });
       return { reply: `Dépense supprimée (${Number(rows[0].amount).toFixed(2)} $).`, actions };
     }
