@@ -167,14 +167,22 @@ function EntryModal({
             <label className="label">Projet (optionnel)</label>
             <select
               className="input"
-              value={form.project_id || ''}
+              value={form.project_id ? String(form.project_id) : ''}
               onChange={e => setForm({ ...form, project_id: e.target.value })}
             >
               <option value="">— Aucun —</option>
               {projects.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
+                <option key={p.id} value={String(p.id)}>
+                  {p.name}
+                  {p.status && p.status !== 'active' ? ` (${p.status})` : ''}
+                </option>
               ))}
             </select>
+            {!projects.length && (
+              <p className="mt-1.5 text-xs text-amber-800">
+                Aucun projet disponible pour le moment.
+              </p>
+            )}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -276,15 +284,12 @@ export default function MyHoursBoard() {
       const qs = new URLSearchParams({ from: range.from, to: range.to });
       if (employeeFilter) qs.set('employee_id', employeeFilter);
 
-      const [entriesRes, pendingRes, projectsRes] = await Promise.all([
+      const [entriesRes, pendingRes] = await Promise.all([
         api(`/time-entries?${qs}`),
         api(`/time-entries/pending-shifts?${qs}`),
-        api('/projects').catch(() => []),
       ]);
       setEntries(Array.isArray(entriesRes) ? entriesRes : []);
       setPending(Array.isArray(pendingRes) ? pendingRes : []);
-      const projs = Array.isArray(projectsRes) ? projectsRes : [];
-      setProjects(projs.filter(p => p.status === 'active' || p.status === 'done' || !p.status));
     } catch (e) {
       setErr(e.message || 'Impossible de charger les heures');
       setEntries([]);
@@ -309,8 +314,33 @@ export default function MyHoursBoard() {
     }
   }, [canManageAll]);
 
+  const loadProjects = useCallback(async () => {
+    try {
+      const list = await api('/projects');
+      const rows = Array.isArray(list) ? list : [];
+      // Tous sauf annulés — active / waiting / paused / done (sinon la liste est vide)
+      const usable = rows.filter(p => {
+        const s = String(p.status || 'active').toLowerCase();
+        return s !== 'cancelled' && s !== 'canceled' && s !== 'annule' && s !== 'annulé';
+      });
+      const rank = (s) => {
+        const v = String(s || 'active').toLowerCase();
+        if (v === 'active' || !v) return 0;
+        if (v === 'waiting' || v === 'paused') return 1;
+        if (v === 'done') return 2;
+        return 3;
+      };
+      usable.sort((a, b) => rank(a.status) - rank(b.status) || String(a.name || '').localeCompare(String(b.name || ''), 'fr'));
+      setProjects(usable);
+    } catch (e) {
+      setProjects([]);
+      setErr(prev => prev || e.message || 'Impossible de charger les projets');
+    }
+  }, []);
+
   useEffect(() => { load(); }, [load]);
   useEffect(() => { loadEmployees(); }, [loadEmployees]);
+  useEffect(() => { loadProjects(); }, [loadProjects]);
 
   const weekHours = useMemo(() => {
     const start = new Date();
@@ -327,6 +357,7 @@ export default function MyHoursBoard() {
       || (employees[0] ? String(employees[0].id) : '');
     setModal(defaultForm(preferred));
     if (canManageAll && !employees.length) loadEmployees();
+    if (!projects.length) loadProjects();
   }
 
   function openFromShift(shift) {
