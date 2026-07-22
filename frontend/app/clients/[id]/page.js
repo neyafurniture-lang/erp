@@ -6,7 +6,7 @@ import Link from 'next/link';
 import AppShell from '../../../components/AppShell';
 import AuthGuard from '../../../components/AuthGuard';
 import {
-  api, formatMoney, formatDate, PROJECT_STATUS,
+  api, formatMoney, formatDate, projectStatusMeta,
   INVOICE_STATUS, QUOTE_STATUS, downloadPdf,
 } from '../../../lib/api';
 import { isCustomProject } from '../../../lib/projects';
@@ -195,7 +195,7 @@ export default function ClientDetailPage() {
               <p className="text-sm text-neya-muted card">Aucun projet pour ce client.</p>
             ) : (
               client.projects.map(p => {
-                const st = PROJECT_STATUS.find(s => s.value === p.status) || PROJECT_STATUS[0];
+                const st = projectStatusMeta(p.status);
                 const custom = isCustomProject(p);
                 return (
                   <Link

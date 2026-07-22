@@ -8,6 +8,7 @@ import {
   restoreHoursLogbookFromPrev,
   isClearingHoursLogbook,
 } from '../services/hours-logbook.js';
+import { normalizeProjectStatus, PROJECT_STATUSES } from '../services/project-status.js';
 
 const router = Router();
 const planUpload = multer({
@@ -248,10 +249,16 @@ router.post('/', async (req, res) => {
     if (clientId != null && Number.isNaN(clientId)) {
       return res.status(400).json({ error: 'client_id invalide' });
     }
+    const nextStatus = (status == null || status === '')
+      ? 'active'
+      : normalizeProjectStatus(status);
+    if (!nextStatus) {
+      return res.status(400).json({ error: `Statut invalide. Valeurs: ${PROJECT_STATUSES.join(', ')}` });
+    }
     const { rows } = await pool.query(
       `INSERT INTO projects (name, client_id, status, deadline, budget_estimated, notes)
        VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [String(name).trim(), clientId, status || 'active', deadline || null, budget_estimated || 0, notes]
+      [String(name).trim(), clientId, nextStatus, deadline || null, budget_estimated || 0, notes]
     );
     const { rows: full } = await pool.query(
       `SELECT p.*, c.name as client_name FROM projects p
@@ -329,7 +336,14 @@ router.put('/:id', async (req, res) => {
       }
     }
 
-    const status = b.status !== undefined ? b.status : cur.status;
+    let status = cur.status;
+    if (b.status !== undefined) {
+      const nextStatus = normalizeProjectStatus(b.status);
+      if (!nextStatus) {
+        return res.status(400).json({ error: `Statut invalide. Valeurs: ${PROJECT_STATUSES.join(', ')}` });
+      }
+      status = nextStatus;
+    }
     const deadline = b.deadline !== undefined ? (b.deadline || null) : cur.deadline;
     const budgetEstimated = b.budget_estimated !== undefined
       ? (Number(b.budget_estimated) || 0)

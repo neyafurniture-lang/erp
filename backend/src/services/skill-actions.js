@@ -114,7 +114,8 @@ function parseStatus(message) {
 
 function parseProjectStatus(message) {
   if (/terminé|termine|livré|livre|completed|done|fermer/i.test(message)) return 'done';
-  if (/pause|en pause|on hold/i.test(message)) return 'paused';
+  if (/en attente|attente client|waiting|on[_ -]?hold|pending/i.test(message)) return 'waiting';
+  if (/pause|en pause/i.test(message)) return 'paused';
   if (/actif|active|en cours|rouvrir|réouvrir|reouvrir/i.test(message)) return 'active';
   if (/annulé|annule|cancel/i.test(message)) return 'cancelled';
   return null;
