@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { api, formatMoney, formatDate, TASK_TYPES, resolveUploadUrl } from '../lib/api';
+import { api, formatMoney, formatDate, TASK_TYPES, resolveUploadUrl, PROJECT_STATUS, projectStatusMeta, normalizeProjectStatusValue, isProjectPriority } from '../lib/api';
 import { isCustomProject, checklistProgress } from '../lib/projects';
 import { PRODUCTION_STAGES, computeProductionStage, resolveProject3dUrl } from '../lib/production';
 import { parseMeta } from '../lib/standards';
@@ -278,14 +278,35 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
     onReload();
   }
 
-  async function toggleProjectDone() {
+  async function changeProjectStatus(nextStatus) {
+    if (statusBusy) return;
+    const current = normalizeProjectStatusValue(project.status);
+    if (!nextStatus || nextStatus === current) return;
+    setStatusBusy(true);
+    try {
+      await api(`/projects/${project.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      onReload();
+    } catch (err) {
+      window.alert(err.message || 'Impossible de mettre à jour le statut');
+    } finally {
+      setStatusBusy(false);
+    }
+  }
+
+  async function toggleProjectPriority() {
     if (statusBusy) return;
     setStatusBusy(true);
     try {
-      await api(`/projects/${project.id}/toggle-done`, { method: 'POST' });
+      await api(`/projects/${project.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ priority: isProjectPriority(project) ? 0 : 1 }),
+      });
       onReload();
     } catch (err) {
-      window.alert(err.message || 'Impossible de mettre à jour le projet');
+      window.alert(err.message || 'Impossible de mettre à jour la priorité');
     } finally {
       setStatusBusy(false);
     }
@@ -443,28 +464,51 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
                 </span>
               )}
             </div>
-            <h1 className={`text-2xl sm:text-3xl font-medium tracking-tight ${project.status === 'done' ? 'text-neya-muted line-through' : 'text-neya-ink'}`}>
+            <h1 className={`text-2xl sm:text-3xl font-medium tracking-tight ${normalizeProjectStatusValue(project.status) === 'done' ? 'text-neya-muted line-through' : 'text-neya-ink'}`}>
               {project.name}
             </h1>
           </div>
-          <button
-            type="button"
-            onClick={toggleProjectDone}
-            disabled={statusBusy}
-            className={`shrink-0 text-sm font-semibold px-4 py-2 rounded-xl border transition-colors disabled:opacity-50 ${
-              project.status === 'done'
-                ? 'bg-white border-neya-orange text-neya-orange hover:bg-neya-orange hover:text-white'
-                : 'bg-neya-orange text-white border-neya-orange hover:bg-neya-ink'
-            }`}
-          >
-            {statusBusy ? '…' : project.status === 'done' ? 'Rouvrir le projet' : 'Terminer le projet'}
-          </button>
+          <div className="shrink-0 flex flex-col sm:flex-row items-stretch gap-2">
+            <button
+              type="button"
+              onClick={toggleProjectPriority}
+              disabled={statusBusy}
+              aria-pressed={isProjectPriority(project)}
+              className={`inline-flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-semibold transition-colors disabled:opacity-50 ${
+                isProjectPriority(project)
+                  ? 'border-amber-300 bg-amber-50 text-amber-700'
+                  : 'border-neya-border bg-white text-neya-muted hover:text-amber-600'
+              }`}
+            >
+              <span aria-hidden>{isProjectPriority(project) ? '★' : '☆'}</span>
+              {isProjectPriority(project) ? 'Prioritaire' : 'Priorité'}
+            </button>
+            <div className="flex flex-col items-stretch gap-1.5 min-w-[10rem]">
+              <label className="text-[10px] font-semibold uppercase tracking-wide text-neya-muted" htmlFor="project-status-select">
+                Statut
+              </label>
+              <select
+                id="project-status-select"
+                value={projectStatusMeta(project.status).value}
+                disabled={statusBusy}
+                onChange={(e) => changeProjectStatus(e.target.value)}
+                className="input py-2 text-sm font-semibold disabled:opacity-50"
+              >
+                {PROJECT_STATUS.map(s => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
         </div>
         <div className="flex flex-wrap gap-2 mt-4">
           <span className="badge border-neya-border bg-neya-surface">{custom ? 'Sur mesure' : 'Catalogue'}</span>
-          <span className={`badge ${project.status === 'done' ? 'border-green-200 text-green-800 bg-green-50' : 'border-neya-border bg-white'}`}>
-            {project.status === 'done' ? 'Terminé' : 'En cours'}
+          <span className={`badge text-white border-transparent ${projectStatusMeta(project.status).color}`}>
+            {projectStatusMeta(project.status).label}
           </span>
+          {isProjectPriority(project) && (
+            <span className="badge border-amber-300 bg-amber-50 text-amber-800">Prioritaire</span>
+          )}
           {project.deadline && <span className="badge border-neya-border">{formatDate(project.deadline)}</span>}
           {costs && <span className="badge border-neya-orange/30 text-neya-orange">Marge {costs.margin_pct}%</span>}
         </div>

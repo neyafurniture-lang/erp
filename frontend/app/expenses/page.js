@@ -32,11 +32,19 @@ function monthLabel(key) {
   return `${MONTH_LABELS[Number(mo)] || mo} ${y}`;
 }
 
+function daysSinceCreated(createdAt) {
+  if (!createdAt) return Infinity;
+  const t = new Date(createdAt).getTime();
+  if (Number.isNaN(t)) return Infinity;
+  return (Date.now() - t) / 86400000;
+}
+
 export default function ExpensesPage() {
   const [expenses, setExpenses] = useState([]);
   const [projects, setProjects] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [monthFilter, setMonthFilter] = useState('all');
+  const [loadErr, setLoadErr] = useState('');
   const [form, setForm] = useState({
     amount: '',
     category: 'materiaux',
@@ -47,11 +55,15 @@ export default function ExpensesPage() {
   });
 
   const load = () => {
+    setLoadErr('');
     api('/expenses')
-      .then(setExpenses)
+      .then((rows) => {
+        setExpenses(Array.isArray(rows) ? rows : []);
+      })
       .catch(err => {
         console.warn('expenses load:', err.message);
-        setExpenses([]);
+        setLoadErr(err.message || 'Chargement impossible');
+        // Ne pas vider la liste : une erreur réseau faisait « disparaître » les dépenses
       });
     api('/projects')
       .then(p => setProjects(Array.isArray(p) ? p.filter(x => x.status !== 'cancelled') : []))
@@ -89,6 +101,13 @@ export default function ExpensesPage() {
     load();
   }
 
+  const recent = useMemo(
+    () => expenses
+      .filter(e => daysSinceCreated(e.created_at) <= 14)
+      .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))),
+    [expenses]
+  );
+
   const monthOptions = useMemo(() => {
     const keys = [...new Set(expenses.map(e => expenseMonthKey(e.date)))].sort().reverse();
     return keys;
@@ -111,11 +130,49 @@ export default function ExpensesPage() {
     return [...map.entries()].sort((a, b) => b[0].localeCompare(a[0]));
   }, [filtered]);
 
+  function ExpenseRows({ rows }) {
+    return rows.map(e => (
+      <tr key={e.id}>
+        <td className="px-4 py-3">
+          <p className="tabular-nums">{formatDate(e.date)}</p>
+          {e.created_at && expenseMonthKey(e.date) !== expenseMonthKey(e.created_at) && (
+            <p className="text-[10px] text-amber-700">saisie {formatDate(e.created_at)}</p>
+          )}
+        </td>
+        <td className="px-4 py-3">{e.description || '—'}</td>
+        <td className="px-4 py-3">
+          <span className="rounded-full bg-neya-surface px-2.5 py-0.5 text-[11px] font-medium text-neya-ink-light">
+            {CATEGORY_LABELS[e.category] || e.category}
+          </span>
+        </td>
+        <td className="px-4 py-3 text-neya-muted">{e.project_name || '—'}</td>
+        <td className="px-4 py-3">
+          <div className="flex flex-col gap-0.5">
+            {e.receipt_url ? (
+              <a href={resolveUploadUrl(e.receipt_url)} target="_blank" rel="noopener noreferrer" className="text-neya-orange text-xs hover:underline">Voir</a>
+            ) : null}
+            {e.receipt_drive_link ? (
+              <a href={e.receipt_drive_link} target="_blank" rel="noopener noreferrer" className="text-neya-muted text-[10px] hover:underline">Drive</a>
+            ) : null}
+            {!e.receipt_url && !e.receipt_drive_link ? '—' : null}
+          </div>
+        </td>
+        <td className="px-4 py-3 text-right font-display font-semibold tabular-nums">{formatMoney(e.amount)}</td>
+      </tr>
+    ));
+  }
+
   return (
     <AuthGuard>
       <AppShell title="Dépenses" subtitle={`${filtered.length} entrée${filtered.length > 1 ? 's' : ''} · total ${formatMoney(total)}`}>
         <FinanceSyncPanel year={new Date().getFullYear()} onDone={load} />
         <ReceiptScanner onChange={load} />
+
+        {loadErr && (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            Impossible de rafraîchir la liste ({loadErr}). Les lignes déjà affichées sont conservées.
+          </div>
+        )}
 
         <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
           <p className="text-neya-muted text-sm">
@@ -213,6 +270,30 @@ export default function ExpensesPage() {
           </form>
         )}
 
+        {recent.length > 0 && monthFilter === 'all' && (
+          <div className="cf-table-wrap overflow-x-auto mb-5">
+            <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-neya-border bg-emerald-50/80">
+              <p className="text-sm font-medium text-neya-ink">Saisies récentes (14 jours)</p>
+              <p className="text-xs text-neya-muted">{recent.length} ticket{recent.length > 1 ? 's' : ''} / saisie{recent.length > 1 ? 's' : ''}</p>
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr>
+                  <th className="px-4 py-3">Date ticket</th>
+                  <th className="px-4 py-3">Description</th>
+                  <th className="px-4 py-3">Catégorie</th>
+                  <th className="px-4 py-3">Projet</th>
+                  <th className="px-4 py-3">Reçu</th>
+                  <th className="px-4 py-3 text-right">Montant</th>
+                </tr>
+              </thead>
+              <tbody>
+                <ExpenseRows rows={recent} />
+              </tbody>
+            </table>
+          </div>
+        )}
+
         <div className="space-y-5">
           {grouped.length === 0 && (
             <div className="cf-table-wrap overflow-x-auto">
@@ -241,24 +322,7 @@ export default function ExpensesPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map(e => (
-                      <tr key={e.id}>
-                        <td className="px-4 py-3 tabular-nums">{formatDate(e.date)}</td>
-                        <td className="px-4 py-3">{e.description || '—'}</td>
-                        <td className="px-4 py-3">
-                          <span className="rounded-full bg-neya-surface px-2.5 py-0.5 text-[11px] font-medium text-neya-ink-light">
-                            {CATEGORY_LABELS[e.category] || e.category}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-neya-muted">{e.project_name || '—'}</td>
-                        <td className="px-4 py-3">
-                          {e.receipt_url ? (
-                            <a href={resolveUploadUrl(e.receipt_url)} target="_blank" rel="noopener noreferrer" className="text-neya-orange text-xs hover:underline">Voir</a>
-                          ) : '—'}
-                        </td>
-                        <td className="px-4 py-3 text-right font-display font-semibold tabular-nums">{formatMoney(e.amount)}</td>
-                      </tr>
-                    ))}
+                    <ExpenseRows rows={rows} />
                   </tbody>
                 </table>
               </div>

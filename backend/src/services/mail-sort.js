@@ -521,9 +521,44 @@ export async function setThreadMailCategory(threadDbId, category) {
   return rows[0];
 }
 
-export async function sortRecentInbox(max = 40) {
+export async function sortRecentInbox(max = 40, {
+  includeTri = true,
+  scanInvoices = true,
+} = {}) {
   const { processRecentInbox } = await import('./email-threads.js');
+  const gmail = await import('./google-gmail.js');
+
   const result = await processRecentInbox(max);
+
+  // Drainer aussi Tri/A_traiter (file d’attente Gmail historique)
+  let triProcessed = 0;
+  let triErrors = [];
+  if (includeTri) {
+    try {
+      const triId = await gmail.resolveLabelId('Tri/A_traiter');
+      if (triId) {
+        const { messages: triMsgs } = await gmail.listMessages({ label: triId, max });
+        const seen = new Set((result.threads || []).map(t => t.gmail_thread_id).filter(Boolean));
+        for (const m of triMsgs || []) {
+          if (!m.threadId || seen.has(m.threadId)) continue;
+          seen.add(m.threadId);
+          try {
+            const { syncGmailThread } = await import('./email-threads.js');
+            const thread = await syncGmailThread(m.threadId);
+            if (thread?.id) {
+              await classifyAndStoreThread(thread.id);
+              triProcessed += 1;
+              result.threads = [...(result.threads || []), thread];
+            }
+          } catch (err) {
+            triErrors.push({ thread_id: m.threadId, error: err.message });
+          }
+        }
+      }
+    } catch (err) {
+      triErrors.push({ stage: 'tri_a_traiter', error: err.message });
+    }
+  }
 
   for (const thread of result.threads || []) {
     if (thread?.id) await classifyAndStoreThread(thread.id, { force: false });
@@ -532,8 +567,21 @@ export async function sortRecentInbox(max = 40) {
   const sorted = await sortInbox({ max });
   const labelResult = await applyGmailLabelsForMessages(sorted.messages || []);
 
+  let invoices = null;
+  if (scanInvoices) {
+    try {
+      const { scanInboxForSupplierInvoices } = await import('./invoice-email-router.js');
+      invoices = await scanInboxForSupplierInvoices({ max: Math.min(Number(max) || 25, 50) });
+    } catch (err) {
+      invoices = { error: err.message, ingested: 0, scanned: 0 };
+    }
+  }
+
   return {
     ...result,
+    processed: (result.processed || 0) + triProcessed,
+    tri_processed: triProcessed,
+    tri_errors: triErrors,
     sections: sorted.sections,
     messages: sorted.messages,
     gmail_labels: {
@@ -541,5 +589,6 @@ export async function sortRecentInbox(max = 40) {
       errors: labelResult.errors,
       labels: GMAIL_CATEGORY_LABELS,
     },
+    invoices,
   };
 }

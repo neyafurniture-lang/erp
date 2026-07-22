@@ -114,7 +114,8 @@ function parseStatus(message) {
 
 function parseProjectStatus(message) {
   if (/terminé|termine|livré|livre|completed|done|fermer/i.test(message)) return 'done';
-  if (/pause|en pause|on hold/i.test(message)) return 'paused';
+  if (/en attente|attente client|waiting|on[_ -]?hold|pending/i.test(message)) return 'waiting';
+  if (/pause|en pause/i.test(message)) return 'paused';
   if (/actif|active|en cours|rouvrir|réouvrir|reouvrir/i.test(message)) return 'active';
   if (/annulé|annule|cancel/i.test(message)) return 'cancelled';
   return null;
@@ -407,7 +408,7 @@ async function fetchProjectsForMatching() {
     SELECT p.id, p.name, c.name AS client_name
     FROM projects p
     LEFT JOIN clients c ON c.id = p.client_id
-    WHERE p.status IN ('active', 'on_hold')
+    WHERE p.status IN ('active', 'waiting', 'on_hold', 'paused')
     ORDER BY p.created_at DESC
     LIMIT 80
   `);
@@ -1013,6 +1014,17 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
       const name = params.name || extractQuotedText(msg)
         || (/renommer|appeler/i.test(msg) ? extractAfterKeyword(msg, ['renommer', 'appeler']) : null);
       const status = params.status || parseProjectStatus(msg);
+      let priority = params.priority;
+      if (priority === undefined) {
+        if (/prioritaire|haute priorit|mettre.*(en )?prio|marquer.*prio/i.test(msg)
+          && !/plus prioritaire|retirer.*(la )?prio|enlever.*(la )?prio|pas prioritaire/i.test(msg)) {
+          priority = 1;
+        } else if (/retirer.*(la )?prio|enlever.*(la )?prio|plus prioritaire|pas prioritaire|déprioris/i.test(msg)) {
+          priority = 0;
+        }
+      } else {
+        priority = priority === true || priority === 'true' || Number(priority) > 0 ? 1 : 0;
+      }
       const deadline = params.deadline ? new Date(params.deadline) : parseDateHint(msg);
       const budget = params.budget_estimated != null ? Number(params.budget_estimated) : extractAmount(msg);
       let notes = params.notes ?? params.description ?? null;
@@ -1029,7 +1041,7 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
         clientId = pageContext.id;
       }
       const { rows } = await pool.query(
-        `UPDATE projects SET name=$1, status=$2, deadline=$3, budget_estimated=$4, notes=$5, client_id=$6 WHERE id=$7 RETURNING *`,
+        `UPDATE projects SET name=$1, status=$2, deadline=$3, budget_estimated=$4, notes=$5, client_id=$6, priority=$7 WHERE id=$8 RETURNING *`,
         [
           name || p.name,
           status || p.status,
@@ -1037,6 +1049,7 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
           budget != null && (params.budget_estimated != null || /budget/i.test(msg)) ? budget : p.budget_estimated,
           notes != null ? notes : p.notes,
           clientId,
+          priority !== undefined ? priority : (p.priority ?? 0),
           id,
         ]
       );
@@ -1684,12 +1697,24 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
 
     case 'delete_expense': {
       const amount = extractAmount(message);
-      const params = [];
-      let q = 'DELETE FROM expenses WHERE id IN (SELECT id FROM expenses';
-      if (projectId) { params.push(projectId); q += ` WHERE project_id=$${params.length}`; }
+      if (amount == null) {
+        return {
+          reply: 'Pour supprimer une dépense, précisez le montant (ex. « supprimer dépense 45,99$ »).',
+          actions: [],
+        };
+      }
+      const params = [Number(amount)];
+      let q = `DELETE FROM expenses WHERE id IN (
+        SELECT id FROM expenses WHERE ABS(amount - $1) < 0.02`;
+      if (projectId) {
+        params.push(projectId);
+        q += ` AND project_id = $${params.length}`;
+      }
       q += ' ORDER BY created_at DESC LIMIT 1) RETURNING *';
       const { rows } = await pool.query(q, params);
-      if (!rows[0]) return { reply: 'Aucune dépense à supprimer.', actions };
+      if (!rows[0]) {
+        return { reply: `Aucune dépense trouvée à ${Number(amount).toFixed(2)} $.`, actions: [] };
+      }
       actions.push({ type: 'delete_expense', data: rows[0] });
       return { reply: `Dépense supprimée (${Number(rows[0].amount).toFixed(2)} $).`, actions };
     }

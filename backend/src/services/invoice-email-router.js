@@ -184,8 +184,12 @@ export async function scanInboxForSupplierInvoices({ max = 40, year = null } = {
   const errors = [];
   const y = year ? Number(year) : null;
   const q = y
-    ? `after:${y}/01/01 before:${y + 1}/01/01 (facture OR invoice OR receipt OR homedepot OR rona OR canac OR renodepot OR amazon)`
-    : 'newer_than:14d (facture OR invoice OR receipt OR homedepot OR rona OR canac OR renodepot OR amazon)';
+    ? `after:${y}/01/01 before:${y + 1}/01/01 (facture OR invoice OR receipt OR "Tri/Compta" OR homedepot OR rona OR canac OR renodepot OR amazon)`
+    : [
+        'newer_than:30d',
+        '(facture OR invoice OR receipt OR homedepot OR rona OR canac OR renodepot OR amazon',
+        'OR label:Tri/Compta_Facturation OR label:Tri/Compta_Factu OR label:Tri/Fournisseurs)',
+      ].join(' ');
   const { messages } = await gmail.searchMessages(q, max);
 
   for (const m of messages || []) {

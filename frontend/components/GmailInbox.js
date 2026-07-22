@@ -354,14 +354,21 @@ function MailAttachments({
 
   if (!attachments.length) return null;
 
+  function attachmentUrl(att, { download = false } = {}) {
+    const params = new URLSearchParams();
+    if (att.id) params.set('attachmentId', att.id);
+    if (att.filename) params.set('filename', att.filename);
+    if (!download) params.set('inline', '1');
+    return `${getApiUrl()}/gmail/messages/${encodeURIComponent(messageId)}/attachments?${params}`;
+  }
+
   async function openAttachment(att, { download = false } = {}) {
     // Ouvrir la fenêtre tout de suite (sinon bloqué après le fetch async)
     const previewWin = !download ? window.open('about:blank', '_blank') : null;
     try {
       const token = getToken();
-      const q = download ? '' : '?inline=1';
       const res = await fetch(
-        `${getApiUrl()}/gmail/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(att.id)}${q}`,
+        attachmentUrl(att, { download }),
         { headers: token ? { Authorization: `Bearer ${token}` } : {} }
       );
       if (!res.ok) {
@@ -411,7 +418,11 @@ function MailAttachments({
         `/gmail/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(att.id)}/file-to-project`,
         {
           method: 'POST',
-          body: JSON.stringify({ project_id: Number(projectId), upload_drive: true }),
+          body: JSON.stringify({
+            project_id: Number(projectId),
+            upload_drive: true,
+            filename: att.filename || undefined,
+          }),
         }
       );
       setPickFor(null);
@@ -596,6 +607,7 @@ export default function GmailInbox({
   const [sections, setSections] = useState(
     [{ id: 'inbox', count: 0 }, ...ERP_FOLDERS.map(s => ({ ...s, count: 0 }))]
   );
+  const [gmailGroups, setGmailGroups] = useState({ neya: [], tri: [], other: [] });
   const [undoToast, setUndoToast] = useState(null);
   const undoTimer = useRef(null);
 
@@ -646,6 +658,13 @@ export default function GmailInbox({
       } else if (folder === 'sent') {
         const data = await api('/gmail/messages?label=SENT&max=40');
         setMessages(data.messages || []);
+      } else if (String(folder || '').startsWith('gmail:')) {
+        const labelRef = decodeURIComponent(String(folder).slice('gmail:'.length));
+        const data = await api(
+          `/gmail/messages?label=${encodeURIComponent(labelRef)}&max=50&sorted=1`
+        );
+        setMessages(data.messages || []);
+        if (data.sections) setSections(data.sections);
       } else if (folder === 'inbox' || !folder) {
         const data = await api('/gmail/inbox-sorted?max=40');
         setMessages(data.messages || []);
@@ -663,11 +682,22 @@ export default function GmailInbox({
     }
   }, [activeFolder, projectId]);
 
+  const loadGmailLabels = useCallback(async () => {
+    try {
+      const tree = await api('/gmail/labels/tree?prefixes=NEYA/,Tri/&exact=NEYA,Tri,Fournitures');
+      setGmailGroups(tree.groups || { neya: [], tri: [], other: [] });
+    } catch {
+      setGmailGroups({ neya: [], tri: [], other: [] });
+    }
+  }, []);
+
   useEffect(() => {
     getGoogleStatus().then(s => {
       setConnected(s.google?.connected);
-      if (s.google?.connected) load('', activeFolder);
-      else setLoading(false);
+      if (s.google?.connected) {
+        load('', activeFolder);
+        loadGmailLabels();
+      } else setLoading(false);
     }).catch(() => { setConnected(false); setLoading(false); });
     api('/clients').then(setClients).catch(() => {});
     api('/projects').then(setProjects).catch(() => {});
@@ -865,18 +895,26 @@ export default function GmailInbox({
     try {
       const result = await api('/gmail/sort-inbox', {
         method: 'POST',
-        body: JSON.stringify({ max: 50 }),
-      });
+        body: JSON.stringify({ max: 50, includeTri: true, scanInvoices: true }),      });
       setMessages(result.messages || []);
       setSections(result.sections || sections);
+      await loadGmailLabels();
       const labeled = result.gmail_labels?.applied ?? 0;
-      const msg = `${result.processed} fil(s) synchronisé(s) — boîte triée. ${labeled} label(s) Gmail NEYA appliqué(s).`;
-      if (result.errors?.length || result.gmail_labels?.errors?.length) {
-        const errText = result.errors?.[0]?.error || result.gmail_labels?.errors?.[0]?.error;
+      const triBit = result.tri_processed
+        ? ` · ${result.tri_processed} depuis Tri/A_traiter`
+        : '';
+      const inv = result.invoices;
+      const invBit = inv ? ` · ${inv.ingested || 0} facture(s) stockée(s)` : '';
+      const msg = `${result.processed || 0} fil(s) trié(s)${triBit} — ${labeled} label(s) NEYA${invBit}.`;
+      if (result.errors?.length || result.gmail_labels?.errors?.length || result.tri_errors?.length) {
+        const errText = result.errors?.[0]?.error
+          || result.gmail_labels?.errors?.[0]?.error
+          || result.tri_errors?.[0]?.error;
         setErr(`${msg} Erreur : ${errText}`);
       } else {
         showUndo(msg, null);
       }
+      if (!search) await load('', activeFolder);
     } catch (e) {
       try {
         const result = await threadApi('/process-inbox', {
@@ -917,7 +955,6 @@ export default function GmailInbox({
       }
     } catch (e) {
       setErr(e.message);
-      setThreadWarn(`Synthèse : ${e.message}`);
     } finally {
       setSynthLoading(false);
     }
@@ -1086,8 +1123,16 @@ export default function GmailInbox({
 
   const filteredMessages = useMemo(() => {
     let list;
-    if (activeFolder === 'inbox' || activeFolder === 'sent' || search) list = messages;
-    else list = messages.filter(m => (m.mailCategory || 'autres') === activeFolder);
+    if (
+      activeFolder === 'inbox'
+      || activeFolder === 'sent'
+      || String(activeFolder).startsWith('gmail:')
+      || search
+    ) {
+      list = messages;
+    } else {
+      list = messages.filter(m => (m.mailCategory || 'autres') === activeFolder);
+    }
 
     if (activeFolder === 'inbox' && !search && listFilter !== 'tous') {
       if (listFilter === 'unread') {
@@ -1260,6 +1305,44 @@ export default function GmailInbox({
               })}
             </ul>
           </div>
+
+          {(gmailGroups.tri?.length > 0 || gmailGroups.other?.length > 0) && (
+            <div className="border-t border-neya-border px-4 py-3">
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-neya-muted">
+                Labels Gmail
+              </p>
+              <ul className="flex flex-col gap-0.5 max-h-56 overflow-y-auto">
+                {[...(gmailGroups.tri || []), ...(gmailGroups.other || [])]
+                  .filter(l => l.name !== 'Tri' && l.name !== 'NEYA')
+                  .map(label => {
+                    const folderId = `gmail:${encodeURIComponent(label.name)}`;
+                    const active = activeFolder === folderId;
+                    const short = String(label.name).replace(/^Tri\//, '');
+                    return (
+                      <li key={label.id}>
+                        <button
+                          type="button"
+                          onClick={() => { setListFilter('tous'); selectFolder(folderId); }}
+                          className={`mail-folder ${active ? 'mail-folder-active' : ''}`}
+                          title={label.name}
+                        >
+                          <span className="mail-neya-dot bg-neya-muted/40" />
+                          <span className="flex-1 text-left truncate">{short}</span>
+                          {(label.messagesUnread > 0 || label.messagesTotal > 0) && (
+                            <span className={`text-[10.5px] font-semibold tabular-nums ${
+                              /A_traiter/i.test(label.name) ? 'text-neya-orange' : 'text-neya-muted'
+                            }`}>
+                              {label.messagesUnread || label.messagesTotal}
+                            </span>
+                          )}
+                        </button>
+                      </li>
+                    );
+                  })}
+              </ul>
+            </div>
+          )}
+
           {projectId && (
             <div className="px-2 pt-1">
               <Link href={`/projects/${projectId}`} className="mail-folder">
@@ -1269,15 +1352,18 @@ export default function GmailInbox({
             </div>
           )}
           {!isSent && (
-            <div className="mt-auto p-3 border-t border-neya-border">
+            <div className="mt-auto p-3 border-t border-neya-border space-y-2">
               <button
                 type="button"
                 onClick={processInbox}
                 disabled={inboxProcessing}
                 className="mail-btn-sort w-full justify-center"
               >
-                {inboxProcessing ? 'Tri…' : 'Trier la boîte'}
+                {inboxProcessing ? 'Tri en cours…' : 'Lancer le tri'}
               </button>
+              <p className="text-[10px] text-neya-muted text-center leading-snug">
+                Classe NEYA + vide Tri/A_traiter + stocke les factures reçues
+              </p>
             </div>
           )}
         </aside>
@@ -1331,6 +1417,16 @@ export default function GmailInbox({
                     {f.label}{sectionCounts[f.id] ? ` (${sectionCounts[f.id]})` : ''}
                   </option>
                 ))}
+                {[...(gmailGroups.tri || []), ...(gmailGroups.other || [])]
+                  .filter(l => l.name !== 'Tri' && l.name !== 'NEYA')
+                  .map(l => (
+                    <option key={l.id} value={`gmail:${encodeURIComponent(l.name)}`}>
+                      {String(l.name).replace(/^Tri\//, '')}
+                      {l.messagesUnread || l.messagesTotal
+                        ? ` (${l.messagesUnread || l.messagesTotal})`
+                        : ''}
+                    </option>
+                  ))}
               </select>
               {!isSent && (
                 <button
@@ -1751,7 +1847,7 @@ export default function GmailInbox({
                         </div>
                       ) : (
                         <p className="text-xs text-neya-muted text-center py-4">
-                          {thread.synthesis_error
+                          {thread.synthesis_error && !err && !threadWarn
                             ? `Synthèse échouée : ${thread.synthesis_error}`
                             : 'Ouvrez un message pour générer la synthèse, ou cliquez Synthèse.'}
                         </p>

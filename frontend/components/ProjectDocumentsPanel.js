@@ -141,11 +141,16 @@ export default function ProjectDocumentsPanel({ project, onReload }) {
       });
       const nFound = result.found?.length || 0;
       const nFiled = result.filed?.length || 0;
-      setMsg(
-        nFound === 0
-          ? `Aucun document trouvé dans ${result.scanned_messages || 0} mail(s) lié(s). Liez des courriels dans l’onglet Courriel.`
-          : `${nFound} document(s) trouvé(s) · ${nFiled} classé(s) dans le projet.`
-      );
+      const nErrors = result.errors?.length || 0;
+      if (nFound === 0) {
+        setMsg(`Aucun document trouvé dans ${result.scanned_messages || 0} mail(s) lié(s). Liez des courriels dans l’onglet Courriel.`);
+      } else if (nFiled === 0 && nErrors > 0) {
+        const detail = result.errors.slice(0, 2).map(e => e.filename || e.message_id || e.error).join(' · ');
+        setErr(`Documents trouvés mais non classés (${nErrors} erreur(s)) : ${detail}`);
+        setMsg(`${nFound} document(s) trouvé(s) · 0 classé(s).`);
+      } else {
+        setMsg(`${nFound} document(s) trouvé(s) · ${nFiled} classé(s) dans le projet.`);
+      }
       await load();
       onReload?.();
     } catch (e) {
@@ -165,9 +170,13 @@ export default function ProjectDocumentsPanel({ project, onReload }) {
         window.open(resolveUploadUrl(file.url), '_blank', 'noopener,noreferrer');
         return;
       }
-      if (file.gmail_message_id && file.gmail_attachment_id) {
+      if (file.gmail_message_id && (file.gmail_attachment_id || file.name)) {
+        const params = new URLSearchParams();
+        if (file.gmail_attachment_id) params.set('attachmentId', file.gmail_attachment_id);
+        if (file.name) params.set('filename', file.name);
+        params.set('inline', '1');
         await openAuthUrl(
-          `/gmail/messages/${encodeURIComponent(file.gmail_message_id)}/attachments/${encodeURIComponent(file.gmail_attachment_id)}?inline=1`
+          `/gmail/messages/${encodeURIComponent(file.gmail_message_id)}/attachments?${params}`
         );
         return;
       }

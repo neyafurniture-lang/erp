@@ -17,6 +17,7 @@ function extractObjectSlice(text) {
   return s.slice(start);
 }
 
+/** Remplace les caractères de contrôle hors échappement JSON valide. */
 function sanitizeControlChars(s) {
   let out = '';
   let inString = false;
@@ -82,6 +83,10 @@ function closeOpenStructures(cut) {
   return cut;
 }
 
+/**
+ * Parse un objet JSON produit par un LLM.
+ * @throws {Error} si impossible
+ */
 export function parseLlmJson(text) {
   let s = extractObjectSlice(text);
   if (!s) throw new Error('Réponse IA vide');
@@ -98,6 +103,7 @@ export function parseLlmJson(text) {
     } catch { /* next */ }
   }
 
+  // Coupe au dernier élément complet plausible puis ferme structures
   let cut = sanitizeControlChars(s);
   const lastGood = Math.max(
     cut.lastIndexOf('",'),
@@ -107,7 +113,9 @@ export function parseLlmJson(text) {
     cut.lastIndexOf('},'),
     cut.lastIndexOf('],'),
   );
-  if (lastGood > 20) cut = cut.slice(0, lastGood + 1);
+  if (lastGood > 20) {
+    cut = cut.slice(0, lastGood + 1);
+  }
   cut = cut.replace(/,\s*$/, '');
   cut = closeOpenStructures(cut);
 
