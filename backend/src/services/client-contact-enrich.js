@@ -116,12 +116,11 @@ export function extractAddressBlock(text) {
           city = clean(next, 80);
         }
       }
-      // Code postal sur la ligne suivante déjà collé, ou ville seule sur ligne suivante type "Montréal, QC H2X 1Y4"
       if (!city && next) {
-        const cityPc = next.match(/^([A-Za-zÀ-ÿ' -]{2,40})\s*,?\s*(?:QC|Québec|Quebec)?\s*([A-Z]\d[A-Z]\s?\d[A-Z]\d)?/i);
+        const cityPc = next.match(/^([A-Za-zÀ-ÿ' -]{2,40}?)\s*,?\s*(?:QC|Québec|Quebec)?\s*([A-Z]\d[A-Z]\s?\d[A-Z]\d)?$/i);
         if (cityPc?.[1] && looksLikeCity(cityPc[1])) city = clean(cityPc[1], 80);
         if (cityPc?.[2] && address && !postalRe.test(address)) {
-          const pcParts = cityPc[2].match(postalRe);
+          const pcParts = String(cityPc[2]).match(postalRe);
           if (pcParts) {
             address = clean(`${address}, ${pcParts[1].toUpperCase()} ${pcParts[2].toUpperCase()}`, 240);
           }
