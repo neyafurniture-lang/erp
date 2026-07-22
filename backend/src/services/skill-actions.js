@@ -408,7 +408,7 @@ async function fetchProjectsForMatching() {
     SELECT p.id, p.name, c.name AS client_name
     FROM projects p
     LEFT JOIN clients c ON c.id = p.client_id
-    WHERE p.status IN ('active', 'on_hold')
+    WHERE p.status IN ('active', 'waiting', 'on_hold', 'paused')
     ORDER BY p.created_at DESC
     LIMIT 80
   `);
