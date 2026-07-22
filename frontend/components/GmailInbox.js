@@ -352,14 +352,21 @@ function MailAttachments({
 
   if (!attachments.length) return null;
 
+  function attachmentUrl(att, { download = false } = {}) {
+    const params = new URLSearchParams();
+    if (att.id) params.set('attachmentId', att.id);
+    if (att.filename) params.set('filename', att.filename);
+    if (!download) params.set('inline', '1');
+    return `${getApiUrl()}/gmail/messages/${encodeURIComponent(messageId)}/attachments?${params}`;
+  }
+
   async function openAttachment(att, { download = false } = {}) {
     // Ouvrir la fenêtre tout de suite (sinon bloqué après le fetch async)
     const previewWin = !download ? window.open('about:blank', '_blank') : null;
     try {
       const token = getToken();
-      const q = download ? '' : '?inline=1';
       const res = await fetch(
-        `${getApiUrl()}/gmail/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(att.id)}${q}`,
+        attachmentUrl(att, { download }),
         { headers: token ? { Authorization: `Bearer ${token}` } : {} }
       );
       if (!res.ok) {
@@ -409,7 +416,11 @@ function MailAttachments({
         `/gmail/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(att.id)}/file-to-project`,
         {
           method: 'POST',
-          body: JSON.stringify({ project_id: Number(projectId), upload_drive: true }),
+          body: JSON.stringify({
+            project_id: Number(projectId),
+            upload_drive: true,
+            filename: att.filename || undefined,
+          }),
         }
       );
       setPickFor(null);
