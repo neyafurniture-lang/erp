@@ -36,14 +36,54 @@ const upload = multer({
 
 const router = Router();
 
+let schemaReady;
+async function ensureExpensesSchema() {
+  if (!schemaReady) {
+    schemaReady = (async () => {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS suppliers (
+          id SERIAL PRIMARY KEY,
+          name TEXT NOT NULL,
+          contact TEXT,
+          email TEXT,
+          phone TEXT,
+          lead_days INT DEFAULT 7,
+          notes TEXT,
+          meta JSONB DEFAULT '{}',
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await pool.query(
+        'ALTER TABLE expenses ADD COLUMN IF NOT EXISTS supplier_id INT REFERENCES suppliers(id) ON DELETE SET NULL'
+      );
+      await pool.query('CREATE INDEX IF NOT EXISTS idx_expenses_supplier ON expenses(supplier_id)');
+    })().catch((err) => {
+      schemaReady = null;
+      throw err;
+    });
+  }
+  return schemaReady;
+}
+
 router.get('/', async (req, res) => {
   try {
+    await ensureExpensesSchema();
     const { project_id, category, supplier_id, year, month } = req.query;
     let query = `
-      SELECT e.*, p.name as project_name, s.name as supplier_name
+      SELECT e.*, p.name as project_name, s.name as supplier_name,
+             rs.drive_link AS receipt_drive_link,
+             rs.drive_file_id AS receipt_drive_file_id,
+             rs.id AS receipt_scan_id
       FROM expenses e
       LEFT JOIN projects p ON p.id = e.project_id
       LEFT JOIN suppliers s ON s.id = e.supplier_id
+      LEFT JOIN LATERAL (
+        SELECT id, drive_link, drive_file_id
+        FROM receipt_scans
+        WHERE expense_id = e.id
+        ORDER BY id DESC
+        LIMIT 1
+      ) rs ON true
       WHERE 1=1
     `;
     const params = [];
@@ -68,6 +108,7 @@ router.get('/', async (req, res) => {
 
 router.post('/', upload.single('receipt'), async (req, res) => {
   try {
+    await ensureExpensesSchema();
     const { amount, category, description, project_id, date, supplier_id } = req.body;
     const receipt_url = req.file ? `/uploads/${req.file.filename}` : null;
     const expenseDate = normalizePurchaseDate(date) || todayISODate();

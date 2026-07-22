@@ -147,9 +147,15 @@ export default function ExpensesPage() {
         </td>
         <td className="px-4 py-3 text-neya-muted">{e.project_name || '—'}</td>
         <td className="px-4 py-3">
-          {e.receipt_url ? (
-            <a href={resolveUploadUrl(e.receipt_url)} target="_blank" rel="noopener noreferrer" className="text-neya-orange text-xs hover:underline">Voir</a>
-          ) : '—'}
+          <div className="flex flex-col gap-0.5">
+            {e.receipt_url ? (
+              <a href={resolveUploadUrl(e.receipt_url)} target="_blank" rel="noopener noreferrer" className="text-neya-orange text-xs hover:underline">Voir</a>
+            ) : null}
+            {e.receipt_drive_link ? (
+              <a href={e.receipt_drive_link} target="_blank" rel="noopener noreferrer" className="text-neya-muted text-[10px] hover:underline">Drive</a>
+            ) : null}
+            {!e.receipt_url && !e.receipt_drive_link ? '—' : null}
+          </div>
         </td>
         <td className="px-4 py-3 text-right font-display font-semibold tabular-nums">{formatMoney(e.amount)}</td>
       </tr>

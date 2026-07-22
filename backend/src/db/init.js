@@ -169,6 +169,22 @@ export async function initDb() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  // Colonne manquante sur certaines prod (bloquait GET /expenses)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS suppliers (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      contact TEXT,
+      email TEXT,
+      phone TEXT,
+      lead_days INT DEFAULT 7,
+      notes TEXT,
+      meta JSONB DEFAULT '{}',
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query('ALTER TABLE expenses ADD COLUMN IF NOT EXISTS supplier_id INT REFERENCES suppliers(id) ON DELETE SET NULL');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_expenses_supplier ON expenses(supplier_id)');
   await pool.query(`UPDATE users SET role = 'admin', permissions = '["*"]' WHERE email = 'admin@neya.local' AND (role IS NULL OR role = 'member' OR permissions = '[]'::jsonb)`);
 
   await pool.query(`
