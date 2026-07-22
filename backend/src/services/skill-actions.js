@@ -1014,6 +1014,17 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
       const name = params.name || extractQuotedText(msg)
         || (/renommer|appeler/i.test(msg) ? extractAfterKeyword(msg, ['renommer', 'appeler']) : null);
       const status = params.status || parseProjectStatus(msg);
+      let priority = params.priority;
+      if (priority === undefined) {
+        if (/prioritaire|haute priorit|mettre.*(en )?prio|marquer.*prio/i.test(msg)
+          && !/plus prioritaire|retirer.*(la )?prio|enlever.*(la )?prio|pas prioritaire/i.test(msg)) {
+          priority = 1;
+        } else if (/retirer.*(la )?prio|enlever.*(la )?prio|plus prioritaire|pas prioritaire|déprioris/i.test(msg)) {
+          priority = 0;
+        }
+      } else {
+        priority = priority === true || priority === 'true' || Number(priority) > 0 ? 1 : 0;
+      }
       const deadline = params.deadline ? new Date(params.deadline) : parseDateHint(msg);
       const budget = params.budget_estimated != null ? Number(params.budget_estimated) : extractAmount(msg);
       let notes = params.notes ?? params.description ?? null;
@@ -1030,7 +1041,7 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
         clientId = pageContext.id;
       }
       const { rows } = await pool.query(
-        `UPDATE projects SET name=$1, status=$2, deadline=$3, budget_estimated=$4, notes=$5, client_id=$6 WHERE id=$7 RETURNING *`,
+        `UPDATE projects SET name=$1, status=$2, deadline=$3, budget_estimated=$4, notes=$5, client_id=$6, priority=$7 WHERE id=$8 RETURNING *`,
         [
           name || p.name,
           status || p.status,
@@ -1038,6 +1049,7 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
           budget != null && (params.budget_estimated != null || /budget/i.test(msg)) ? budget : p.budget_estimated,
           notes != null ? notes : p.notes,
           clientId,
+          priority !== undefined ? priority : (p.priority ?? 0),
           id,
         ]
       );

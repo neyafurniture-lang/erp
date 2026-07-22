@@ -2,7 +2,7 @@ import { Router } from 'express';
 import pool from '../db/pool.js';
 import * as gmail from '../services/google-gmail.js';
 import { logAgentAction } from '../services/assistant-memory.js';
-import { enrichInboxMessages, sortInbox, sortRecentInbox, MAIL_SECTIONS, ensureNeyaGmailLabels, listNeyaGmailLabels, GMAIL_CATEGORY_LABELS } from '../services/mail-sort.js';
+import { enrichInboxMessages, sortInbox, sortRecentInbox, MAIL_SECTIONS, ensureNeyaGmailLabels, listNeyaGmailLabels, GMAIL_CATEGORY_LABELS, setThreadMailCategory } from '../services/mail-sort.js';
 import emailThreadsRoutes from './email-threads.js';
 
 const router = Router();
@@ -42,7 +42,42 @@ router.get('/sections', (_req, res) => {
 
 router.post('/sort-inbox', async (req, res) => {
   try {
-    res.json(await sortRecentInbox(Number(req.body?.max) || 25));
+    const max = Number(req.body?.max) || 40;
+    const includeTri = req.body?.includeTri !== false;
+    const scanInvoices = req.body?.scanInvoices !== false;
+    res.json(await sortRecentInbox(max, { includeTri, scanInvoices }));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/threads/:id/category', async (req, res) => {
+  try {
+    const category = req.body?.category || req.body?.mail_category;
+    const row = await setThreadMailCategory(Number(req.params.id), category);
+    res.json({
+      ok: true,
+      id: row.id,
+      mail_category: row.mail_category,
+      mail_category_manual: row.mail_category_manual,
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get('/labels/tree', async (req, res) => {
+  try {
+    const prefixes = String(req.query.prefixes || 'NEYA/,Tri/')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+    const exact = String(req.query.exact || 'NEYA,Tri,Fournitures')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+    const withCounts = req.query.counts !== '0' && req.query.counts !== 'false';
+    res.json(await gmail.listLabelTree({ prefixes, exact, withCounts }));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -93,21 +128,48 @@ router.get('/messages/:id', async (req, res) => {
   }
 });
 
+function attachmentRequestParams(req) {
+  const attachmentId =
+    req.query.attachmentId
+    || req.query.attachment_id
+    || req.params.attachmentId
+    || '';
+  const filename = req.query.filename || req.query.name || req.body?.filename || '';
+  return { attachmentId, filename };
+}
+
+async function streamAttachment(req, res) {
+  const { attachmentId, filename } = attachmentRequestParams(req);
+  if (!attachmentId && !filename) {
+    return res.status(400).json({ error: 'attachmentId ou filename requis' });
+  }
+  const att = await gmail.getAttachment(req.params.id, attachmentId, { filename });
+  const inline = req.query.inline === '1' || req.query.inline === 'true';
+  const safeName = String(att.filename || 'piece-jointe').replace(/[\\"\r\n]/g, '_');
+  const asciiName = safeName.replace(/[^\x20-\x7E]/g, '_') || 'piece-jointe';
+  res.setHeader('Content-Type', att.mimeType || 'application/octet-stream');
+  res.setHeader(
+    'Content-Disposition',
+    `${inline ? 'inline' : 'attachment'}; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(safeName)}`
+  );
+  res.setHeader('Cache-Control', 'private, max-age=120');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.send(att.buffer);
+}
+
 /** Ouvrir / télécharger une pièce jointe (proxy Gmail, auth ERP). */
+router.get('/messages/:id/attachments', async (req, res) => {
+  try {
+    await streamAttachment(req, res);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/** Compatibilité : ID de PJ dans le chemin (peut être tronqué par certains proxies). */
 router.get('/messages/:id/attachments/:attachmentId', async (req, res) => {
   try {
-    const att = await gmail.getAttachment(req.params.id, req.params.attachmentId);
-    const inline = req.query.inline === '1' || req.query.inline === 'true';
-    const safeName = String(att.filename || 'piece-jointe').replace(/[\\"\r\n]/g, '_');
-    const asciiName = safeName.replace(/[^\x20-\x7E]/g, '_') || 'piece-jointe';
-    res.setHeader('Content-Type', att.mimeType || 'application/octet-stream');
-    res.setHeader(
-      'Content-Disposition',
-      `${inline ? 'inline' : 'attachment'}; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(safeName)}`
-    );
-    res.setHeader('Cache-Control', 'private, max-age=120');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.send(att.buffer);
+    await streamAttachment(req, res);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -118,10 +180,12 @@ router.post('/messages/:id/attachments/:attachmentId/file-to-project', async (re
   try {
     const projectId = req.body?.project_id || req.body?.projectId;
     if (!projectId) return res.status(400).json({ error: 'project_id requis' });
+    const { attachmentId, filename } = attachmentRequestParams(req);
     const { fileAttachmentToProject } = await import('../services/mail-attachments.js');
     const result = await fileAttachmentToProject({
       messageId: req.params.id,
-      attachmentId: req.params.attachmentId,
+      attachmentId,
+      filename,
       projectId,
       uploadDrive: req.body?.upload_drive !== false,
     });

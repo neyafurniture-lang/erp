@@ -154,6 +154,7 @@ export async function scanProjectMailDocuments(projectId, { autoFile = false } =
             const result = await fileAttachmentToProject({
               messageId,
               attachmentId: att.id,
+              filename: att.filename,
               projectId: pid,
               uploadDrive: true,
             });

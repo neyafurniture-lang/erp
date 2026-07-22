@@ -2,6 +2,8 @@ import pool from '../db/pool.js';
 import * as gmail from './google-gmail.js';
 import { extractKeywords, matchProjectFromRules } from './invoice-email-router.js';
 import { getOpenAIKey, getAnthropicKey, getAnthropicModel, getSetting, isAssistantAiEnabled } from './settings.js';
+import { isPromotion } from './mail-sort.js';
+import { parseLlmJson } from './llm-json.js';
 
 function parseEmailAddress(raw) {
   if (!raw) return null;
@@ -46,6 +48,37 @@ function parseDisplayName(raw) {
   return name.length >= 2 ? name : null;
 }
 
+/** Mots trop courts / courants — ne jamais matcher comme nom client. */
+const CLIENT_NAME_STOP = new Set([
+  'son', 'ses', 'les', 'des', 'une', 'des', 'pour', 'avec', 'dans', 'sur', 'par',
+  'the', 'and', 'for', 'from', 'your', 'our', 'new', 'all', 'any', 'you', 'are',
+  'mail', 'email', 'info', 'news', 'team', 'atelier', 'neya',
+]);
+
+/**
+ * Match un nom client dans un texte (limites de mot, ignore stop-words).
+ * Exporte pour tests.
+ */
+export function clientNameAppearsInText(clientName, haystack) {
+  const n = String(clientName || '').trim().toLowerCase();
+  const hay = String(haystack || '').toLowerCase();
+  if (!n || !hay || CLIENT_NAME_STOP.has(n)) return false;
+  if (n.length < 4) return false;
+
+  const escaped = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const whole = new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped}(?:[^\\p{L}\\p{N}]|$)`, 'iu');
+  if (whole.test(hay)) return true;
+
+  const parts = n.split(/\s+/).filter(p => p.length >= 4 && !CLIENT_NAME_STOP.has(p));
+  if (parts.length >= 2) {
+    return parts.every((p) => {
+      const re = new RegExp(`(?:^|[^\\p{L}\\p{N}])${p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:[^\\p{L}\\p{N}]|$)`, 'iu');
+      return re.test(hay);
+    });
+  }
+  return false;
+}
+
 export async function guessClientAndProject({
   subject,
   snippet,
@@ -53,6 +86,7 @@ export async function guessClientAndProject({
   participants = [],
   fromRaw = null,
   toRaw = null,
+  allowNameMatch = true,
 }) {
   const keywords = extractKeywords(subject, snippet, body);
   let client_id = null;
@@ -66,6 +100,9 @@ export async function guessClientAndProject({
   const externalParticipants = (participants || [])
     .map(e => String(e || '').toLowerCase())
     .filter(e => e.includes('@') && !ownEmails.has(e));
+
+  // Newsletters / promos : jamais de lien par nom (seulement email client exact)
+  const promo = isPromotion(fromRaw || '', subject || '', snippet || '');
 
   // 1) Match exact email client (From OU To — crucial pour les mails envoyés)
   for (const email of externalParticipants) {
@@ -84,32 +121,30 @@ export async function guessClientAndProject({
     }
   }
 
-  // 2) Match nom client dans sujet / expéditeur / destinataire
-  if (!client_id) {
+  // 2) Match nom client — sujet + noms d’affichage seulement (PAS le corps : faux positifs « Son »)
+  if (!client_id && allowNameMatch && !promo) {
     const fromDisplay = parseDisplayName(fromRaw);
     const toDisplay = parseDisplayName(toRaw);
-    const hay = `${subject || ''} ${fromDisplay || ''} ${toDisplay || ''} ${snippet || ''} ${toRaw || ''}`.toLowerCase();
+    const hay = `${subject || ''} ${fromDisplay || ''} ${toDisplay || ''}`;
     const { rows: allClients } = await pool.query(
-      `SELECT id, name, email FROM clients WHERE LENGTH(TRIM(name)) >= 3 ORDER BY LENGTH(name) DESC LIMIT 200`
+      `SELECT id, name, email FROM clients WHERE LENGTH(TRIM(name)) >= 4 ORDER BY LENGTH(name) DESC LIMIT 200`
     );
     for (const c of allClients) {
-      const n = String(c.name).trim().toLowerCase();
-      if (n.length >= 3 && hay.includes(n)) {
-        client_id = c.id;
-        client_name = c.name;
-        link_source = 'client_name';
-        link_confidence = 0.75;
-        break;
-      }
-      const parts = n.split(/\s+/).filter(p => p.length >= 3);
-      if (parts.length >= 2 && parts.every(p => hay.includes(p))) {
-        client_id = c.id;
-        client_name = c.name;
-        link_source = 'client_name_parts';
-        link_confidence = 0.7;
-        break;
-      }
+      const n = String(c.name).trim();
+      if (!clientNameAppearsInText(n, hay)) continue;
+      const escaped = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const fullName = new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped}(?:[^\\p{L}\\p{N}]|$)`, 'iu').test(hay);
+      client_id = c.id;
+      client_name = c.name;
+      link_source = fullName ? 'client_name' : 'client_name_parts';
+      link_confidence = fullName ? 0.75 : 0.7;
+      break;
     }
+  }
+
+  // Sur promo : pas de matching projet par mots-clés (évite liens absurdes)
+  if (promo && !client_id) {
+    return { client_id: null, client_name: null, project_id: null, project_name: null, link_source: null, link_confidence: 0, keywords };
   }
 
   // 3) Projet via règles / nom
@@ -290,6 +325,13 @@ export async function syncGmailThread(gmailThreadId, hints = {}) {
 export async function processGmailMessage(messageId, { synthesize = true } = {}) {
   const msg = await gmail.getMessage(messageId);
   let thread = await syncGmailThread(msg.threadId);
+
+  // Promo mal liée → détacher sans effacer les synthèses déjà en DB
+  if (isPromotion(msg.from || '', msg.subject || '', msg.snippet || '') && thread?.client_id) {
+    const cleared = await clearWeakAutoLink(thread.id);
+    if (cleared) thread = await getThreadDetail(thread.id);
+  }
+
   if (synthesize && !thread.latest_synthesis) {
     try {
       const result = await synthesizeThread(thread.id);
@@ -299,7 +341,9 @@ export async function processGmailMessage(messageId, { synthesize = true } = {})
         suggested_client_name: result.thread.suggested_client_name || null,
       };
     } catch (err) {
-      return { ...thread, synthesis_error: err.message };
+      // Conserver latest_synthesis éventuelle + messages déjà chargés
+      const kept = await getThreadDetail(thread.id);
+      return { ...(kept || thread), synthesis_error: err.message };
     }
   }
   return thread;
@@ -352,7 +396,7 @@ export async function listThreads({ client_id, project_id, status, unlinked, lim
   return rows;
 }
 
-export async function linkThread(threadId, { client_id, project_id, link_source = 'manual' }) {
+export async function linkThread(threadId, { client_id, project_id, link_source = 'manual', link_confidence = 1, updateClientEmail = null }) {
   let resolvedClient = client_id != null && client_id !== '' ? Number(client_id) : null;
   let resolvedProject = project_id != null && project_id !== '' ? Number(project_id) : null;
 
@@ -362,20 +406,24 @@ export async function linkThread(threadId, { client_id, project_id, link_source 
     if (rows[0]?.client_id) resolvedClient = rows[0].client_id;
   }
 
+  const conf = link_confidence == null ? (link_source === 'manual' ? 1 : null) : Number(link_confidence);
+
   const { rows } = await pool.query(
     `UPDATE email_threads SET
       client_id = $1,
       project_id = $2,
       link_source = $3,
-      link_confidence = 1,
+      link_confidence = $4,
       updated_at = NOW()
-     WHERE id = $4 RETURNING *`,
-    [resolvedClient, resolvedProject, link_source, threadId]
+     WHERE id = $5 RETURNING *`,
+    [resolvedClient, resolvedProject, link_source, conf, threadId]
   );
   if (!rows[0]) throw new Error('Fil introuvable');
 
-  // Si client lié mais sans email ERP : proposer l'email du fil
-  if (resolvedClient) {
+  // Ne jamais coller l’email d’une newsletter / lien auto faible sur la fiche client
+  const mayUpdateEmail = updateClientEmail === true
+    || (updateClientEmail !== false && link_source === 'manual' && resolvedClient);
+  if (mayUpdateEmail && resolvedClient) {
     const { rows: msgs } = await pool.query(
       `SELECT from_email FROM email_messages
        WHERE thread_id = $1 AND is_outbound = false AND from_email IS NOT NULL
@@ -383,7 +431,7 @@ export async function linkThread(threadId, { client_id, project_id, link_source 
       [threadId]
     );
     const email = msgs[0]?.from_email;
-    if (email) {
+    if (email && !isPromotion(email, '', '')) {
       await pool.query(
         `UPDATE clients SET email = COALESCE(NULLIF(TRIM(email), ''), $1)
          WHERE id = $2 AND (email IS NULL OR TRIM(email) = '')`,
@@ -411,18 +459,39 @@ export async function linkThread(threadId, { client_id, project_id, link_source 
   return getThreadDetail(threadId);
 }
 
-async function callSynthesisLLM(prompt) {
+/** Retire un lien auto faible (ex. faux positif « Son ») sans toucher aux liens manuels. */
+export async function clearWeakAutoLink(threadId) {
+  const { rows } = await pool.query(
+    `UPDATE email_threads SET
+       client_id = NULL,
+       project_id = NULL,
+       link_source = NULL,
+       link_confidence = NULL,
+       updated_at = NOW()
+     WHERE id = $1
+       AND (
+         link_source ILIKE 'client_name%'
+         OR link_source IN ('synth_relink', 'synth_client_suggest', 'project_name', 'sync')
+         OR (link_confidence IS NOT NULL AND link_confidence < 0.9)
+       )
+     RETURNING *`,
+    [threadId]
+  );
+  return rows[0] || null;
+}
+
+async function callSynthesisLLM(prompt, { maxTokens = 4096 } = {}) {
   if (!(await isAssistantAiEnabled())) {
     throw new Error('Assistant IA désactivé — activez-le dans Paramètres → Assistant IA');
   }
 
-  const system = 'Tu synthétises des fils de courriel pour un atelier de meubles (NEYA). Réponds UNIQUEMENT en JSON valide.';
+  const system = 'Tu synthétises des fils de courriel pour un atelier de meubles (NEYA). Réponds UNIQUEMENT en JSON valide compact (pas de markdown). Pour une newsletter/promo : needs_response=false, suggested_reply=null, suggested_client_name=null.';
   const preferred = (await getSetting('ai_provider')) || 'anthropic';
   const errors = [];
 
-  async function tryOpenAI() {
+  async function tryOpenAI(userPrompt) {
     const key = await getOpenAIKey();
-    if (!key) throw new Error('Clé OpenAI absente');
+    if (!key) return null;
     const model = (await getSetting('openai_model')) || 'gpt-4o-mini';
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -430,19 +499,19 @@ async function callSynthesisLLM(prompt) {
       body: JSON.stringify({
         model,
         temperature: 0.2,
-        messages: [{ role: 'system', content: system }, { role: 'user', content: prompt }],
+        messages: [{ role: 'system', content: system }, { role: 'user', content: userPrompt }],
         response_format: { type: 'json_object' },
       }),
     });
     const raw = await res.text();
     if (!res.ok) throw new Error(`OpenAI ${res.status}: ${raw.slice(0, 180)}`);
     const data = JSON.parse(raw);
-    return JSON.parse(data.choices[0].message.content);
+    return parseLlmJson(data.choices[0].message.content);
   }
 
-  async function tryClaude() {
+  async function tryClaude(userPrompt) {
     const key = await getAnthropicKey();
-    if (!key) throw new Error('Clé Claude absente');
+    if (!key) return null;
     const model = await getAnthropicModel();
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -453,28 +522,56 @@ async function callSynthesisLLM(prompt) {
       },
       body: JSON.stringify({
         model,
-        max_tokens: 1200,
+        max_tokens: maxTokens,
         system,
-        messages: [{ role: 'user', content: prompt }],
+        messages: [
+          { role: 'user', content: userPrompt },
+          { role: 'assistant', content: '{' },
+        ],
       }),
     });
     const raw = await res.text();
     if (!res.ok) throw new Error(`Claude ${res.status}: ${raw.slice(0, 180)}`);
     const data = JSON.parse(raw);
-    const text = data.content?.find(b => b.type === 'text')?.text || data.content?.[0]?.text || '{}';
-    const fenced = String(text).match(/```(?:json)?\s*([\s\S]*?)```/i);
-    const candidate = fenced ? fenced[1].trim() : String(text).trim();
-    const match = candidate.match(/\{[\s\S]*\}/);
-    return JSON.parse(match ? match[0] : candidate);
+    const text = data.content?.find(b => b.type === 'text')?.text || data.content?.[0]?.text || '';
+    return parseLlmJson(`{${text}`);
   }
 
-  const order = preferred === 'openai' ? [tryOpenAI, tryClaude] : [tryClaude, tryOpenAI];
-  for (const fn of order) {
+  async function runProvider(fn, label) {
     try {
-      return await fn();
+      const first = await fn(prompt);
+      if (first == null) return null;
+      return first;
     } catch (e) {
-      errors.push(e.message);
+      if (/JSON|parse|illisible|Expected/i.test(e.message)) {
+        try {
+          const second = await fn(`${prompt}\n\nIMPORTANT: JSON invalide précédent (${e.message}). Renvoie UNIQUEMENT un objet JSON valide.`);
+          if (second == null) {
+            errors.push(`${label}: ${e.message}`);
+            return null;
+          }
+          return second;
+        } catch (e2) {
+          errors.push(`${label}: ${e2.message}`);
+          return null;
+        }
+      }
+      errors.push(`${label}: ${e.message}`);
+      return null;
     }
+  }
+
+  const order = preferred === 'openai'
+    ? [['OpenAI', tryOpenAI], ['Claude', tryClaude]]
+    : [['Claude', tryClaude], ['OpenAI', tryOpenAI]];
+
+  for (const [label, fn] of order) {
+    const result = await runProvider(fn, label);
+    if (result) return result;
+  }
+
+  if (!errors.length) {
+    throw new Error('Synthèse IA impossible — aucune clé API configurée (Claude / OpenAI)');
   }
   throw new Error(`Synthèse IA impossible — ${errors.join(' | ')}`);
 }
@@ -543,49 +640,62 @@ export async function synthesizeThread(threadId) {
   const detail = await getThreadDetail(threadId);
   if (!detail) throw new Error('Fil introuvable');
 
-  // Relancer matching client si pas encore lié
-  if (!detail.client_id) {
+  const participants = detail.participant_emails
+    || [...new Set((detail.messages || []).flatMap(m => {
+      const emails = [];
+      if (m.from_email) emails.push(String(m.from_email).toLowerCase());
+      if (Array.isArray(m.to_emails)) emails.push(...m.to_emails.map(e => String(e).toLowerCase()));
+      return emails;
+    }))];
+  const lastMsg = (detail.messages || [])[(detail.messages || []).length - 1];
+  const lastInbound = [...(detail.messages || [])].reverse().find(m => !m.is_outbound);
+  const fromHint = lastInbound?.from_email || lastMsg?.from_email || '';
+  const promo = isPromotion(fromHint, detail.subject || '', lastMsg?.snippet || '');
+
+  // Relancer matching client si pas encore lié — email exact seulement (pas le corps)
+  if (!detail.client_id && !promo) {
     try {
-      const participants = detail.participant_emails
-        || [...new Set((detail.messages || []).flatMap(m => {
-          const emails = [];
-          if (m.from_email) emails.push(String(m.from_email).toLowerCase());
-          if (Array.isArray(m.to_emails)) emails.push(...m.to_emails.map(e => String(e).toLowerCase()));
-          return emails;
-        }))];
-      const lastMsg = (detail.messages || [])[(detail.messages || []).length - 1];
-      const allText = (detail.messages || [])
-        .map(m => `${m.snippet || ''} ${m.body_text || ''}`)
-        .join(' ')
-        .slice(0, 4000);
       const lastOutbound = [...(detail.messages || [])].reverse().find(m => m.is_outbound);
-      const lastInbound = [...(detail.messages || [])].reverse().find(m => !m.is_outbound);
       const guess = await guessClientAndProject({
         subject: detail.subject,
-        snippet: allText || lastMsg?.snippet,
-        body: lastMsg?.body_text,
+        snippet: lastMsg?.snippet || '',
+        body: '',
         participants,
-        fromRaw: lastInbound?.from_email || lastMsg?.from_email,
+        fromRaw: fromHint,
         toRaw: Array.isArray(lastOutbound?.to_emails)
           ? lastOutbound.to_emails.join(', ')
           : (Array.isArray(lastMsg?.to_emails) ? lastMsg.to_emails.join(', ') : null),
+        allowNameMatch: true,
       });
-      if (guess.client_id || guess.project_id) {
+      // Auto-lier seulement si email exact (haute confiance)
+      if (guess.client_id && guess.link_confidence >= 0.9) {
         await linkThread(threadId, {
           client_id: guess.client_id,
           project_id: guess.project_id || detail.project_id,
           link_source: guess.link_source || 'synth_relink',
+          link_confidence: guess.link_confidence,
+          updateClientEmail: false,
         });
       }
     } catch { /* best effort */ }
   }
 
+  // Promo déjà mal liée → détacher le faux positif avant synthèse
+  if (promo && detail.client_id) {
+    await clearWeakAutoLink(threadId);
+  }
+
   const fresh = await getThreadDetail(threadId);
-  const transcript = (fresh.messages || []).map(m => ({
+  const allMessages = fresh.messages || [];
+  const bodyLimit = allMessages.length > 8 ? 600 : 1000;
+  const recent = allMessages.length > 12 ? allMessages.slice(-12) : allMessages;
+  const transcript = recent.map(m => ({
     from: m.from_email,
     date: m.sent_at,
-    outbound: m.is_outbound,
-    body: (m.body_text || m.snippet || '').slice(0, 1500),
+    outbound: !!m.is_outbound,
+    body: String(m.body_text || m.snippet || '')
+      .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ' ')
+      .slice(0, bodyLimit),
   }));
 
   if (!transcript.length) {
@@ -603,42 +713,56 @@ export async function synthesizeThread(threadId) {
 Client lié: ${fresh.client_name || 'non lié'} (id: ${fresh.client_id || 'null'})
 Projet lié: ${fresh.project_name || 'non lié'} (id: ${fresh.project_id || 'null'})
 Sujet: ${fresh.subject}
+${promo ? 'Indice: ce message ressemble à une newsletter / promotion fournisseur.\n' : ''}
+Messages (${transcript.length}${allMessages.length > transcript.length ? ` / ${allMessages.length}` : ''}):
+${JSON.stringify(transcript)}
 
-Messages (${transcript.length}):
-${JSON.stringify(transcript, null, 2)}
-
-Signature à utiliser à la fin de suggested_reply (obligatoire si tu proposes une réponse) :
+Signature à utiliser à la fin de suggested_reply (si réponse utile) :
 ---
 ${signature || 'Mehdi\nDesigner / Producteur\nNeya Furniture'}
 ---
 
-JSON attendu:
+Réponds avec un objet JSON compact:
 {
-  "summary": "résumé en 3-5 phrases de la conversation et où on en est",
+  "summary": "résumé en 3-5 phrases",
   "key_points": [{"type":"demande|info|délai|prix|problème", "text":"..."}],
-  "action_items": [{"text":"...", "due":"YYYY-MM-DD ou null", "priority":"haute|normale|basse"}],
-  "sentiment": "urgent|positif|neutre|tendu",
-  "suggested_reply": "brouillon de réponse professionnelle en français, terminé par la signature ci-dessus (ou null si rien à répondre)",
-  "client_intent": "devis|suivi|plainte|confirmation|autre",
-  "needs_response": true,
-  "suggested_client_name": "nom client ERP si identifiable sinon null"
+  "action_items": [{"text":"...", "due":null, "priority":"normale"}],
+  "sentiment": "neutre",
+  "suggested_reply": null,
+  "client_intent": "autre",
+  "needs_response": false,
+  "suggested_client_name": null,
+  "is_promotion": ${promo ? 'true' : 'false'}
 }`;
 
-  const parsed = await callSynthesisLLM(prompt);
+  const parsed = await callSynthesisLLM(prompt, { maxTokens: 4096 });
   const model = (await getSetting('ai_provider')) || 'anthropic';
 
-  if (!fresh.client_id && parsed.suggested_client_name) {
+  const looksPromo = promo
+    || parsed.is_promotion === true
+    || /newsletter|infolettre|promotion|publicitaire|marketing/i.test(String(parsed.summary || ''));
+
+  if (looksPromo) {
+    parsed.needs_response = false;
+    if (!parsed.suggested_reply) parsed.suggested_reply = null;
+    await clearWeakAutoLink(threadId);
+  }
+
+  // Suggestion client : match exact du nom seulement (pas LIKE %x%), min 4 chars
+  if (!fresh.client_id && !looksPromo && parsed.suggested_client_name) {
     const needle = String(parsed.suggested_client_name).trim().toLowerCase();
-    if (needle.length >= 2) {
+    if (needle.length >= 4) {
       const { rows: hit } = await pool.query(
-        `SELECT id FROM clients WHERE LOWER(name) = $1 OR LOWER(name) LIKE $2 LIMIT 1`,
-        [needle, `%${needle}%`]
+        `SELECT id FROM clients WHERE LOWER(TRIM(name)) = $1 LIMIT 1`,
+        [needle]
       );
       if (hit[0]) {
         await linkThread(threadId, {
           client_id: hit[0].id,
           project_id: fresh.project_id,
           link_source: 'synth_client_suggest',
+          link_confidence: 0.85,
+          updateClientEmail: false,
         });
       }
     }
@@ -671,7 +795,7 @@ JSON attendu:
   } catch { /* optional */ }
 
   const threadOut = await getThreadDetail(threadId);
-  if (!threadOut.client_id && parsed.suggested_client_name) {
+  if (!threadOut.client_id && parsed.suggested_client_name && !looksPromo) {
     threadOut.suggested_client_name = parsed.suggested_client_name;
   }
   return { thread: threadOut, synthesis: rows[0] };

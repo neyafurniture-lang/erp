@@ -197,15 +197,18 @@ export default function ClientDetailPage() {
               client.projects.map(p => {
                 const st = projectStatusMeta(p.status);
                 const custom = isCustomProject(p);
+                const prio = Number(p.priority) > 0;
                 return (
                   <Link
                     key={p.id}
                     href={`/projects/${p.id}`}
-                    className="card block hover:border-neya-orange transition-colors"
+                    className={`card block hover:border-neya-orange transition-colors ${prio ? 'border-amber-300' : ''}`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <h3 className="font-heading text-lg text-neya-ink">{p.name}</h3>
+                        <h3 className="font-heading text-lg text-neya-ink">
+                          {prio ? '★ ' : ''}{p.name}
+                        </h3>
                         <p className="text-xs text-neya-muted mt-1">
                           Deadline : {formatDate(p.deadline)}
                           {custom && p.tasks_total > 0 && (

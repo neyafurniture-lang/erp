@@ -276,6 +276,14 @@ export function projectStatusMeta(status) {
   return PROJECT_STATUS.find(s => s.value === value) || PROJECT_STATUS[0];
 }
 
+/** Priorité projet (colonne INT) — vrai si > 0. */
+export function isProjectPriority(projectOrPriority) {
+  if (projectOrPriority && typeof projectOrPriority === 'object') {
+    return Number(projectOrPriority.priority) > 0;
+  }
+  return Number(projectOrPriority) > 0;
+}
+
 export async function downloadPdf(path, filename) {
   const token = getToken();
   const res = await fetch(`${getApiUrl()}${path}`, {

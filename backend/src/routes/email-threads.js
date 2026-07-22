@@ -111,6 +111,22 @@ router.post('/:id/synthesize', async (req, res) => {
   }
 });
 
+router.post('/:id/category', async (req, res) => {
+  try {
+    const { setThreadMailCategory } = await import('../services/mail-sort.js');
+    const category = req.body?.category || req.body?.mail_category;
+    const row = await setThreadMailCategory(Number(req.params.id), category);
+    const detail = await getThreadDetail(Number(req.params.id));
+    res.json({
+      ...detail,
+      mail_category: row.mail_category,
+      mail_category_manual: row.mail_category_manual,
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.post('/:id/revise-draft', async (req, res) => {
   try {
     const { draft, instruction, mode } = req.body || {};

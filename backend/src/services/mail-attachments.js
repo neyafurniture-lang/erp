@@ -60,12 +60,15 @@ async function linkMessageToProject(projectId, msg) {
 export async function fileAttachmentToProject({
   messageId,
   attachmentId,
+  filename,
   projectId,
   uploadDrive = true,
 }) {
   const pid = Number(projectId);
   if (!pid) throw new Error('project_id requis');
-  if (!messageId || !attachmentId) throw new Error('message_id et attachment_id requis');
+  if (!messageId || (!attachmentId && !filename)) {
+    throw new Error('message_id et attachment_id requis');
+  }
 
   const { rows: projRows } = await pool.query(
     'SELECT id, name, meta FROM projects WHERE id = $1',
@@ -73,8 +76,9 @@ export async function fileAttachmentToProject({
   );
   if (!projRows[0]) throw new Error('Projet introuvable');
 
-  const att = await getAttachment(messageId, attachmentId);
+  const att = await getAttachment(messageId, attachmentId, { filename });
   const msg = await getMessage(messageId);
+  const resolvedAttachmentId = att.attachmentId || attachmentId;
 
   const dir = path.join(UPLOADS_ROOT, 'projects', String(pid), 'mail');
   fs.mkdirSync(dir, { recursive: true });
@@ -90,7 +94,7 @@ export async function fileAttachmentToProject({
     size: att.size,
     size_label: formatSize(att.size),
     gmail_message_id: messageId,
-    gmail_attachment_id: attachmentId,
+    gmail_attachment_id: resolvedAttachmentId,
     source_subject: msg.subject,
     filed_at: new Date().toISOString(),
   };
@@ -150,6 +154,7 @@ export async function fileMessageAttachmentsToProject({
       const result = await fileAttachmentToProject({
         messageId,
         attachmentId: a.id,
+        filename: a.filename,
         projectId,
         uploadDrive,
       });

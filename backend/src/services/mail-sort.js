@@ -82,10 +82,42 @@ export async function applyGmailLabelsForMessages(messages = []) {
   return { applied, errors };
 }
 
-// Éviter no-reply / notification@ (trop large → GitHub, banques, etc. en « Promotions »)
-const PROMO_RE = /unsubscribe|newsletter|promotions?\b|marketing|mailchimp|info@shop|deals@|offres@|soldes?@/i;
+// Newsletters / marketing — suffisamment précis pour éviter GitHub/banques
+const PROMO_RE = /unsubscribe|d[ée]sinscription|newsletter|infolettre|promotions?\b|marketing|mailchimp|klaviyo|sendgrid|hubspot|beehiiv|constant.?contact|info@shop|deals@|offres@|soldes?@|updates@|newsletter@|noreply@.*news|no-?reply@.*mail|livraison\s+gratuite|free\s+shipping|last\s+chance|derni[eè]re\s+chance|%\s*off|rabais|promo\b|ne\s+manquez\s+pas|flash\s+sale|black\s+friday|cyber\s+monday|code\s+promo| exclusive\s+offer/i;
+const PROMO_DOMAIN_RE = /\b(leevalley|leevalleynews|mailchimp|klaviyo|sendgrid|shopifyemail|exacttarget|cmail|campaign-archive|list-manage|hubspotemail|beehiiv|mailgun|postmarkapp|createsend|constantcontact)\b/i;
 const NOT_PROMO_FROM_RE = /github\.com|gitlab\.com|bitbucket\.org|cursor\.com|google\.com|accounts\.google/i;
 const CLIENT_INTENTS = new Set(['devis', 'suivi', 'plainte', 'confirmation']);
+/** Indices qu’un humain doit répondre (sans synthèse IA). */
+const REPLY_NEEDED_RE = /\b(urgent|asap|rappel|relance|merci\s+de\s+(me\s+)?(rappeler|confirmer|r[ée]pondre)|pouvez[- ]vous|can\s+you|please\s+confirm|besoin\s+de\s+votre|attente\s+de\s+votre|r[ée]ponse\s+souhait)\b/i;
+const WEAK_LINK_SOURCES = new Set([
+  'client_name',
+  'client_name_parts',
+  'client_name_parts_recent_project',
+  'client_name_recent_project',
+  'client_recent_project',
+  'synth_relink',
+  'synth_client_suggest',
+  'project_name',
+]);
+const VALID_CATEGORIES = new Set(MAIL_SECTIONS.map(s => s.id).filter(id => id !== 'inbox'));
+
+export function isPromotion(from, subject, snippet) {
+  if (NOT_PROMO_FROM_RE.test(String(from || ''))) return false;
+  const hay = `${from} ${subject} ${snippet}`;
+  return PROMO_RE.test(hay) || PROMO_DOMAIN_RE.test(hay);
+}
+
+function isWeakAutoLink(thread) {
+  const source = String(thread?.link_source || '');
+  if (WEAK_LINK_SOURCES.has(source)) return true;
+  if (source.startsWith('client_name')) return true;
+  const conf = Number(thread?.link_confidence);
+  return Number.isFinite(conf) && conf > 0 && conf < 0.9;
+}
+
+export function isValidMailCategory(category) {
+  return VALID_CATEGORIES.has(String(category || ''));
+}
 
 let clientEmailCache = null;
 let clientEmailCacheAt = 0;
@@ -141,12 +173,6 @@ function collectAddresses({ from = '', to = '', cc = '', participants = [] } = {
   return [...new Set(all.filter(e => e && e.includes('@') && !own.has(e)))];
 }
 
-function isPromotion(from, subject, snippet) {
-  if (NOT_PROMO_FROM_RE.test(String(from || ''))) return false;
-  const hay = `${from} ${subject} ${snippet}`;
-  return PROMO_RE.test(hay);
-}
-
 /**
  * Classe un message dans une section unique (priorité haute → basse).
  * Les mails envoyés sont classés via le destinataire client (To/Cc), pas seulement From.
@@ -164,32 +190,50 @@ export function classifyMailMessage({
   ownEmails = null,
   preferStored = false,
 } = {}) {
-  // Ne plus coller une mauvaise catégorie pour toujours — recalcul live par défaut.
-  if (preferStored && thread?.mail_category) return thread.mail_category;
-
   const emails = clientEmails || new Set();
   const addresses = collectAddresses(
     { from, to, cc, participants: thread?.participant_emails },
     ownEmails
   );
   const matchedClientEmail = addresses.some(e => emails.has(e));
-  const hasClient = Boolean(thread?.client_id) || matchedClientEmail;
-  const hasProject = Boolean(thread?.project_id);
-  const needsResponse = !isOutbound && (
+  const promo = isPromotion(from, subject, snippet);
+  const weakLink = isWeakAutoLink(thread);
+  // Lien client « réel » : email ERP exact, ou lien manuel / haute confiance — pas un faux positif « Son »
+  const hasStrongClient = matchedClientEmail || (
+    Boolean(thread?.client_id)
+    && !weakLink
+    && String(thread?.link_source || '') !== 'sync'
+  );
+  const hasClient = hasStrongClient || (Boolean(thread?.client_id) && !promo);
+  const hasProject = Boolean(thread?.project_id) && !promo;
+  const needsResponse = !isOutbound && !promo && (
     thread?.needs_response === true || thread?.latest_needs_response === true
   );
   const clientIntent = thread?.client_intent || thread?.latest_client_intent;
   const isSupplierInvoice = looksLikeSupplierInvoice(from, subject, snippet);
+  // Facture explicite (pas juste « votre commande » dans une newsletter)
+  const hardInvoice = /\b(facture|invoice|receipt|re[cç]u|order confirmation|confirmation de commande)\b/i
+    .test(`${subject} ${snippet}`);
+  const replyHint = !isOutbound && !promo && (
+    REPLY_NEEDED_RE.test(`${subject} ${snippet}`)
+    || /\?\s*$/.test(String(subject || '').trim())
+  );
 
-  // Priorité atelier : répondre / clients avant newsletters fournisseurs
-  if (needsResponse || (isUnread && hasClient && !isOutbound)) return 'a_repondre';
+  // Catégorie verrouillée manuellement (ou preferStored)
+  if ((preferStored || thread?.mail_category_manual) && isValidMailCategory(thread?.mail_category)) {
+    return thread.mail_category;
+  }
+
+  // Newsletters / promos d’abord — sauf client ERP exact (email) ou vraie facture
+  if (promo && !matchedClientEmail && !hardInvoice) return 'promotions';
+  if (isSupplierInvoice) return 'fournisseurs';
+  // À répondre : synthèse needs_response, indices de réponse, ou non-lu + client fort
+  if (needsResponse || replyHint) return 'a_repondre';
+  if (isUnread && hasStrongClient && !isOutbound) return 'a_repondre';
   if (hasProject) return 'projets';
   if (hasClient || CLIENT_INTENTS.has(clientIntent)) return 'clients';
-  if (isSupplierInvoice) return 'fournisseurs';
-  if (isPromotion(from, subject, snippet)) return 'promotions';
-  // Domaine fournisseur sans facture → promotions plutôt que « Fournisseurs »
-  if (detectSupplier(from, subject, snippet) && isPromotion(from, subject, snippet)) return 'promotions';
-  if (detectSupplier(from, subject, snippet)) return 'autres';
+  // Fournisseur connu sans facture → promotions (pas Non classés)
+  if (detectSupplier(from, subject, snippet)) return 'promotions';
   return 'autres';
 }
 
@@ -224,6 +268,10 @@ export function computeMailCategoryForThread(threadRow, synthesis = null, { ownE
     thread: {
       client_id: threadRow.client_id,
       project_id: threadRow.project_id,
+      link_source: threadRow.link_source,
+      link_confidence: threadRow.link_confidence,
+      mail_category: threadRow.mail_category,
+      mail_category_manual: threadRow.mail_category_manual,
       needs_response: synthesis?.needs_response,
       client_intent: synthesis?.client_intent,
       participant_emails: participants,
@@ -310,7 +358,8 @@ export async function enrichInboxMessages(messages = []) {
     );
 
     // Auto-lier au client connu (surtout pour les mails envoyés : destinataire = client)
-    if (thread?.id && !thread.client_id && addresses.length) {
+    // Jamais pour une newsletter / promo
+    if (thread?.id && !thread.client_id && addresses.length && !isPromotion(m.from, m.subject, m.snippet)) {
       const linked = await autoLinkThreadFromAddresses(thread, addresses);
       if (linked?.client_id) {
         thread = { ...thread, ...linked };
@@ -375,7 +424,7 @@ export async function sortInbox({ max = 40 } = {}) {
   return enrichInboxMessages(raw || []);
 }
 
-export async function classifyAndStoreThread(threadDbId) {
+export async function classifyAndStoreThread(threadDbId, { force = false } = {}) {
   const { rows } = await pool.query(
     `SELECT t.*, s.needs_response, s.client_intent
      FROM email_threads t
@@ -389,13 +438,33 @@ export async function classifyAndStoreThread(threadDbId) {
   if (!rows[0]) return null;
 
   let threadRow = rows[0];
+
+  // Respecter le classement manuel sauf force
+  if (!force && threadRow.mail_category_manual && isValidMailCategory(threadRow.mail_category)) {
+    if (threadRow.gmail_thread_id) {
+      try {
+        await applyGmailCategoryLabel(threadRow.gmail_thread_id, threadRow.mail_category);
+      } catch { /* optional */ }
+    }
+    return threadRow.mail_category;
+  }
+
   const [clientEmails, ownEmails] = await Promise.all([getClientEmailSet(), getOwnEmailSet()]);
   const addresses = collectAddresses(
     { participants: threadRow.participant_emails },
     ownEmails
   );
 
-  if (!threadRow.client_id && addresses.length) {
+  const fromHint = addresses[0] || '';
+  if (isPromotion(fromHint, threadRow.subject || '', '') && threadRow.client_id) {
+    try {
+      const { clearWeakAutoLink } = await import('./email-threads.js');
+      const cleared = await clearWeakAutoLink(threadRow.id);
+      if (cleared) threadRow = { ...threadRow, ...cleared, client_name: null };
+    } catch { /* optional */ }
+  }
+
+  if (!threadRow.client_id && addresses.length && !isPromotion(fromHint, threadRow.subject || '', '')) {
     threadRow = await autoLinkThreadFromAddresses(threadRow, addresses);
   }
 
@@ -406,7 +475,11 @@ export async function classifyAndStoreThread(threadDbId) {
   );
 
   await pool.query(
-    'UPDATE email_threads SET mail_category = $1, updated_at = NOW() WHERE id = $2',
+    `UPDATE email_threads SET
+       mail_category = $1,
+       mail_category_manual = false,
+       updated_at = NOW()
+     WHERE id = $2`,
     [category, threadDbId]
   );
 
@@ -421,19 +494,94 @@ export async function classifyAndStoreThread(threadDbId) {
   return category;
 }
 
-export async function sortRecentInbox(max = 25) {
+/** Classement manuel d’un fil (verrouille jusqu’au prochain tri forcé). */
+export async function setThreadMailCategory(threadDbId, category) {
+  if (!isValidMailCategory(category)) {
+    throw new Error(`Catégorie invalide (attendu : ${[...VALID_CATEGORIES].join(', ')})`);
+  }
+  const { rows } = await pool.query(
+    `UPDATE email_threads SET
+       mail_category = $1,
+       mail_category_manual = true,
+       updated_at = NOW()
+     WHERE id = $2
+     RETURNING *`,
+    [category, threadDbId]
+  );
+  if (!rows[0]) throw new Error('Fil introuvable');
+
+  if (rows[0].gmail_thread_id) {
+    try {
+      await applyGmailCategoryLabel(rows[0].gmail_thread_id, category);
+    } catch (err) {
+      console.warn('Gmail label:', err.message);
+    }
+  }
+
+  return rows[0];
+}
+
+export async function sortRecentInbox(max = 40, {
+  includeTri = true,
+  scanInvoices = true,
+} = {}) {
   const { processRecentInbox } = await import('./email-threads.js');
+  const gmail = await import('./google-gmail.js');
+
   const result = await processRecentInbox(max);
 
+  // Drainer aussi Tri/A_traiter (file d’attente Gmail historique)
+  let triProcessed = 0;
+  let triErrors = [];
+  if (includeTri) {
+    try {
+      const triId = await gmail.resolveLabelId('Tri/A_traiter');
+      if (triId) {
+        const { messages: triMsgs } = await gmail.listMessages({ label: triId, max });
+        const seen = new Set((result.threads || []).map(t => t.gmail_thread_id).filter(Boolean));
+        for (const m of triMsgs || []) {
+          if (!m.threadId || seen.has(m.threadId)) continue;
+          seen.add(m.threadId);
+          try {
+            const { syncGmailThread } = await import('./email-threads.js');
+            const thread = await syncGmailThread(m.threadId);
+            if (thread?.id) {
+              await classifyAndStoreThread(thread.id);
+              triProcessed += 1;
+              result.threads = [...(result.threads || []), thread];
+            }
+          } catch (err) {
+            triErrors.push({ thread_id: m.threadId, error: err.message });
+          }
+        }
+      }
+    } catch (err) {
+      triErrors.push({ stage: 'tri_a_traiter', error: err.message });
+    }
+  }
+
   for (const thread of result.threads || []) {
-    if (thread?.id) await classifyAndStoreThread(thread.id);
+    if (thread?.id) await classifyAndStoreThread(thread.id, { force: false });
   }
 
   const sorted = await sortInbox({ max });
   const labelResult = await applyGmailLabelsForMessages(sorted.messages || []);
 
+  let invoices = null;
+  if (scanInvoices) {
+    try {
+      const { scanInboxForSupplierInvoices } = await import('./invoice-email-router.js');
+      invoices = await scanInboxForSupplierInvoices({ max: Math.min(Number(max) || 25, 50) });
+    } catch (err) {
+      invoices = { error: err.message, ingested: 0, scanned: 0 };
+    }
+  }
+
   return {
     ...result,
+    processed: (result.processed || 0) + triProcessed,
+    tri_processed: triProcessed,
+    tri_errors: triErrors,
     sections: sorted.sections,
     messages: sorted.messages,
     gmail_labels: {
@@ -441,5 +589,6 @@ export async function sortRecentInbox(max = 25) {
       errors: labelResult.errors,
       labels: GMAIL_CATEGORY_LABELS,
     },
+    invoices,
   };
 }

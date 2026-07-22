@@ -97,6 +97,7 @@ export async function initDb() {
   `);
   await pool.query('ALTER TABLE projects ADD COLUMN IF NOT EXISTS quantity INT NOT NULL DEFAULT 1');
   await pool.query('ALTER TABLE projects ADD COLUMN IF NOT EXISTS production_priority INT NOT NULL DEFAULT 0');
+  await pool.query('ALTER TABLE projects ADD COLUMN IF NOT EXISTS priority INT NOT NULL DEFAULT 0');
   await pool.query('ALTER TABLE projects ADD COLUMN IF NOT EXISTS drive_folder_id TEXT');
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'member'`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS permissions JSONB NOT NULL DEFAULT '[]'`);
@@ -253,6 +254,7 @@ export async function initDb() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_email_threads_last_msg ON email_threads(last_message_at DESC)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_email_messages_thread ON email_messages(thread_id)`);
   await pool.query(`ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS mail_category TEXT`);
+  await pool.query(`ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS mail_category_manual BOOLEAN DEFAULT false`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_email_threads_category ON email_threads(mail_category)`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS integration_tokens (

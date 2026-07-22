@@ -8,12 +8,13 @@ export const SUPPLIERS = [
   { id: 'reno_depot', label: 'Reno Depot', patterns: ['renodepot', 'réno-dépôt', 'reno-depot'] },
   { id: 'amazon', label: 'Amazon', patterns: ['amazon'] },
   { id: 'walmart', label: 'Walmart', patterns: ['walmart'] },
+  { id: 'lee_valley', label: 'Lee Valley', patterns: ['leevalley', 'lee valley', 'leevalleynews'] },
   { id: 'other', label: 'Fournisseur', patterns: [] },
 ];
 
 const INVOICE_HINTS = [
   'facture', 'invoice', 'receipt', 'reçu', 'recu', 'order confirmation',
-  'confirmation de commande', 'your order', 'votre commande', 'purchase',
+  'confirmation de commande', 'purchase order', 'bon de commande',
 ];
 
 const KEYWORD_STOP = new Set(['the', 'and', 'for', 'from', 'your', 'order', 'facture', 'invoice', 'receipt', 'home', 'depot', 'neya']);
@@ -37,17 +38,19 @@ export function detectSupplier(from, subject, snippet) {
 
 /**
  * Vrai facture/commande fournisseur — pas juste un mail marketing Amazon/Rona.
- * Exige un indice facture/commande dans sujet/extrait (+ fournisseur connu si possible).
+ * Exige un indice facture clair ; « your order » / « votre commande » seuls ne suffisent plus.
  */
 export function looksLikeSupplierInvoice(from, subject, snippet) {
   const hay = norm(`${subject} ${snippet}`);
   const hasHint = INVOICE_HINTS.some(h => hay.includes(norm(h)));
   if (!hasHint) return false;
   const supplier = detectSupplier(from, subject, snippet);
-  // Fournisseur connu + indice facture, ou langage facture très explicite
-  if (supplier) return true;
-  return /\b(facture|invoice|receipt|recu|reçu|order confirmation|confirmation de commande|votre commande|your order)\b/i
+  const hard = /\b(facture|invoice|receipt|recu|reçu|order confirmation|confirmation de commande|purchase order|bon de commande)\b/i
     .test(`${subject} ${snippet}`);
+  // Fournisseur connu + indice facture, ou langage facture très explicite
+  if (supplier && hard) return true;
+  if (supplier && hasHint) return true;
+  return hard;
 }
 
 export function extractKeywords(subject, snippet, body = '') {
@@ -181,8 +184,12 @@ export async function scanInboxForSupplierInvoices({ max = 40, year = null } = {
   const errors = [];
   const y = year ? Number(year) : null;
   const q = y
-    ? `after:${y}/01/01 before:${y + 1}/01/01 (facture OR invoice OR receipt OR homedepot OR rona OR canac OR renodepot OR amazon)`
-    : 'newer_than:14d (facture OR invoice OR receipt OR homedepot OR rona OR canac OR renodepot OR amazon)';
+    ? `after:${y}/01/01 before:${y + 1}/01/01 (facture OR invoice OR receipt OR "Tri/Compta" OR homedepot OR rona OR canac OR renodepot OR amazon)`
+    : [
+        'newer_than:30d',
+        '(facture OR invoice OR receipt OR homedepot OR rona OR canac OR renodepot OR amazon',
+        'OR label:Tri/Compta_Facturation OR label:Tri/Compta_Factu OR label:Tri/Fournisseurs)',
+      ].join(' ');
   const { messages } = await gmail.searchMessages(q, max);
 
   for (const m of messages || []) {
