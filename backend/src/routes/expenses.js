@@ -58,7 +58,7 @@ router.get('/', async (req, res) => {
       params.push(Number(month));
       query += ` AND EXTRACT(MONTH FROM e.date) = $${params.length}`;
     }
-    query += ' ORDER BY e.date DESC, e.id DESC';
+    query += ' ORDER BY e.created_at DESC NULLS LAST, e.date DESC, e.id DESC';
     const { rows } = await pool.query(query, params);
     res.json(rows);
   } catch (err) {
