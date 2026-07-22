@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { Sparkles } from 'lucide-react';
 import AppShell from '../../../components/AppShell';
 import AuthGuard from '../../../components/AuthGuard';
 import {
@@ -27,6 +28,8 @@ export default function ClientDetailPage() {
   const [error, setError] = useState('');
   const [creatingQuote, setCreatingQuote] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
+  const [enriching, setEnriching] = useState(false);
+  const [enrichMsg, setEnrichMsg] = useState('');
 
   useEffect(() => {
     if (!id) return;
@@ -91,7 +94,30 @@ export default function ClientDetailPage() {
     }
   }
 
-  if (error) {
+  async function enrichFromMail() {
+    setEnriching(true);
+    setEnrichMsg('');
+    setError('');
+    try {
+      const result = await api(`/clients/${id}/enrich-from-mail`, {
+        method: 'POST',
+        body: JSON.stringify({ use_ai: true }),
+      });
+      if (result.client) setClient(prev => ({ ...prev, ...result.client }));
+      const keys = Object.keys(result.filled || {});
+      setEnrichMsg(
+        keys.length
+          ? `Complété : ${keys.join(', ')}`
+          : 'Rien de nouveau trouvé dans les mails (ou déjà complet).'
+      );
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setEnriching(false);
+    }
+  }
+
+  if (error && !client) {
     return (
       <AuthGuard>
         <AppShell title="Client">
@@ -131,29 +157,61 @@ export default function ClientDetailPage() {
               <h1 className="font-heading text-2xl text-neya-ink">{client.name}</h1>
               {client.contact && <p className="text-sm text-neya-muted mt-1">{client.contact}</p>}
             </div>
-            <Link href={`/clients?edit=${client.id}`} className="btn-secondary text-sm">
-              Modifier
-            </Link>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={enrichFromMail}
+                disabled={enriching}
+                className="btn-secondary text-sm gap-1.5"
+                title="Compléter tél. / adresse / mail depuis les courriels liés"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                {enriching ? 'Complétion…' : 'Compléter depuis les mails'}
+              </button>
+              <Link href={`/clients?edit=${client.id}`} className="btn-secondary text-sm">
+                Modifier
+              </Link>
+            </div>
           </div>
+          {(error || enrichMsg) && (
+            <p className={`text-sm mt-3 ${error ? 'text-red-700' : 'text-emerald-700'}`}>
+              {error || enrichMsg}
+            </p>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-4 pt-4 border-t border-neya-border text-sm">
-            {client.email && (
+            {client.email ? (
               <div>
                 <p className="text-[10px] uppercase tracking-wider text-neya-muted">Email</p>
                 <a href={`mailto:${client.email}`} className="text-neya-ink hover:text-neya-orange">{client.email}</a>
               </div>
+            ) : (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-neya-muted">Email</p>
+                <p className="text-neya-muted italic">Manquant</p>
+              </div>
             )}
-            {client.phone && (
+            {client.phone ? (
               <div>
                 <p className="text-[10px] uppercase tracking-wider text-neya-muted">Téléphone</p>
                 <p className="text-neya-ink">{client.phone}</p>
               </div>
+            ) : (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-neya-muted">Téléphone</p>
+                <p className="text-neya-muted italic">Manquant</p>
+              </div>
             )}
-            {(client.address || client.city) && (
+            {(client.address || client.city) ? (
               <div className="sm:col-span-2">
                 <p className="text-[10px] uppercase tracking-wider text-neya-muted">Adresse</p>
                 <p className="text-neya-ink">
                   {[client.address, client.city].filter(Boolean).join(', ')}
                 </p>
+              </div>
+            ) : (
+              <div className="sm:col-span-2">
+                <p className="text-[10px] uppercase tracking-wider text-neya-muted">Adresse</p>
+                <p className="text-neya-muted italic">Manquante</p>
               </div>
             )}
           </div>

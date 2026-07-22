@@ -438,6 +438,11 @@ export async function linkThread(threadId, { client_id, project_id, link_source 
         [email, resolvedClient]
       );
     }
+    // Remplir aussi tél. / adresse / contact manquants depuis le fil
+    try {
+      const { enrichClientFromMail } = await import('./client-contact-enrich.js');
+      await enrichClientFromMail(resolvedClient, { useAi: false });
+    } catch { /* enrichissement optionnel */ }
   }
 
   if (resolvedProject) {
