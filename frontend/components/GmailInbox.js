@@ -942,7 +942,6 @@ export default function GmailInbox({
       }
     } catch (e) {
       setErr(e.message);
-      setThreadWarn(`Synthèse : ${e.message}`);
     } finally {
       setSynthLoading(false);
     }
@@ -1799,7 +1798,7 @@ export default function GmailInbox({
                         </div>
                       ) : (
                         <p className="text-xs text-neya-muted text-center py-4">
-                          {thread.synthesis_error
+                          {thread.synthesis_error && !err && !threadWarn
                             ? `Synthèse échouée : ${thread.synthesis_error}`
                             : 'Ouvrez un message pour générer la synthèse, ou cliquez Synthèse.'}
                         </p>
