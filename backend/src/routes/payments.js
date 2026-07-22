@@ -30,9 +30,7 @@ async function updateInvoiceStatus(invoiceId, client = pool) {
   let status = 'sent';
   if (amount_paid >= total && total > 0) status = 'paid';
   else if (amount_paid > 0) status = 'partially_paid';
-  if (rows[0].due_date && new Date(rows[0].due_date) < new Date() && status !== 'paid') {
-    status = 'overdue';
-  }
+  else if (rows[0].due_date && new Date(rows[0].due_date) < new Date()) status = 'overdue';
   await client.query('UPDATE invoices SET status = $1 WHERE id = $2', [status, invoiceId]);
 }
 

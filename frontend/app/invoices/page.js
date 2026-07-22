@@ -57,17 +57,25 @@ export default function InvoicesPage() {
 
   async function createDoc(e) {
     e.preventDefault();
-    const endpoint = tab === 'quotes' ? '/invoices/quotes' : '/invoices';
-    await api(endpoint, { method: 'POST', body: JSON.stringify(form) });
-    setShowForm(false);
-    setForm({ ...EMPTY_FORM });
-    showToast(tab === 'quotes' ? 'Devis créé' : 'Facture créée');
-    load();
+    try {
+      const endpoint = tab === 'quotes' ? '/invoices/quotes' : '/invoices';
+      await api(endpoint, { method: 'POST', body: JSON.stringify(form) });
+      setShowForm(false);
+      setForm({ ...EMPTY_FORM });
+      showToast(tab === 'quotes' ? 'Devis créé' : 'Facture créée');
+      load();
+    } catch (err) {
+      showToast(err.message || 'Création impossible');
+    }
   }
 
   async function updateQuoteStatus(id, status) {
-    await api(`/invoices/quotes/${id}`, { method: 'PUT', body: JSON.stringify({ status }) });
-    load();
+    try {
+      await api(`/invoices/quotes/${id}`, { method: 'PUT', body: JSON.stringify({ status }) });
+      load();
+    } catch (err) {
+      showToast(err.message || 'Statut non mis à jour');
+    }
   }
 
   async function confirmConvert(e) {
@@ -90,13 +98,17 @@ export default function InvoicesPage() {
   }
 
   async function submitPayment(payload) {
-    await api('/payments', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-    setPaymentForm(null);
-    showToast('Paiement enregistré');
-    load();
+    try {
+      await api('/payments', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      setPaymentForm(null);
+      showToast('Paiement enregistré');
+      load();
+    } catch (err) {
+      showToast(err.message || 'Paiement impossible');
+    }
   }
 
   async function openPdf(id, type) {

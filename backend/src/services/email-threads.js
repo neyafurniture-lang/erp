@@ -125,7 +125,7 @@ export async function guessClientAndProject({
   if (client_id && !project_id) {
     const { rows } = await pool.query(
       `SELECT id, name FROM projects
-       WHERE client_id = $1 AND status = 'active'
+       WHERE client_id = $1 AND status IN ('active', 'paused')
        ORDER BY created_at DESC
        LIMIT 1`,
       [client_id]

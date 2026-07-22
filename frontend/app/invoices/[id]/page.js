@@ -84,10 +84,14 @@ export default function InvoiceDetailPage() {
   }
 
   async function submitPayment(payload) {
-    await api('/payments', { method: 'POST', body: JSON.stringify(payload) });
-    setShowPayment(false);
-    load();
-    showToast('Paiement enregistré');
+    try {
+      await api('/payments', { method: 'POST', body: JSON.stringify(payload) });
+      setShowPayment(false);
+      load();
+      showToast('Paiement enregistré');
+    } catch (err) {
+      showToast(err.message || 'Paiement impossible');
+    }
   }
 
   async function removePayment(paymentId) {

@@ -101,8 +101,12 @@ function NeedRow({ item, suppliers, projects, onChange, onUpdated }) {
 
   async function remove() {
     if (!confirm(`Retirer « ${item.title} » de la liste ?`)) return;
-    await api(`/purchases/needs/${item.id}`, { method: 'DELETE' });
-    onChange();
+    try {
+      await api(`/purchases/needs/${item.id}`, { method: 'DELETE' });
+      onChange();
+    } catch (e) {
+      setErr(e.message || 'Suppression impossible');
+    }
   }
 
   return (
@@ -254,23 +258,29 @@ export default function PurchasesPage({ title = 'Liste de courses', subtitle = '
   const [catFilter, setCatFilter] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [pageErr, setPageErr] = useState('');
   const [form, setForm] = useState({ title: '', category: 'consommable', quantity: 1, unit: 'unité', notes: '' });
 
   const load = () => {
+    setPageErr('');
     const params = new URLSearchParams();
     if (filter !== 'all') params.set('status', filter);
     if (catFilter) params.set('category', catFilter);
-    api(`/purchases/needs?${params}`).then(setNeeds);
-    api('/purchases/needs/summary').then(setSummary);
-    api('/purchases/suggestions').then(setSuggestions);
-    api('/purchases').then(setOrders);
+    Promise.all([
+      api(`/purchases/needs?${params}`).then(setNeeds),
+      api('/purchases/needs/summary').then(setSummary),
+      api('/purchases/suggestions').then(setSuggestions),
+      api('/purchases').then(setOrders),
+    ]).catch(err => setPageErr(err.message || 'Chargement impossible'));
   };
 
   useEffect(() => { load(); }, [filter, catFilter]);
 
   useEffect(() => {
     api('/suppliers').then(setSuppliers).catch(() => setSuppliers([]));
-    api('/projects').then(list => setProjects((list || []).filter(p => p.status === 'active' || !p.status))).catch(() => setProjects([]));
+    api('/projects')
+      .then(list => setProjects((list || []).filter(p => p.status === 'active' || p.status === 'paused' || !p.status)))
+      .catch(() => setProjects([]));
   }, []);
 
   function onNeedUpdated(updated) {
@@ -279,6 +289,7 @@ export default function PurchasesPage({ title = 'Liste de courses', subtitle = '
 
   async function syncStock() {
     setSyncing(true);
+    setPageErr('');
     try {
       const res = await api('/purchases/needs/sync-stock', { method: 'POST' });
       load();
@@ -287,6 +298,8 @@ export default function PurchasesPage({ title = 'Liste de courses', subtitle = '
       } else {
         alert(res.scanned > 0 ? 'Tous les articles en stock bas sont déjà dans la liste' : 'Aucun stock sous le minimum');
       }
+    } catch (err) {
+      setPageErr(err.message || 'Sync stock impossible');
     } finally {
       setSyncing(false);
     }
@@ -296,6 +309,7 @@ export default function PurchasesPage({ title = 'Liste de courses', subtitle = '
     e.preventDefault();
     if (!form.title.trim()) return;
     setSaving(true);
+    setPageErr('');
     try {
       await api('/purchases/needs', {
         method: 'POST',
@@ -310,27 +324,34 @@ export default function PurchasesPage({ title = 'Liste de courses', subtitle = '
       setForm({ title: '', category: 'consommable', quantity: 1, unit: 'unité', notes: '' });
       setFilter('needed');
       load();
+    } catch (err) {
+      setPageErr(err.message || 'Ajout impossible');
     } finally {
       setSaving(false);
     }
   }
 
   async function addFromSuggestion(item) {
-    await api('/purchases/needs', {
-      method: 'POST',
-      body: JSON.stringify({
-        title: item.name,
-        category: item.category || 'consommable',
-        quantity: item.qty_needed || 1,
-        unit: item.unit || 'unité',
-        inventory_item_id: item.id,
-        supplier_id: item.supplier_id,
-        priority: item.quantity <= 0 ? 'urgent' : 'normal',
-        notes: `Stock: ${item.quantity} / min ${item.min_level}`,
-        source: 'low_stock',
-      }),
-    });
-    load();
+    setPageErr('');
+    try {
+      await api('/purchases/needs', {
+        method: 'POST',
+        body: JSON.stringify({
+          title: item.name,
+          category: item.category || 'consommable',
+          quantity: item.qty_needed || 1,
+          unit: item.unit || 'unité',
+          inventory_item_id: item.id,
+          supplier_id: item.supplier_id,
+          priority: item.quantity <= 0 ? 'urgent' : 'normal',
+          notes: `Stock: ${item.quantity} / min ${item.min_level}`,
+          source: 'low_stock',
+        }),
+      });
+      load();
+    } catch (err) {
+      setPageErr(err.message || 'Ajout suggestion impossible');
+    }
   }
 
   const filteredNeeds = needs;
@@ -341,6 +362,10 @@ export default function PurchasesPage({ title = 'Liste de courses', subtitle = '
         <p className="text-sm text-neya-muted mb-6 lg:hidden">
           {subtitle}
         </p>
+
+        {pageErr && (
+          <p className="mb-4 text-sm text-neya-error bg-red-50 border border-red-100 rounded-lg px-3 py-2">{pageErr}</p>
+        )}
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
           <div className="rounded-2xl border border-neya-border bg-white shadow-sm text-center py-3">

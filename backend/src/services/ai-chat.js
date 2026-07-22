@@ -151,6 +151,7 @@ async function buildSystemPrompt(pageContext) {
   const { formatMemoriesForPrompt } = await import('./assistant-memory.js');
   const { ACTION_TYPES } = await import('./skill-actions.js');
   const { getManualPromptBlock } = await import('../content/erp-manual.js');
+  const { getHabitsPromptBlock } = await import('./atelier-habits.js');
 
   const { rows: skills } = await pool.query(
     'SELECT name, description, action_type FROM assistant_skills WHERE enabled = true'
@@ -164,6 +165,11 @@ async function buildSystemPrompt(pageContext) {
     quoteId: pageContext?.type === 'quote' ? pageContext.id : null,
   });
   const manualBlock = `\n${getManualPromptBlock()}`;
+  let habitsBlock = '';
+  try {
+    const block = getHabitsPromptBlock();
+    if (block) habitsBlock = `\n${block}`;
+  } catch { /* fichier optionnel */ }
   const erpBlock = await buildErpContextSnapshot(pageContext);
   let driveBlock = '';
   try {
@@ -264,7 +270,7 @@ Exemples params :
 Mémoire conversation : utilise l'historique (« oui », « celui-là », « ce projet »). Ne redemande pas ce qui est déjà dit.
 Ne dis JAMAIS « ouvrez le projet » si tu peux le trouver par nom. Exécute l'action.
 Si l'utilisateur mentionne un fichier sans pièce jointe, demande le bouton 📎.
-Pour « comment faire », renvoie vers /manual.${memoryBlock}${manualBlock}${erpBlock}${driveBlock}${mailBlock}${ctxNote}`;
+Pour « comment faire », renvoie vers /manual.${memoryBlock}${manualBlock}${habitsBlock}${erpBlock}${driveBlock}${mailBlock}${ctxNote}`;
 }
 
 async function callOpenAI({ systemPrompt, history, message }) {

@@ -246,7 +246,7 @@ export async function autoLinkThreadFromAddresses(threadRow, addresses = []) {
   if (!project_id) {
     const { rows } = await pool.query(
       `SELECT id FROM projects
-       WHERE client_id = $1 AND status = 'active'
+       WHERE client_id = $1 AND status IN ('active', 'paused')
        ORDER BY created_at DESC LIMIT 1`,
       [client.id]
     );

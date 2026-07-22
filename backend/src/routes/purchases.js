@@ -34,12 +34,13 @@ function needSelect() {
 
 router.get('/needs', async (req, res) => {
   try {
-    const { status, category, priority } = req.query;
+    const { status, category, priority, project_id } = req.query;
     let q = `${needSelect()} WHERE 1=1`;
     const params = [];
     if (status) { params.push(status); q += ` AND n.status = $${params.length}`; }
     if (category) { params.push(category); q += ` AND n.category = $${params.length}`; }
     if (priority) { params.push(priority); q += ` AND n.priority = $${params.length}`; }
+    if (project_id) { params.push(Number(project_id)); q += ` AND n.project_id = $${params.length}`; }
     q += ` ORDER BY
       CASE n.status WHEN 'needed' THEN 0 WHEN 'ordered' THEN 1 ELSE 2 END,
       CASE n.priority WHEN 'urgent' THEN 0 ELSE 1 END,

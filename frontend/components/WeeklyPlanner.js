@@ -252,7 +252,7 @@ function ShiftEventModal({
               onChange={e => setForm({ ...form, project_id: e.target.value })}
             >
               <option value="">— Aucun —</option>
-              {projects.filter(p => p.status === 'active').map(p => (
+              {projects.filter(p => p.status === 'active' || p.status === 'paused').map(p => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
@@ -603,7 +603,7 @@ export default function WeeklyPlanner({ showTasks = true, showShifts = true, tit
                     onChange={e => setSelectedProjectId(e.target.value)}
                   >
                     <option value="">— Aucun —</option>
-                    {projects.filter(p => p.status === 'active').map(p => (
+                    {projects.filter(p => p.status === 'active' || p.status === 'paused').map(p => (
                       <option key={p.id} value={p.id}>{p.name}</option>
                     ))}
                   </select>

@@ -34,8 +34,8 @@ router.get('/calendar', async (req, res) => {
       FROM tasks t
       LEFT JOIN projects p ON p.id = t.project_id
       WHERE t.start_time IS NOT NULL
-        AND ($1::timestamptz IS NULL OR t.start_time >= $1)
-        AND ($2::timestamptz IS NULL OR t.end_time <= $2)
+        AND ($1::timestamptz IS NULL OR COALESCE(t.end_time, t.start_time) >= $1)
+        AND ($2::timestamptz IS NULL OR t.start_time <= $2)
       ORDER BY t.start_time
     `, [start || null, end || null]);
 

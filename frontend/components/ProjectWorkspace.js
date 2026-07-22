@@ -332,6 +332,8 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
       });
       setTaskForm({ title: '', type: 'assemblage', estimated_minutes: 60 });
       onReload();
+    } catch (err) {
+      window.alert(err.message || 'Impossible d’ajouter la tâche');
     } finally {
       setTaskBusy(false);
     }
@@ -339,8 +341,12 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
 
   async function deleteTask(task) {
     if (!confirm(`Supprimer l'étape « ${task.title} » ?`)) return;
-    await api(`/tasks/${task.id}`, { method: 'DELETE' });
-    onReload();
+    try {
+      await api(`/tasks/${task.id}`, { method: 'DELETE' });
+      onReload();
+    } catch (err) {
+      window.alert(err.message || 'Suppression impossible');
+    }
   }
 
   async function toggleProjectDone() {
@@ -493,8 +499,12 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
   }
 
   async function syncMaterialsFromQuote() {
-    await api(`/analytics/projects/${project.id}/materials/sync-quote`, { method: 'POST' });
-    onReload();
+    try {
+      await api(`/analytics/projects/${project.id}/materials/sync-quote`, { method: 'POST' });
+      onReload();
+    } catch (err) {
+      window.alert(err.message || 'Sync devis impossible');
+    }
   }
 
   return (
@@ -558,8 +568,14 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
         </div>
         <div className="flex flex-wrap gap-2 mt-4">
           <span className="badge border-neya-border bg-neya-surface">{custom ? 'Sur mesure' : 'Catalogue'}</span>
-          <span className={`badge ${project.status === 'done' ? 'border-green-200 text-green-800 bg-green-50' : 'border-neya-border bg-white'}`}>
-            {project.status === 'done' ? 'Terminé' : 'En cours'}
+          <span className={`badge ${
+            project.status === 'done'
+              ? 'border-green-200 text-green-800 bg-green-50'
+              : project.status === 'paused'
+                ? 'border-amber-200 text-amber-800 bg-amber-50'
+                : 'border-neya-border bg-white'
+          }`}>
+            {project.status === 'done' ? 'Terminé' : project.status === 'paused' ? 'En pause' : 'En cours'}
           </span>
           {project.deadline && <span className="badge border-neya-border">{formatDate(project.deadline)}</span>}
           {costs && <span className="badge border-neya-orange/30 text-neya-orange">Marge {costs.margin_pct}%</span>}
@@ -925,9 +941,24 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
           ) : (
             <ul className="divide-y divide-neya-border">
               {purchases?.map(p => (
-                <li key={p.id} className="py-2 flex justify-between text-sm">
-                  <span>{p.title || `Commande #${p.id}`}</span>
-                  <span className="badge border-neya-border">{p.status}</span>
+                <li key={p.id} className="py-2 flex flex-wrap items-center justify-between gap-2 text-sm">
+                  <span>
+                    {p.title || `Achat #${p.id}`}
+                    {p.quantity != null && (
+                      <span className="text-neya-muted text-xs ml-2">
+                        ×{p.quantity}{p.unit ? ` ${p.unit}` : ''}
+                      </span>
+                    )}
+                    {p.kind === 'order' && (
+                      <span className="text-[10px] text-neya-muted ml-2">commande</span>
+                    )}
+                  </span>
+                  <span className="badge border-neya-border">
+                    {p.status === 'needed' ? 'À commander'
+                      : p.status === 'ordered' ? 'Commandé'
+                        : p.status === 'received' ? 'Reçu'
+                          : p.status}
+                  </span>
                 </li>
               ))}
             </ul>

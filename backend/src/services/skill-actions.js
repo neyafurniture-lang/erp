@@ -7,10 +7,10 @@ const DAY_MAP = {
 };
 
 export const ACTION_TYPES = [
-  'create_task', 'create_project', 'schedule_task', 'plan_day', 'create_expense', 'list_today', 'list_tomorrow', 'create_client',
+  'create_task', 'create_project', 'create_project_from_quote_email', 'schedule_task', 'plan_day', 'create_expense', 'list_today', 'list_tomorrow', 'create_client',
   'complete_task', 'update_task', 'delete_task', 'unlink_task', 'list_project_tasks',
   'update_project', 'update_client', 'list_projects', 'list_clients', 'list_expenses',
-  'search_projects', 'search_memory', 'get_project',
+  'search_projects', 'search_memory', 'get_project', 'add_project_material',
   'list_emails', 'search_emails', 'get_email', 'import_email_attachment', 'scan_mail_invoice_todos', 'list_mail_threads',
   'import_mail_dates_to_project',
   'create_fabrication_plan',
@@ -20,8 +20,18 @@ export const ACTION_TYPES = [
   'delete_project', 'delete_client', 'delete_expense',
   'update_standard', 'sync_wordpress', 'sync_web_orders', 'list_web_orders', 'sync_web_photos',
   'ui_edit_mode', 'ui_add_todo_list', 'ui_move_section', 'ui_hide_section', 'ui_show_section', 'ui_reset_layout',
-  'erp_manual',
+  'erp_manual', 'atelier_habits',
 ];
+
+/** Message qui décrit un matériau / stock à ajouter au projet (pas une tâche atelier). */
+export function isMaterialInfoMessage(message = '') {
+  const m = String(message || '');
+  if (!/\b(mat[eé]riau|mat[eé]riaux|mat[eé]riel|contreplaqu[eé]|mdf|ch[eê]ne|bois|vis|colle|panneau|plaque|quincaillerie|fer|acier|verre)\b/i.test(m)) {
+    return false;
+  }
+  return /\b(ajouter|ajoute|besoin|pr[eé]voir|commander|pr[eé]voir|noter|inscrire|mettre|pr[eé]voir)\b/i.test(m)
+    || /\b(x\s*\d+|\d+\s*(feuilles?|plaques?|unit[eé]s?|pi[eè]ces?))\b/i.test(m);
+}
 
 /** Extrait un éventuel objet params JSON préfixé au message (mode LLM). */
 export function extractActionParams(message) {
@@ -108,7 +118,7 @@ export function extractAfterKeyword(text, keywords) {
 
 function parseStatus(message) {
   if (/terminé|termine|fini|fait|done|complét|complete/i.test(message)) return 'done';
-  if (/en cours|progress|wip/i.test(message)) return 'in_progress';
+  if (/en cours|progress|wip|doing/i.test(message)) return 'doing';
   if (/à faire|a faire|todo|reprendre/i.test(message)) return 'todo';
   return null;
 }
@@ -1945,6 +1955,83 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
         reply: n
           ? `Dates d’installation scannées pour le projet #${id} (${n} date(s)). Voir l’onglet Installation.`
           : `Scan terminé — aucune date d’installation trouvée pour le projet #${id}.`,
+        actions,
+      };
+    }
+
+    case 'create_project_from_quote_email': {
+      const {
+        createProjectsFromQuoteEmails,
+        extractQuoteImportQuery,
+      } = await import('./project-from-quote-email.js');
+      const query = params.query || extractQuoteImportQuery(msg) || extractQuotedText(msg);
+      const message_id = params.message_id || params.messageId || null;
+      const max = Number(params.max || params.maxEmails || 4) || 4;
+      try {
+        const result = await createProjectsFromQuoteEmails({
+          query,
+          messageId: message_id,
+          maxEmails: max,
+        });
+        actions.push({ type: 'create_project_from_quote_email', data: result });
+        if (result.actions?.length) actions.push(...result.actions);
+        const n = result.created?.length || 0;
+        const names = (result.created || []).map(c => c.project?.name).filter(Boolean).join(', ');
+        return {
+          reply: n
+            ? `Créé ${n} projet(s) depuis les devis${result.client?.name ? ` pour ${result.client.name}` : ''}${names ? ` : ${names}` : ''}.`
+            : 'Aucun projet créé — vérifiez la requête ou les PJ devis.',
+          actions,
+        };
+      } catch (err) {
+        return { reply: err.message || 'Import devis mail impossible.', actions };
+      }
+    }
+
+    case 'atelier_habits': {
+      const { appendHabit, readHabitsFile } = await import('./atelier-habits.js');
+      const rule = params.rule || params.habit
+        || extractAfterKeyword(msg, ['habitude', 'habitude :', 'règle', 'regle', 'ajoute']);
+      if (!rule) {
+        const { content } = readHabitsFile();
+        actions.push({ type: 'atelier_habits', data: { content } });
+        return {
+          reply: `Habitudes atelier actuelles :\n${String(content || '').slice(0, 1500)}`,
+          actions,
+        };
+      }
+      const result = appendHabit({ section: params.section || 'Général', rule });
+      actions.push({ type: 'atelier_habits', data: result });
+      return {
+        reply: result.already
+          ? `Cette habitude est déjà enregistrée.`
+          : `Habitude ajoutée${params.section ? ` (${params.section})` : ''} : ${String(rule).trim()}.`,
+        actions,
+      };
+    }
+
+    case 'add_project_material': {
+      const id = projectId || await resolveProjectId(params, msg, pageContext);
+      if (!id) return { reply: 'Précisez le projet (page ouverte ou nom).', actions };
+      const description = params.description
+        || extractQuotedText(msg)
+        || extractAfterKeyword(msg, ['matériau', 'materiau', 'matériel', 'materiel', 'ajoute', 'ajouter'])
+        || msg.replace(/^(ajoute|ajouter|noter|prévoir|prevoir)\s+/i, '').trim();
+      if (!description) return { reply: 'Précisez le matériau (ex. « ajoute 2 plaques MDF »).', actions };
+      const qtyMatch = String(description).match(/(\d+(?:[.,]\d+)?)\s*(feuilles?|plaques?|unit[eé]s?|pi[eè]ces?)?/i)
+        || msg.match(/x\s*(\d+)/i);
+      const quantity = params.quantity != null
+        ? Number(params.quantity)
+        : (qtyMatch ? parseFloat(String(qtyMatch[1]).replace(',', '.')) : 1);
+      const unit_cost = params.unit_cost != null ? Number(params.unit_cost) : 0;
+      const { rows } = await pool.query(
+        `INSERT INTO project_materials (project_id, inventory_item_id, description, quantity, unit, unit_cost, notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+        [id, params.inventory_item_id || null, String(description).slice(0, 500), quantity || 1, params.unit || 'unité', unit_cost, params.notes || null]
+      );
+      actions.push({ type: 'add_project_material', data: rows[0] });
+      return {
+        reply: `Matériau ajouté au projet #${id} : ${rows[0].description} (×${rows[0].quantity}).`,
         actions,
       };
     }

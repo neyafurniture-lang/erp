@@ -141,22 +141,26 @@ export default function ProductionPage() {
 
   async function create(e) {
     e.preventDefault();
-    await api('/production', {
-      method: 'POST',
-      body: JSON.stringify({
-        kind: form.kind,
-        standard_id: form.kind === 'catalog' ? Number(form.standard_id) : undefined,
-        name: form.kind === 'custom' ? form.name : form.name || undefined,
-        client_id: form.client_id || null,
-        quantity: Number(form.quantity) || 1,
-        deadline: form.deadline || null,
-        notes: form.notes || null,
-        priority: Number(form.priority) || 0,
-      }),
-    });
-    setShowForm(false);
-    setForm({ kind: 'catalog', standard_id: '', name: '', client_id: '', quantity: 1, deadline: '', notes: '', priority: 0 });
-    load();
+    try {
+      await api('/production', {
+        method: 'POST',
+        body: JSON.stringify({
+          kind: form.kind,
+          standard_id: form.kind === 'catalog' ? Number(form.standard_id) : undefined,
+          name: form.kind === 'custom' ? form.name : form.name || undefined,
+          client_id: form.client_id || null,
+          quantity: Number(form.quantity) || 1,
+          deadline: form.deadline || null,
+          notes: form.notes || null,
+          priority: Number(form.priority) || 0,
+        }),
+      });
+      setShowForm(false);
+      setForm({ kind: 'catalog', standard_id: '', name: '', client_id: '', quantity: 1, deadline: '', notes: '', priority: 0 });
+      load();
+    } catch (err) {
+      window.alert(err.message || 'Création impossible');
+    }
   }
 
   async function advance(id) {
@@ -164,6 +168,8 @@ export default function ProductionPage() {
     try {
       await api(`/production/${id}/advance`, { method: 'POST' });
       load();
+    } catch (err) {
+      window.alert(err.message || 'Avancement impossible');
     } finally {
       setAdvancingId(null);
     }

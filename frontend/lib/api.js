@@ -327,4 +327,6 @@ export const INVOICE_STATUS = {
   partially_paid: { label: 'Partiel', color: 'bg-neya-warning/20 text-neya-warning' },
   paid: { label: 'Payée', color: 'bg-neya-success/20 text-neya-success' },
   overdue: { label: 'En retard', color: 'bg-neya-error/20 text-neya-error' },
+  cancelled: { label: 'Annulée', color: 'bg-gray-100 text-gray-500' },
+  void: { label: 'Invalidée', color: 'bg-gray-100 text-gray-500' },
 };

@@ -37,6 +37,7 @@ export default function ExpensesPage() {
   const [showForm, setShowForm] = useState(false);
   const [monthFilter, setMonthFilter] = useState('all');
   const [formErr, setFormErr] = useState('');
+  const [actionErr, setActionErr] = useState('');
   const [form, setForm] = useState({
     amount: '',
     category: 'materiaux',
@@ -94,6 +95,17 @@ export default function ExpensesPage() {
     }
   }
 
+  async function removeExpense(e) {
+    if (!confirm(`Supprimer la dépense « ${e.description || formatMoney(e.amount)} » ?`)) return;
+    setActionErr('');
+    try {
+      await api(`/expenses/${e.id}`, { method: 'DELETE' });
+      load();
+    } catch (err) {
+      setActionErr(err.message || 'Suppression impossible');
+    }
+  }
+
   const monthOptions = useMemo(() => {
     const keys = [...new Set(expenses.map(e => expenseMonthKey(e.date)))].sort().reverse();
     return keys;
@@ -120,6 +132,10 @@ export default function ExpensesPage() {
     <AuthGuard>
       <AppShell title="Dépenses" subtitle={`${filtered.length} entrée${filtered.length > 1 ? 's' : ''} · total ${formatMoney(total)}`}>
         <ReceiptScanner onChange={load} />
+
+        {actionErr && (
+          <p className="mb-3 text-sm text-neya-error bg-red-50 border border-red-100 rounded-lg px-3 py-2">{actionErr}</p>
+        )}
 
         <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
           <p className="text-neya-muted text-sm">
@@ -243,6 +259,7 @@ export default function ExpensesPage() {
                       <th className="px-4 py-3">Projet</th>
                       <th className="px-4 py-3">Reçu</th>
                       <th className="px-4 py-3 text-right">Montant</th>
+                      <th className="px-4 py-3 text-right"> </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -262,6 +279,16 @@ export default function ExpensesPage() {
                           ) : '—'}
                         </td>
                         <td className="px-4 py-3 text-right font-display font-semibold tabular-nums">{formatMoney(e.amount)}</td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            type="button"
+                            className="text-xs text-neya-muted hover:text-neya-error"
+                            onClick={() => removeExpense(e)}
+                            title="Supprimer"
+                          >
+                            Suppr.
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>

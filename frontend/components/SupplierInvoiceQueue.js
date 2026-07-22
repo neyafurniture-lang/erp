@@ -137,7 +137,7 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
         api('/projects').catch(() => []),
       ]);
       setPending(list);
-      setProjects(projs.filter(p => p.status === 'active'));
+      setProjects(projs.filter(p => p.status === 'active' || p.status === 'paused' || !p.status));
       onChange?.(list.length);
     } catch {
       setPending([]);

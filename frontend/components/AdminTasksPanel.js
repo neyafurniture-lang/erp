@@ -27,18 +27,26 @@ function TaskItem({ task, onUpdate, onDelete }) {
     && new Date(task.due_date) < new Date(new Date().toDateString());
 
   async function cycleStatus() {
-    const next = STATUS_CYCLE[task.status] || 'done';
-    const updated = await api(`/admin-tasks/${task.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status: next }),
-    });
-    onUpdate(updated);
+    try {
+      const next = STATUS_CYCLE[task.status] || 'done';
+      const updated = await api(`/admin-tasks/${task.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: next }),
+      });
+      onUpdate(updated);
+    } catch (err) {
+      window.alert(err.message || 'Statut non mis à jour');
+    }
   }
 
   async function remove() {
     if (!confirm('Supprimer ?')) return;
-    await api(`/admin-tasks/${task.id}`, { method: 'DELETE' });
-    onDelete(task.id);
+    try {
+      await api(`/admin-tasks/${task.id}`, { method: 'DELETE' });
+      onDelete(task.id);
+    } catch (err) {
+      window.alert(err.message || 'Suppression impossible');
+    }
   }
 
   return (

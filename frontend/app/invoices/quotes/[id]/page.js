@@ -62,9 +62,13 @@ export default function QuoteDetailPage() {
   }
 
   async function updateStatus(status) {
-    await api(`/invoices/quotes/${id}`, { method: 'PUT', body: JSON.stringify({ status }) });
-    load();
-    showToast('Statut mis à jour');
+    try {
+      await api(`/invoices/quotes/${id}`, { method: 'PUT', body: JSON.stringify({ status }) });
+      load();
+      showToast('Statut mis à jour');
+    } catch (err) {
+      showToast(err.message || 'Statut non mis à jour');
+    }
   }
 
   async function saveDocument(draft) {

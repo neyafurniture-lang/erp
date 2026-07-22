@@ -528,12 +528,29 @@ export async function processMessage(message, attachments = [], rawContext = nul
     return unlinkResult;
   }
 
+  // Devis Gmail/PDF → projets (avant LLM / create_project générique)
+  {
+    const { detectCreateProjectFromQuoteEmailIntent } = await import('./project-from-quote-email.js');
+    if (detectCreateProjectFromQuoteEmailIntent(message)) {
+      const quoteImport = await runSkillAction('create_project_from_quote_email', message, pageContext);
+      await pool.query(
+        'INSERT INTO assistant_messages (role, content, actions_taken) VALUES ($1,$2,$3)',
+        ['assistant', quoteImport.reply, JSON.stringify(quoteImport.actions || [])]
+      );
+      return quoteImport;
+    }
+  }
+
   async function runKeywordActions(msg = message) {
     if (isDayPlanMessage(msg)) {
       return runSkillAction('plan_day', msg, pageContext);
     }
     if (wantsUnlinkFromProject(msg)) {
       return runSkillAction('unlink_task', msg, pageContext);
+    }
+    const { detectCreateProjectFromQuoteEmailIntent } = await import('./project-from-quote-email.js');
+    if (detectCreateProjectFromQuoteEmailIntent(msg)) {
+      return runSkillAction('create_project_from_quote_email', msg, pageContext);
     }
     const skill = await matchSkill(msg);
     if (skill) return executeSkill(skill, msg, pageContext);

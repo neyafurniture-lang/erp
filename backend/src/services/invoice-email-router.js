@@ -77,7 +77,7 @@ export async function matchProjectFromRules(supplierId, keywords) {
   }
 
   const { rows: projects } = await pool.query(
-    `SELECT id, name FROM projects WHERE status = 'active' ORDER BY priority DESC, created_at DESC`
+    `SELECT id, name FROM projects WHERE status IN ('active', 'paused') ORDER BY priority DESC, created_at DESC`
   );
   for (const p of projects) {
     const pn = norm(p.name);
