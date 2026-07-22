@@ -104,6 +104,34 @@ export async function initDb() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS drive_access JSONB NOT NULL DEFAULT '[]'`);
   await pool.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS drive_folder_id TEXT');
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS employee_id INT REFERENCES employees(id) ON DELETE SET NULL');
+  // Colonnes « Mes heures » / shifts → time_entries (prod peut avoir la table sans shift_id)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS time_entries (
+      id SERIAL PRIMARY KEY,
+      employee_id INT REFERENCES employees(id) ON DELETE CASCADE,
+      project_id INT REFERENCES projects(id) ON DELETE SET NULL,
+      task_id INT REFERENCES tasks(id) ON DELETE SET NULL,
+      shift_id INT REFERENCES shifts(id) ON DELETE SET NULL,
+      started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ended_at TIMESTAMPTZ,
+      notes TEXT,
+      source TEXT DEFAULT 'manual',
+      created_by INT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query('ALTER TABLE time_entries ADD COLUMN IF NOT EXISTS shift_id INT REFERENCES shifts(id) ON DELETE SET NULL');
+  await pool.query('ALTER TABLE time_entries ADD COLUMN IF NOT EXISTS source TEXT DEFAULT \'manual\'');
+  await pool.query('ALTER TABLE time_entries ADD COLUMN IF NOT EXISTS created_by INT REFERENCES users(id) ON DELETE SET NULL');
+  await pool.query('ALTER TABLE time_entries ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()');
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_time_entries_shift_unique
+    ON time_entries(shift_id) WHERE shift_id IS NOT NULL
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_time_entries_employee_started
+    ON time_entries(employee_id, started_at DESC)
+  `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS time_off (
       id SERIAL PRIMARY KEY,
