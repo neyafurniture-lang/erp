@@ -133,6 +133,10 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
   const [clientId, setClientId] = useState(project.client_id ? String(project.client_id) : '');
   const [clientBusy, setClientBusy] = useState(false);
   const [clientMsg, setClientMsg] = useState('');
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState(project.name || '');
+  const [nameBusy, setNameBusy] = useState(false);
+  const nameInputRef = useRef(null);
   const custom = isCustomProject(project);
   const meta = typeof project.meta === 'string' ? JSON.parse(project.meta || '{}') : (project.meta || {});
   const standardMeta = project.standard_meta || null;
@@ -152,6 +156,17 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
   useEffect(() => {
     setClientId(project.client_id ? String(project.client_id) : '');
   }, [project.id, project.client_id]);
+
+  useEffect(() => {
+    if (!editingName) setNameDraft(project.name || '');
+  }, [project.id, project.name, editingName]);
+
+  useEffect(() => {
+    if (editingName && nameInputRef.current) {
+      nameInputRef.current.focus();
+      nameInputRef.current.select();
+    }
+  }, [editingName]);
 
   // Recharge le carnet depuis le serveur uniquement si pas de saisie locale non sauvée
   useEffect(() => {
@@ -313,6 +328,42 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
     }
   }
 
+  function startRename() {
+    setNameDraft(project.name || '');
+    setEditingName(true);
+  }
+
+  function cancelRename() {
+    setNameDraft(project.name || '');
+    setEditingName(false);
+  }
+
+  async function saveProjectName() {
+    if (nameBusy) return;
+    const next = String(nameDraft || '').trim();
+    if (!next) {
+      window.alert('Le nom du projet est requis');
+      return;
+    }
+    if (next === String(project.name || '').trim()) {
+      setEditingName(false);
+      return;
+    }
+    setNameBusy(true);
+    try {
+      await api(`/projects/${project.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name: next }),
+      });
+      setEditingName(false);
+      onReload();
+    } catch (err) {
+      window.alert(err.message || 'Impossible de renommer le projet');
+    } finally {
+      setNameBusy(false);
+    }
+  }
+
   function updateHourRow(idx, field, value) {
     setHoursRows(rows => {
       const next = rows.map((r, i) => (i === idx ? { ...r, [field]: value } : r));
@@ -465,9 +516,57 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
                 </span>
               )}
             </div>
-            <h1 className={`text-2xl sm:text-3xl font-medium tracking-tight ${normalizeProjectStatusValue(project.status) === 'done' ? 'text-neya-muted line-through' : 'text-neya-ink'}`}>
-              {project.name}
-            </h1>
+            {editingName ? (
+              <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                <input
+                  ref={nameInputRef}
+                  className="input text-2xl sm:text-3xl font-medium tracking-tight py-1.5 min-w-0 flex-1"
+                  value={nameDraft}
+                  disabled={nameBusy}
+                  onChange={e => setNameDraft(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      saveProjectName();
+                    }
+                    if (e.key === 'Escape') {
+                      e.preventDefault();
+                      cancelRename();
+                    }
+                  }}
+                  aria-label="Nom du projet"
+                />
+                <button
+                  type="button"
+                  className="btn-primary text-sm shrink-0"
+                  disabled={nameBusy}
+                  onClick={saveProjectName}
+                >
+                  {nameBusy ? '…' : 'Enregistrer'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary text-sm shrink-0"
+                  disabled={nameBusy}
+                  onClick={cancelRename}
+                >
+                  Annuler
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <h1 className={`text-2xl sm:text-3xl font-medium tracking-tight ${normalizeProjectStatusValue(project.status) === 'done' ? 'text-neya-muted line-through' : 'text-neya-ink'}`}>
+                  {project.name}
+                </h1>
+                <button
+                  type="button"
+                  onClick={startRename}
+                  className="text-sm text-neya-muted hover:text-neya-orange underline-offset-2 hover:underline shrink-0"
+                >
+                  Renommer
+                </button>
+              </div>
+            )}
           </div>
           <div className="shrink-0 flex flex-col sm:flex-row items-stretch gap-2">
             <button
