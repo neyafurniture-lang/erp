@@ -343,6 +343,8 @@ export async function initDb() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_social_posts_scheduled ON social_posts(scheduled_at)`);
 
   await pool.query(`ALTER TABLE admin_tasks ADD COLUMN IF NOT EXISTS priority_tier TEXT NOT NULL DEFAULT 'p2'`);
+  await pool.query(`UPDATE invoices SET status = 'partially_paid' WHERE status = 'partial'`);
+  await pool.query(`UPDATE projects SET status = 'paused' WHERE status = 'on_hold'`);
   await pool.query(`ALTER TABLE assistant_memories ADD COLUMN IF NOT EXISTS client_id INT REFERENCES clients(id) ON DELETE CASCADE`);
   await pool.query(`ALTER TABLE assistant_memories ADD COLUMN IF NOT EXISTS quote_id INT REFERENCES quotes(id) ON DELETE CASCADE`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_memories_client ON assistant_memories(client_id)`);
