@@ -137,6 +137,12 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
   const [nameDraft, setNameDraft] = useState(project.name || '');
   const [nameBusy, setNameBusy] = useState(false);
   const nameInputRef = useRef(null);
+  const [notesDraft, setNotesDraft] = useState(project.notes || '');
+  const [notesDirty, setNotesDirty] = useState(false);
+  const [notesSaveMsg, setNotesSaveMsg] = useState('');
+  const notesDirtyRef = useRef(false);
+  const notesAutosaveRef = useRef(null);
+  const notesSavedRef = useRef(project.notes || '');
   const custom = isCustomProject(project);
   const meta = typeof project.meta === 'string' ? JSON.parse(project.meta || '{}') : (project.meta || {});
   const standardMeta = project.standard_meta || null;
@@ -168,6 +174,19 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
     }
   }, [editingName]);
 
+  useEffect(() => {
+    if (notesDirtyRef.current) return;
+    const next = project.notes || '';
+    setNotesDraft(next);
+    notesSavedRef.current = next;
+    setNotesDirty(false);
+    setNotesSaveMsg('');
+  }, [project.id, project.notes]);
+
+  useEffect(() => {
+    notesDirtyRef.current = notesDirty;
+  }, [notesDirty]);
+
   // Recharge le carnet depuis le serveur uniquement si pas de saisie locale non sauvée
   useEffect(() => {
     if (hoursDirtyRef.current) return;
@@ -192,7 +211,7 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
 
   useEffect(() => {
     function onBeforeUnload(e) {
-      if (!hoursDirtyRef.current) return;
+      if (!hoursDirtyRef.current && !notesDirtyRef.current) return;
       e.preventDefault();
       e.returnValue = '';
     }
@@ -202,6 +221,7 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
 
   useEffect(() => () => {
     if (hoursAutosaveRef.current) clearTimeout(hoursAutosaveRef.current);
+    if (notesAutosaveRef.current) clearTimeout(notesAutosaveRef.current);
   }, []);
 
   function markHoursDirty(nextPeople, nextRows) {
@@ -361,6 +381,47 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
       window.alert(err.message || 'Impossible de renommer le projet');
     } finally {
       setNameBusy(false);
+    }
+  }
+
+  function scheduleNotesSave(value) {
+    setNotesDraft(value);
+    const dirty = value !== notesSavedRef.current;
+    setNotesDirty(dirty);
+    notesDirtyRef.current = dirty;
+    setNotesSaveMsg(dirty ? 'Modification…' : '');
+    if (notesAutosaveRef.current) clearTimeout(notesAutosaveRef.current);
+    if (!dirty) return;
+    notesAutosaveRef.current = setTimeout(() => {
+      saveProjectNotes(value);
+    }, 700);
+  }
+
+  async function saveProjectNotes(value = notesDraft) {
+    const next = value == null ? notesDraft : value;
+    if (next === notesSavedRef.current) {
+      setNotesDirty(false);
+      notesDirtyRef.current = false;
+      setNotesSaveMsg('');
+      return;
+    }
+    setNotesSaveMsg('Enregistrement…');
+    try {
+      await api(`/projects/${project.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ notes: next }),
+      });
+      notesSavedRef.current = next;
+      setNotesDirty(false);
+      notesDirtyRef.current = false;
+      setNotesSaveMsg('Enregistré');
+      // Pas de onReload immédiat : évite d’écraser la saisie en cours
+      setTimeout(() => {
+        if (!notesDirtyRef.current) setNotesSaveMsg('');
+      }, 1600);
+    } catch (err) {
+      setNotesSaveMsg('');
+      window.alert(err.message || 'Impossible d’enregistrer les notes');
     }
   }
 
@@ -803,10 +864,26 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
             </div>
 
             <div className="card-flat">
-              <p className="text-sm font-semibold text-neya-ink mb-3">Notes atelier</p>
-              <p className="text-sm text-neya-ink/80 whitespace-pre-wrap line-clamp-6">
-                {project.notes || 'Aucune note — ajoutez des instructions pour l\'atelier.'}
-              </p>
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <p className="text-sm font-semibold text-neya-ink">Notes atelier</p>
+                <div className="flex items-center gap-2">
+                  {notesSaveMsg ? (
+                    <span className="text-[11px] text-neya-muted">{notesSaveMsg}</span>
+                  ) : null}
+                  <button type="button" onClick={() => changeTab('notes')} className="text-xs text-neya-orange hover:underline">
+                    Agrandir →
+                  </button>
+                </div>
+              </div>
+              <textarea
+                className="input text-sm min-h-[110px] resize-y w-full"
+                placeholder="Instructions atelier, mesures, délais, points d’attention…"
+                value={notesDraft}
+                onChange={e => scheduleNotesSave(e.target.value)}
+                onBlur={() => {
+                  if (notesDirtyRef.current) saveProjectNotes();
+                }}
+              />
               {purchases?.length > 0 && (
                 <div className="mt-4 pt-4 border-t border-neya-border">
                   <p className="text-xs font-medium uppercase tracking-wide text-neya-muted mb-2">Achats liés</p>
@@ -1120,8 +1197,38 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
       )}
 
       {tab === 'notes' && (
-        <div className="card">
-          <p className="text-sm whitespace-pre-wrap">{project.notes || 'Aucune note'}</p>
+        <div className="card space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-neya-ink">Notes atelier</p>
+              <p className="text-xs text-neya-muted mt-0.5">
+                Saisie libre — enregistrement automatique
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {notesSaveMsg ? (
+                <span className="text-[12px] text-neya-muted">{notesSaveMsg}</span>
+              ) : null}
+              <button
+                type="button"
+                className="btn-secondary text-xs"
+                disabled={!notesDirty}
+                onClick={() => saveProjectNotes()}
+              >
+                Enregistrer
+              </button>
+            </div>
+          </div>
+          <textarea
+            className="input text-sm min-h-[280px] resize-y w-full"
+            placeholder="Instructions atelier, mesures, délais, points d’attention…"
+            value={notesDraft}
+            onChange={e => scheduleNotesSave(e.target.value)}
+            onBlur={() => {
+              if (notesDirtyRef.current) saveProjectNotes();
+            }}
+            autoFocus
+          />
         </div>
       )}
     </div>
