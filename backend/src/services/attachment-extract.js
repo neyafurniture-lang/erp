@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import zlib from 'zlib';
 import { fileURLToPath } from 'url';
 import { getOpenAIKey, getSetting, isAssistantAiEnabled } from './settings.js';
 import { extractDateFromText, normalizePurchaseDate } from './expense-date.js';
@@ -14,31 +15,92 @@ export function attachmentLocalPath(att) {
   return fs.existsSync(full) ? full : null;
 }
 
-function extractPdfStrings(buf) {
-  const raw = buf.toString('latin1');
-  const chunks = [];
+/** Rejette les fragments PDF binaires / bruit (évite d’injecter des octets dans le prompt Lia). */
+export function isReadablePdfChunk(s) {
+  const text = String(s || '');
+  if (text.length < 2) return false;
+  const controls = (text.match(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g) || []).length;
+  if (controls / text.length > 0.05) return false;
+  const printable = (text.match(/[\x20-\x7EÀ-ÿ\n\r\t]/g) || []).length;
+  if (printable / text.length < 0.75) return false;
+  return /[A-Za-zÀ-ÿ]{2,}/.test(text);
+}
+
+export function sanitizePdfExtractText(text) {
+  return String(text || '')
+    .split(/\n+/)
+    .map((line) => {
+      const raw = String(line || '');
+      if (!raw.trim()) return '';
+      const noisy = (raw.match(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g) || []).length
+        + (raw.match(/[\u0080-\u009f]/g) || []).length;
+      // Ligne majoritairement binaire / contrôle → jeter entièrement (évite « gzipgarbage »)
+      if (noisy / raw.length > 0.12) return '';
+      return raw.replace(/[^\x20-\x7EÀ-ÿ\t]/g, ' ').replace(/\s+/g, ' ').trim();
+    })
+    .filter(isReadablePdfChunk)
+    .join('\n')
+    .slice(0, 12000);
+}
+
+function decodePdfLiteral(raw) {
+  return String(raw || '')
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '')
+    .replace(/\\t/g, ' ')
+    .replace(/\\\(/g, '(')
+    .replace(/\\\)/g, ')')
+    .replace(/\\\\/g, '\\');
+}
+
+function collectPdfLiterals(raw, chunks) {
   const re = /\((?:\\.|[^\\)]){2,}\)/g;
   let m;
   while ((m = re.exec(raw)) !== null) {
-    let s = m[0].slice(1, -1)
-      .replace(/\\n/g, '\n')
-      .replace(/\\r/g, '')
-      .replace(/\\t/g, ' ')
-      .replace(/\\\(/g, '(')
-      .replace(/\\\)/g, ')')
-      .replace(/\\\\/g, '\\');
-    if (/[A-Za-zÀ-ÿ]{3,}/.test(s)) chunks.push(s);
+    const s = decodePdfLiteral(m[0].slice(1, -1));
+    if (isReadablePdfChunk(s)) chunks.push(s);
   }
-  // Streams with Tj / TJ operators often have readable fragments
   const tj = raw.match(/BT[\s\S]{0,8000}?ET/g) || [];
   for (const block of tj.slice(0, 40)) {
     const parts = block.match(/\((?:\\.|[^\\)])+\)/g) || [];
     for (const p of parts) {
-      const s = p.slice(1, -1).replace(/\\n/g, '\n').replace(/\\\(/g, '(').replace(/\\\)/g, ')');
-      if (/[A-Za-zÀ-ÿ0-9]{2,}/.test(s)) chunks.push(s);
+      const s = decodePdfLiteral(p.slice(1, -1));
+      if (isReadablePdfChunk(s)) chunks.push(s);
     }
   }
-  return [...new Set(chunks)].join('\n').slice(0, 12000);
+}
+
+/** Décompresse les flux FlateDecode pour récupérer le texte Tj/TJ. */
+export function inflatePdfStreams(buf) {
+  const raw = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '');
+  const inflated = [];
+  const re = /stream\r?\n([\s\S]*?)endstream/g;
+  let m;
+  while ((m = re.exec(raw)) !== null) {
+    const header = raw.slice(Math.max(0, m.index - 260), m.index);
+    if (header && !/FlateDecode|\/Fl\b/i.test(header) && /\/Filter/i.test(header)) {
+      continue;
+    }
+    const payload = Buffer.from(m[1].replace(/^\r?\n/, ''), 'latin1');
+    if (payload.length < 4) continue;
+    try {
+      inflated.push(zlib.inflateSync(payload).toString('latin1'));
+    } catch {
+      try {
+        inflated.push(zlib.inflateRawSync(payload).toString('latin1'));
+      } catch { /* flux non Flate / déjà brut */ }
+    }
+  }
+  return inflated.join('\n');
+}
+
+export function extractPdfStrings(buf) {
+  const raw = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '');
+  const chunks = [];
+  collectPdfLiterals(raw, chunks);
+  const inflated = inflatePdfStreams(buf);
+  if (inflated) collectPdfLiterals(inflated, chunks);
+  return sanitizePdfExtractText([...new Set(chunks)].join('\n'));
 }
 
 async function extractImageViaVision(filePath, mimeType) {
@@ -89,9 +151,28 @@ export async function extractAttachmentText(att) {
 
     if (type.includes('pdf') || ext === '.pdf') {
       const buf = fs.readFileSync(filePath);
+      // En-tête %PDF absent → fichier mal téléchargé / HTML d’erreur sauvegardé en .pdf
+      const looksLikePdf = buf.slice(0, 5).toString('utf8') === '%PDF-' || buf.includes(Buffer.from('%PDF-'));
+      if (!looksLikePdf) {
+        return {
+          name,
+          text: '',
+          source: 'pdf',
+          note: 'Fichier PDF corrompu ou mal extrait (pas un vrai PDF). Utilisez l’expéditeur du mail pour créer le contact.',
+          weak: true,
+        };
+      }
       const text = extractPdfStrings(buf);
-      if (text.length > 80) return { name, text, source: 'pdf' };
-      return { name, text: text || '', source: 'pdf', note: 'PDF peu extractible — décrivez le contenu ou joignez une capture.' };
+      if (text.length > 80) return { name, text, source: 'pdf', weak: false };
+      return {
+        name,
+        text: text || '',
+        source: 'pdf',
+        note: text
+          ? 'PDF partiellement lisible — complétez avec l’expéditeur du courriel si besoin.'
+          : 'PDF peu extractible — utilisez l’expéditeur du mail ou joignez une capture.',
+        weak: true,
+      };
     }
 
     if (type.startsWith('image/') || ['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext)) {

@@ -228,6 +228,11 @@ AUTONOMIE — tu DOIS agir seule sans demander de cliquer dans l'ERP :
    - import_email_attachment {"query":"olive facturation"} — cherche le mail, lit la PJ, enregistre dépense/facture (NE PAS demander de joindre le fichier)
    - scan_mail_invoice_todos {"days":30} — scanne les dernières factures Gmail + ERP et crée des todos admin « À payer — Olive », « À recevoir — … »
    - list_mail_threads pour les fils déjà liés ERP
+9a. CONTACT DEPUIS MAIL / PDF — si l'utilisateur demande un nouveau contact/client après un mail :
+   - Utilise create_client avec name + email (et phone/address/city si connus).
+   - Ex. {"type":"create_client","params":{"name":"Olive Richardson","email":"olive_richardson@yahoo.com","from":"Olive Richardson <olive_richardson@yahoo.com>"}}
+   - Si le PDF est illisible / corrompu, crée quand même le contact depuis l'expéditeur (From) du mail — ne bloque PAS sur le PDF.
+   - Prefère import_email_attachment {"query":"…"} quand la consigne combine chercher mail + analyser PJ + créer contact (le backend crée le client si demandé).
 9b. FACTURES ADMIN — si l'utilisateur parle de classer / à payer / à recevoir / Olive a envoyé sa facture,
     utilise scan_mail_invoice_todos (pas seulement import). Les todos vont dans /admin (catégories a_payer / a_recevoir).
 10. FICHIERS / PIÈCES JOINTES — dès qu'un fichier est joint AU CHAT, le système le LIT, CLASSE et RANGE.
@@ -256,6 +261,8 @@ Exemples params :
 - {"type":"list_emails","params":{"max":10}}
 - {"type":"search_emails","params":{"query":"facture Home Depot"}}
 - {"type":"get_email","params":{"index":1}}
+- {"type":"create_client","params":{"name":"Olive Richardson","email":"olive_richardson@yahoo.com","from":"Olive Richardson <olive_richardson@yahoo.com>"}}
+- {"type":"import_email_attachment","params":{"query":"iaem"}}
 - {"type":"create_fabrication_plan","params":{"project_name":"Banc Olive","steps":[{"title":"Débitage","type":"debitage"},{"title":"Assemblage","type":"assemblage"},{"title":"Finition","type":"finition"}],"notes":"Infos du mail client"}}
 - {"type":"update_quote","params":{"add_line":"Caissons chêne","qty":1,"price":2400}}
 - {"type":"update_quote","params":{"line_match":"table","price":1800}}
