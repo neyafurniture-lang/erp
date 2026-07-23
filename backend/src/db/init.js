@@ -508,11 +508,18 @@ async function seedV2Extensions() {
   // Compte Mehdi — administrateur (owner)
   // Mot de passe par défaut 31250 (surcharge : MEHDI_PASSWORD).
   // Réinit mdp si compte déjà présent : RESET_MEHDI_PASSWORD=1
+  // Si AUCUN admin actif → forcer création / promotion (évite le deadlock UI).
   const { rows: mehdiEmp } = await pool.query(`SELECT id FROM employees WHERE name = 'Mehdi' LIMIT 1`);
   const mehdiEmail = 'mehdi@neya.local';
   const mehdiPassword = process.env.MEHDI_PASSWORD || '31250';
   const { rows: mehdiUser } = await pool.query('SELECT id FROM users WHERE email = $1', [mehdiEmail]);
   const mehdiEmployeeId = mehdiEmp[0]?.id || null;
+  const { rows: adminCountRows } = await pool.query(
+    `SELECT COUNT(*)::int AS n FROM users WHERE role = 'admin' AND COALESCE(active, true) = true`
+  );
+  const noActiveAdmin = (adminCountRows[0]?.n || 0) === 0;
+  const resetPw = process.env.RESET_MEHDI_PASSWORD === '1' || noActiveAdmin;
+
   if (mehdiUser.length === 0) {
     const mehdiHash = await bcrypt.hash(mehdiPassword, 12);
     await pool.query(
@@ -521,28 +528,29 @@ async function seedV2Extensions() {
       ['Mehdi', mehdiEmail, mehdiHash, JSON.stringify(['*']), mehdiEmployeeId]
     );
     console.log('Compte Mehdi admin créé: mehdi@neya.local');
+  } else if (resetPw) {
+    const mehdiHash = await bcrypt.hash(mehdiPassword, 12);
+    await pool.query(
+      `UPDATE users
+       SET name = 'Mehdi', role = 'admin', permissions = '["*"]'::jsonb, active = true,
+           password_hash = $1, employee_id = COALESCE(employee_id, $2)
+       WHERE email = $3`,
+      [mehdiHash, mehdiEmployeeId, mehdiEmail]
+    );
+    console.log(
+      noActiveAdmin
+        ? 'Aucun admin actif — Mehdi promu admin (mot de passe réinitialisé)'
+        : 'Compte Mehdi admin mis à jour (mot de passe réinitialisé)'
+    );
   } else {
-    const resetPw = process.env.RESET_MEHDI_PASSWORD === '1';
-    if (resetPw) {
-      const mehdiHash = await bcrypt.hash(mehdiPassword, 12);
-      await pool.query(
-        `UPDATE users
-         SET name = 'Mehdi', role = 'admin', permissions = '["*"]'::jsonb, active = true,
-             password_hash = $1, employee_id = COALESCE(employee_id, $2)
-         WHERE email = $3`,
-        [mehdiHash, mehdiEmployeeId, mehdiEmail]
-      );
-      console.log('Compte Mehdi admin mis à jour (mot de passe réinitialisé)');
-    } else {
-      await pool.query(
-        `UPDATE users
-         SET name = 'Mehdi', role = 'admin', permissions = '["*"]'::jsonb, active = true,
-             employee_id = COALESCE(employee_id, $1)
-         WHERE email = $2`,
-        [mehdiEmployeeId, mehdiEmail]
-      );
-      console.log('Compte Mehdi confirmé admin: mehdi@neya.local');
-    }
+    await pool.query(
+      `UPDATE users
+       SET name = 'Mehdi', role = 'admin', permissions = '["*"]'::jsonb, active = true,
+           employee_id = COALESCE(employee_id, $1)
+       WHERE email = $2`,
+      [mehdiEmployeeId, mehdiEmail]
+    );
+    console.log('Compte Mehdi confirmé admin: mehdi@neya.local');
   }
 }
 

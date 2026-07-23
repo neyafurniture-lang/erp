@@ -7,6 +7,7 @@ import { rateLimit } from '../middleware/security.js';
 import { validatePassword } from '../config.js';
 
 import { sanitizeUser } from '../config/permissions.js';
+import { bootstrapFirstAdmin, needsAdminSetup } from '../services/bootstrap-admin.js';
 
 const router = Router();
 
@@ -17,6 +18,50 @@ const loginLimiter = rateLimit({
   windowMs: 15 * 60_000,
   max: 8,
   keyFn: (req) => `${req.ip || 'ip'}:${String(req.body?.email || '').toLowerCase()}`,
+});
+
+const setupLimiter = rateLimit({
+  windowMs: 60 * 60_000,
+  max: 5,
+  keyFn: (req) => `${req.ip || 'ip'}:setup`,
+});
+
+/** Public — true si aucun admin actif (écran « premier compte »). */
+router.get('/setup-status', async (_req, res) => {
+  try {
+    const needs_setup = await needsAdminSetup();
+    res.json({
+      needs_setup,
+      default_name: 'Mehdi',
+      default_email: 'mehdi@neya.local',
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Erreur serveur' });
+  }
+});
+
+/**
+ * Public — crée le premier administrateur uniquement s’il n’en existe aucun.
+ * Résout le deadlock « il faut un admin pour créer un admin ».
+ */
+router.post('/setup', setupLimiter, async (req, res) => {
+  try {
+    const name = String(req.body?.name || 'Mehdi').trim();
+    const email = String(req.body?.email || 'mehdi@neya.local').trim().toLowerCase();
+    const password = String(req.body?.password || '');
+
+    const user = await bootstrapFirstAdmin({ name, email, password });
+    const token = signToken(user);
+    touchErpActivity({ userId: user.id, path: '/api/auth/setup', force: true }).catch(() => {});
+    res.status(201).json({
+      token,
+      user: sanitizeUser(user),
+      message: 'Premier administrateur créé — vous êtes connecté.',
+    });
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({ error: err.message || 'Erreur de configuration' });
+  }
 });
 
 router.post('/login', loginLimiter, async (req, res) => {
