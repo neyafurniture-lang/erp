@@ -110,12 +110,9 @@ export default function Sidebar() {
   return (
     <aside className="neya-sidebar hidden lg:flex fixed left-0 top-0 h-full w-[var(--sidebar-w)] flex-col z-40">
       <div className="neya-sidebar-brand">
-        <NeyaMark />
         <div className="min-w-0">
-          <p className="truncate font-display text-[15px] font-semibold leading-tight text-neya-ink">
-            NEYA <span className="text-neya-orange">ERP</span>
-          </p>
-          <p className="neya-sidebar-tagline">Atelier Furniture</p>
+          <NeyaMark className="h-9 w-auto max-w-[148px]" />
+          <p className="neya-sidebar-tagline mt-0.5">Atelier Furniture</p>
         </div>
       </div>
 

@@ -24,7 +24,7 @@ export default function AppShell({
       <MobileNav />
 
       <div className="lg:hidden sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-neya-border px-4 h-14 flex items-center gap-3">
-        <NeyaMark className="h-8 w-8 shrink-0" />
+        <NeyaMark className="h-7 w-auto shrink-0 max-w-[110px]" />
         {title && <h1 className="text-sm font-display font-semibold text-neya-ink truncate flex-1">{title}</h1>}
       </div>
 

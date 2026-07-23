@@ -513,7 +513,13 @@ export default function StandardFicheView({ standard, onStandardChange, onCreate
       </div>
       <div className="bg-white rounded-2xl border-2 border-neya-orange/30 overflow-hidden mb-6">
         <div className="bg-neya-cream px-6 py-4 border-b border-neya-border">
-          <p className="text-[10px] tracking-[0.2em] uppercase text-neya-muted">Neya — Fiche fabrication</p>
+          <img
+            src="/brand/logo-orange.png"
+            alt="Neya"
+            className="h-7 w-auto mb-2"
+            draggable={false}
+          />
+          <p className="text-[10px] tracking-[0.2em] uppercase text-neya-muted">Fiche fabrication</p>
           <div className="flex items-start justify-between gap-4 mt-2">
             <div>
               {sku && (

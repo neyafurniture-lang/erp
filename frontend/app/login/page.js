@@ -92,11 +92,8 @@ export default function LoginPage() {
   return (
     <div className="grid min-h-screen min-h-[100dvh] lg:grid-cols-[1fr_1.1fr]">
       <div className="flex flex-col justify-between px-6 py-10 sm:px-10 lg:px-16 bg-white">
-        <div className="flex items-center gap-3">
-          <NeyaMark />
-          <p className="font-display text-[15px] font-semibold text-neya-ink">
-            NEYA <span className="text-neya-orange">ERP</span>
-          </p>
+        <div className="flex items-center">
+          <NeyaMark className="h-10 w-auto max-w-[168px]" />
         </div>
 
         <div className="mx-auto w-full max-w-sm py-10">
@@ -196,9 +193,12 @@ export default function LoginPage() {
       <div className="relative hidden overflow-hidden bg-neya-ink text-white lg:block grain">
         <div className="absolute inset-0 bg-gradient-to-br from-neya-ink via-neya-ink to-neya-orange/40" />
         <div className="relative z-10 flex h-full flex-col justify-between p-16">
-          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-neya-orange">
-            <span className="h-1.5 w-1.5 rounded-full bg-neya-orange" />
-            En atelier · {nowLabel}
+          <div className="flex items-center justify-between gap-4">
+            <NeyaMark className="h-11 w-auto max-w-[190px]" alt="Neya" />
+            <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-neya-orange">
+              <span className="h-1.5 w-1.5 rounded-full bg-neya-orange" />
+              En atelier · {nowLabel}
+            </div>
           </div>
 
           <blockquote className="max-w-md">

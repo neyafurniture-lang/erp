@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { FolderKanban, Hammer, LayoutDashboard, Mail, MoreHorizontal } from 'lucide-react';
 import { useAuth } from '../lib/auth-context';
 import { canAccessHours, canAccessPath, hasPermission } from '../lib/permissions';
+import NeyaMark from './NeyaMark';
 
 const TABS = [
   { href: '/', label: 'Accueil', permission: 'dashboard', Icon: LayoutDashboard },
@@ -119,8 +120,8 @@ export default function MobileNav() {
           <div className="mobile-menu-sheet relative mt-auto flex flex-col bg-white rounded-t-2xl shadow-lg max-h-[88dvh] animate-mobile-sheet-in">
             <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-neya-border shrink-0">
               <div>
-                <p className="text-base font-display font-semibold text-neya-ink">Menu</p>
-                <p className="text-xs text-neya-muted mt-0.5">Tout l’ERP</p>
+                <NeyaMark className="h-7 w-auto max-w-[120px]" />
+                <p className="text-xs text-neya-muted mt-1">Tout l’ERP</p>
               </div>
               <button
                 type="button"
