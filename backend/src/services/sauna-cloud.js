@@ -2,7 +2,27 @@ import pool from '../db/pool.js';
 
 export const SAUNA_CLOUD_PROJECT_NAME = 'Sauna Cloud';
 
-/** Frames / étapes de fabrication par défaut pour Sauna Cloud */
+/** Catalogue production Sauna Cloud — qty = commande totale */
+export const SAUNA_FRAME_CATALOG = [
+  { sku: 'H2013', label: '20" × 13" Underbench', qty: 20 },
+  { sku: 'H2026', label: '20" × 26" Standard', qty: 20 },
+  { sku: 'H2226', label: '22" × 26" Standard', qty: 10 },
+  { sku: 'H2626', label: '26" × 26" Standard', qty: 10 },
+  { sku: 'H3313', label: '33" × 13" Underbench', qty: 10 },
+  { sku: 'H3326', label: '33" × 26" Standard', qty: 10 },
+  { sku: 'H3726', label: '37" × 26" Standard', qty: 10 },
+  { sku: 'FS750', label: 'Full-spectrum', qty: 10 },
+];
+
+/** Étapes atelier (colonnes du tableau) */
+export const SAUNA_FRAME_STAGES = [
+  { key: 'debited', label: 'Débité' },
+  { key: 'in_progress', label: 'En cours' },
+  { key: 'done', label: 'Terminé' },
+  { key: 'delivered', label: 'Livré' },
+];
+
+/** Anciennes tâches checklist (conservées si déjà créées) */
 export const DEFAULT_SAUNA_FRAMES = [
   { title: 'Frame base / plancher', type: 'assemblage' },
   { title: 'Frame mur avant', type: 'assemblage' },
@@ -15,56 +35,173 @@ export const DEFAULT_SAUNA_FRAMES = [
   { title: 'Assemblage final & contrôle', type: 'finition' },
 ];
 
-export async function ensureSaunaCloudProject() {
+function parseMeta(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'object') return { ...raw };
+  try {
+    return JSON.parse(raw) || {};
+  } catch {
+    return {};
+  }
+}
+
+function clampInt(n, max = 9999) {
+  const v = Math.round(Number(n) || 0);
+  if (!Number.isFinite(v) || v < 0) return 0;
+  return Math.min(v, max);
+}
+
+function emptyCounts() {
+  const counts = {};
+  for (const s of SAUNA_FRAME_STAGES) counts[s.key] = 0;
+  return counts;
+}
+
+export function defaultTrackerRows() {
+  return SAUNA_FRAME_CATALOG.map((row) => ({
+    sku: row.sku,
+    label: row.label,
+    qty: row.qty,
+    counts: emptyCounts(),
+  }));
+}
+
+/** Fusionne catalogue + sauvegarde meta (préserve les compteurs). */
+export function normalizeTracker(saved) {
+  const bySku = new Map();
+  const list = Array.isArray(saved?.frames) ? saved.frames : Array.isArray(saved) ? saved : [];
+  for (const row of list) {
+    const sku = String(row?.sku || '').trim().toUpperCase();
+    if (!sku) continue;
+    const counts = emptyCounts();
+    const raw = row.counts && typeof row.counts === 'object' ? row.counts : row;
+    for (const s of SAUNA_FRAME_STAGES) {
+      counts[s.key] = clampInt(raw[s.key]);
+    }
+    bySku.set(sku, {
+      sku,
+      label: String(row.label || '').trim(),
+      qty: clampInt(row.qty, 99999),
+      counts,
+    });
+  }
+
+  const frames = SAUNA_FRAME_CATALOG.map((cat) => {
+    const prev = bySku.get(cat.sku);
+    return {
+      sku: cat.sku,
+      label: prev?.label || cat.label,
+      qty: prev?.qty > 0 ? prev.qty : cat.qty,
+      counts: prev?.counts || emptyCounts(),
+    };
+  });
+
+  // SKUs custom ajoutés hors catalogue
+  for (const [sku, row] of bySku) {
+    if (frames.some((f) => f.sku === sku)) continue;
+    frames.push({
+      sku,
+      label: row.label || sku,
+      qty: row.qty || 0,
+      counts: row.counts,
+    });
+  }
+
+  return { frames, stages: SAUNA_FRAME_STAGES };
+}
+
+export function enrichTrackerRow(row) {
+  const placed = SAUNA_FRAME_STAGES.reduce((s, st) => s + (Number(row.counts?.[st.key]) || 0), 0);
+  const remaining = Math.max(0, (Number(row.qty) || 0) - placed);
+  return { ...row, remaining, placed };
+}
+
+export function summarizeTracker(tracker) {
+  const frames = (tracker.frames || []).map(enrichTrackerRow);
+  const qty = frames.reduce((s, f) => s + (f.qty || 0), 0);
+  const delivered = frames.reduce((s, f) => s + (f.counts?.delivered || 0), 0);
+  const done = frames.reduce((s, f) => s + (f.counts?.done || 0), 0);
+  const inProgress = frames.reduce((s, f) => s + (f.counts?.in_progress || 0), 0);
+  const debited = frames.reduce((s, f) => s + (f.counts?.debited || 0), 0);
+  const remaining = frames.reduce((s, f) => s + (f.remaining || 0), 0);
+  const finishedLike = delivered + done;
+  const pct = qty ? Math.round((finishedLike / qty) * 100) : 0;
+  return {
+    frames,
+    stages: SAUNA_FRAME_STAGES,
+    totals: { qty, remaining, debited, in_progress: inProgress, done, delivered, pct },
+  };
+}
+
+async function loadProject(projectId = null) {
+  if (projectId) {
+    const { rows } = await pool.query('SELECT * FROM projects WHERE id = $1', [projectId]);
+    return rows[0] || null;
+  }
   const { rows } = await pool.query(
     `SELECT * FROM projects
-     WHERE LOWER(TRIM(name)) IN ('sauna cloud', 'sonacloud', 'sauna cloud ')
+     WHERE LOWER(TRIM(name)) IN ('sauna cloud', 'saunacloud', 'sonacloud')
      ORDER BY id ASC
      LIMIT 1`
   );
+  return rows[0] || null;
+}
 
-  let project = rows[0];
+async function ensureTrackerOnProject(project) {
+  const meta = parseMeta(project.meta);
+  if (meta.sauna_frame_tracker?.frames?.length) {
+    return normalizeTracker(meta.sauna_frame_tracker);
+  }
+  const tracker = normalizeTracker(defaultTrackerRows());
+  meta.sauna_frame_tracker = { frames: tracker.frames, updated_at: new Date().toISOString() };
+  await pool.query('UPDATE projects SET meta = $1::jsonb WHERE id = $2', [
+    JSON.stringify(meta),
+    project.id,
+  ]);
+  return tracker;
+}
+
+export async function ensureSaunaCloudProject() {
+  let project = await loadProject();
   if (!project) {
     const { rows: created } = await pool.query(
-      `INSERT INTO projects (name, status, notes, budget_estimated)
-       VALUES ($1, 'active', $2, 0)
+      `INSERT INTO projects (name, status, notes, budget_estimated, meta)
+       VALUES ($1, 'active', $2, 0, $3::jsonb)
        RETURNING *`,
       [
         SAUNA_CLOUD_PROJECT_NAME,
-        'Suivi fabrication Sauna Cloud — cocher les frames au fur et à mesure.',
+        'Suivi fabrication Sauna Cloud — tableau frames (débit → livraison).',
+        JSON.stringify({
+          sauna_frame_tracker: {
+            frames: defaultTrackerRows(),
+            updated_at: new Date().toISOString(),
+          },
+        }),
       ]
     );
     project = created[0];
   }
 
+  await ensureTrackerOnProject(project);
+
+  // Checklist tâches optionnelle (ne crée plus les anciennes frames mur si vide)
   const { rows: tasks } = await pool.query(
-    `SELECT * FROM tasks WHERE project_id = $1 ORDER BY sort_order ASC, id ASC`,
+    `SELECT id FROM tasks WHERE project_id = $1 LIMIT 1`,
     [project.id]
   );
-
   if (tasks.length === 0) {
-    for (let i = 0; i < DEFAULT_SAUNA_FRAMES.length; i++) {
-      const f = DEFAULT_SAUNA_FRAMES[i];
-      await pool.query(
-        `INSERT INTO tasks (project_id, title, type, status, estimated_minutes, sort_order, description)
-         VALUES ($1, $2, $3, 'todo', 120, $4, '')`,
-        [project.id, f.title, f.type, i]
-      );
-    }
+    // pas de seed tâches — le tracker quantité est la source de vérité
   }
 
   return getSaunaCloudBoard(project.id);
 }
 
 export async function getSaunaCloudBoard(projectId = null) {
-  let project;
-  if (projectId) {
-    const { rows } = await pool.query('SELECT * FROM projects WHERE id = $1', [projectId]);
-    project = rows[0];
-  }
-  if (!project) {
-    return ensureSaunaCloudProject();
-  }
+  let project = await loadProject(projectId);
+  if (!project) return ensureSaunaCloudProject();
+
+  const trackerRaw = await ensureTrackerOnProject(project);
+  const tracker = summarizeTracker(trackerRaw);
 
   const { rows: frames } = await pool.query(
     `SELECT id, project_id, title, description, type, status, sort_order, estimated_minutes,
@@ -75,9 +212,7 @@ export async function getSaunaCloudBoard(projectId = null) {
     [project.id]
   );
 
-  const done = frames.filter(f => f.status === 'done').length;
-  const total = frames.length;
-  const pct = total ? Math.round((done / total) * 100) : 0;
+  const doneTasks = frames.filter((f) => f.status === 'done').length;
 
   return {
     project: {
@@ -88,9 +223,92 @@ export async function getSaunaCloudBoard(projectId = null) {
       deadline: project.deadline,
       client_id: project.client_id,
     },
+    tracker,
     frames,
-    progress: { done, total, pct },
+    progress: {
+      done: tracker.totals.delivered + tracker.totals.done,
+      total: tracker.totals.qty,
+      pct: tracker.totals.pct,
+      remaining: tracker.totals.remaining,
+      tasks_done: doneTasks,
+      tasks_total: frames.length,
+    },
   };
+}
+
+export async function updateFrameTracker(projectId, payload = {}) {
+  const { rows } = await pool.query('SELECT * FROM projects WHERE id = $1', [projectId]);
+  if (!rows[0]) throw new Error('Projet Sauna Cloud introuvable');
+
+  const meta = parseMeta(rows[0].meta);
+  const current = normalizeTracker(meta.sauna_frame_tracker || defaultTrackerRows());
+
+  let nextFrames = current.frames;
+
+  if (Array.isArray(payload.frames)) {
+    nextFrames = normalizeTracker({ frames: payload.frames }).frames;
+  } else if (payload.sku) {
+    const sku = String(payload.sku).trim().toUpperCase();
+    nextFrames = current.frames.map((row) => {
+      if (row.sku !== sku) return row;
+      const counts = { ...row.counts };
+      if (payload.counts && typeof payload.counts === 'object') {
+        for (const s of SAUNA_FRAME_STAGES) {
+          if (payload.counts[s.key] !== undefined) counts[s.key] = clampInt(payload.counts[s.key]);
+        }
+      } else {
+        for (const s of SAUNA_FRAME_STAGES) {
+          if (payload[s.key] !== undefined) counts[s.key] = clampInt(payload[s.key]);
+        }
+      }
+      const qty = payload.qty !== undefined ? clampInt(payload.qty, 99999) : row.qty;
+      const label = payload.label !== undefined ? String(payload.label).trim() || row.label : row.label;
+      return { sku: row.sku, label, qty, counts };
+    });
+    if (!nextFrames.some((f) => f.sku === sku) && payload.label) {
+      const counts = emptyCounts();
+      if (payload.counts && typeof payload.counts === 'object') {
+        for (const s of SAUNA_FRAME_STAGES) {
+          if (payload.counts[s.key] !== undefined) counts[s.key] = clampInt(payload.counts[s.key]);
+        }
+      }
+      nextFrames.push({
+        sku,
+        label: String(payload.label).trim(),
+        qty: clampInt(payload.qty, 99999),
+        counts,
+      });
+    }
+  } else {
+    throw new Error('Indiquez frames[] ou sku + compteurs');
+  }
+
+  meta.sauna_frame_tracker = {
+    frames: nextFrames,
+    updated_at: new Date().toISOString(),
+  };
+
+  await pool.query('UPDATE projects SET meta = $1::jsonb WHERE id = $2', [
+    JSON.stringify(meta),
+    projectId,
+  ]);
+
+  return getSaunaCloudBoard(projectId);
+}
+
+export async function resetFrameTracker(projectId) {
+  const { rows } = await pool.query('SELECT * FROM projects WHERE id = $1', [projectId]);
+  if (!rows[0]) throw new Error('Projet Sauna Cloud introuvable');
+  const meta = parseMeta(rows[0].meta);
+  meta.sauna_frame_tracker = {
+    frames: defaultTrackerRows(),
+    updated_at: new Date().toISOString(),
+  };
+  await pool.query('UPDATE projects SET meta = $1::jsonb WHERE id = $2', [
+    JSON.stringify(meta),
+    projectId,
+  ]);
+  return getSaunaCloudBoard(projectId);
 }
 
 export async function setFrameStatus(frameId, status) {

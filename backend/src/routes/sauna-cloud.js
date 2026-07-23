@@ -5,9 +5,11 @@ import {
   ensureSaunaCloudProject,
   getSaunaCloudBoard,
   renameFrame,
+  resetFrameTracker,
   setFrameNotes,
   setFrameStatus,
   setProjectNotes,
+  updateFrameTracker,
 } from '../services/sauna-cloud.js';
 
 const router = Router();
@@ -25,6 +27,29 @@ router.patch('/notes', async (req, res) => {
     const board = await ensureSaunaCloudProject();
     const project = await setProjectNotes(board.project.id, req.body?.notes);
     res.json({ project, board: await getSaunaCloudBoard(project.id) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/** Tableau frames : qty par étape (débité / en cours / terminé / livré) */
+router.patch('/tracker', async (req, res) => {
+  try {
+    const board = await ensureSaunaCloudProject();
+    const next = await updateFrameTracker(board.project.id, req.body || {});
+    res.json(next);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/tracker/reset', async (req, res) => {
+  try {
+    const board = await ensureSaunaCloudProject();
+    if (!req.body?.confirm) {
+      return res.status(400).json({ error: 'Confirmez avec { "confirm": true }' });
+    }
+    res.json(await resetFrameTracker(board.project.id));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
