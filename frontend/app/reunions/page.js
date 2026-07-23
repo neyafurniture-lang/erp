@@ -49,11 +49,11 @@ export default function ReunionsPage() {
     return () => window.removeEventListener('focus', onFocus);
   }, [refresh]);
 
-  const launch = () => {
+  const launch = async () => {
     openMeetingWindow({ viewingId: null });
     const st = getMeetingState();
     if (!st.listening) {
-      startMeetingRecording({ clear: !st.transcript });
+      await startMeetingRecording({ clear: !st.transcript });
     }
   };
 
@@ -76,8 +76,8 @@ export default function ReunionsPage() {
                   </h2>
                   <p className="mt-2 text-[14px] text-neya-muted leading-relaxed">
                     Une seule fenêtre flottante. Changez de page dans l’ERP : l’enregistrement
-                    continue. Transcription navigateur (pas d’IA), sauvée au fil de l’eau sur cet
-                    appareil.
+                    continue. Transcription navigateur (dictée Safari / Chrome), sauvée au fil de
+                    l’eau — plus une piste audio de secours sur Safari.
                   </p>
                 </div>
                 <div className="flex flex-col gap-2 shrink-0">
@@ -108,8 +108,8 @@ export default function ReunionsPage() {
             </div>
             <div className="grid sm:grid-cols-3 gap-px bg-neya-border border-t border-neya-border">
               {[
-                { t: 'Speak-to-text', d: 'Chrome / Edge · fr-CA · micro navigateur' },
-                { t: 'Anti-perte', d: 'Chaque phrase finalisée est écrite tout de suite' },
+                { t: 'Speak-to-text', d: 'Safari / Chrome · fr-CA · dictée système' },
+                { t: 'Anti-perte', d: 'Texte écrit tout de suite + audio secours' },
                 { t: 'Fenêtre fixe', d: 'Réduire ou naviguer sans couper le micro' },
               ].map((item) => (
                 <div key={item.t} className="bg-white px-4 py-3.5">

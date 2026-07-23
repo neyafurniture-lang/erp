@@ -12,15 +12,18 @@ import {
   Play,
   RotateCcw,
   FileText,
+  Download,
 } from 'lucide-react';
 import {
   clearMeetingDraft,
   clearMeetingError,
+  downloadMeetingAudio,
   getFullMeetingText,
   getMeetingState,
   getSavedMeeting,
   hydrateMeetingFromStorage,
   isMeetingSpeechSupported,
+  isSafariMeetingBrowser,
   saveMeetingToHistory,
   setMeetingTitle,
   setMeetingTranscript,
@@ -60,6 +63,7 @@ export default function MeetingSynthesisWindow() {
   const [savedFlash, setSavedFlash] = useState(false);
   const [tick, setTick] = useState(0);
   const [editTitle, setEditTitle] = useState('');
+  const [busy, setBusy] = useState(false);
   const scrollRef = useRef(null);
   const hydrated = useRef(false);
 
@@ -67,6 +71,7 @@ export default function MeetingSynthesisWindow() {
   const viewing = ui.viewingId ? getSavedMeeting(ui.viewingId) : null;
   const readOnly = Boolean(viewing);
   const supported = typeof window !== 'undefined' && isMeetingSpeechSupported();
+  const safari = typeof window !== 'undefined' && isSafariMeetingBrowser();
 
   useEffect(() => {
     if (hydrated.current) return;
@@ -98,17 +103,34 @@ export default function MeetingSynthesisWindow() {
   const duration = formatDuration(session.startedAt, session.listening);
   void tick;
 
-  const onLaunch = () => {
-    const title = editTitle.trim();
-    startMeetingRecording({ title, clear: !session.id || !session.transcript });
+  const onLaunch = async () => {
+    setBusy(true);
+    try {
+      await startMeetingRecording({
+        title: editTitle.trim(),
+        clear: !session.id || !session.transcript,
+      });
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const onStop = () => {
-    stopMeetingRecording();
+  const onStop = async () => {
+    setBusy(true);
+    try {
+      await stopMeetingRecording();
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const onResume = () => {
-    startMeetingRecording({ title: editTitle.trim(), clear: false });
+  const onResume = async () => {
+    setBusy(true);
+    try {
+      await startMeetingRecording({ title: editTitle.trim(), clear: false });
+    } finally {
+      setBusy(false);
+    }
   };
 
   const onSave = () => {
@@ -133,20 +155,20 @@ export default function MeetingSynthesisWindow() {
     }
   };
 
-  const onNew = () => {
-    if (session.listening) stopMeetingRecording();
+  const onNew = async () => {
+    if (session.listening) await stopMeetingRecording();
     if (session.transcript && !window.confirm('Effacer la transcription en cours ?')) return;
-    clearMeetingDraft();
+    await clearMeetingDraft();
     setEditTitle('');
   };
 
-  const onClose = () => {
+  const onClose = async () => {
     if (session.listening) {
       if (!window.confirm('L’enregistrement continue en arrière-plan si vous réduisez. Fermer quand même (arrêt) ?')) {
         minimizeMeetingWindow();
         return;
       }
-      stopMeetingRecording();
+      await stopMeetingRecording();
     }
     closeMeetingWindow();
   };
@@ -203,9 +225,11 @@ export default function MeetingSynthesisWindow() {
             {readOnly
               ? viewing?.title || 'Lecture'
               : session.listening
-                ? `Live · ${duration} · texte sauvé au fil de l’eau`
+                ? `Live · ${duration}${safari ? ' · mode Safari' : ''} · sauvé au fil de l’eau`
                 : supported
-                  ? 'Speak-to-text navigateur · sans IA'
+                  ? safari
+                    ? 'Safari · dictée Apple + secours audio'
+                    : 'Speak-to-text navigateur · sans IA'
                   : 'Navigateur non supporté'}
           </p>
         </div>
@@ -255,6 +279,14 @@ export default function MeetingSynthesisWindow() {
           </div>
         )}
 
+        {safari && !readOnly && !session.listening && (
+          <p className="rounded-lg border border-amber-200/80 bg-amber-50 px-3 py-2 text-[11.5px] text-amber-900/90 leading-snug">
+            Safari : autorisez le micro, parlez clairement. Si la dictée saute, le texte déjà écrit
+            reste + piste audio téléchargeable en secours. Désactivez « Écouter Siri » si rien
+            n’apparaît.
+          </p>
+        )}
+
         {!readOnly && (
           <div className="flex flex-wrap gap-2">
             {!session.listening ? (
@@ -263,16 +295,17 @@ export default function MeetingSynthesisWindow() {
                   type="button"
                   className="btn-primary inline-flex items-center gap-1.5 text-[13px] disabled:opacity-50"
                   onClick={session.transcript ? onResume : onLaunch}
-                  disabled={!supported}
+                  disabled={!supported || busy}
                 >
                   <Play className="h-3.5 w-3.5" />
-                  {session.transcript ? 'Reprendre' : 'Lancer'}
+                  {busy ? '…' : session.transcript ? 'Reprendre' : 'Lancer'}
                 </button>
                 {session.transcript ? (
                   <button
                     type="button"
                     className="btn-ghost inline-flex items-center gap-1.5 text-[13px]"
                     onClick={onNew}
+                    disabled={busy}
                   >
                     <RotateCcw className="h-3.5 w-3.5" />
                     Nouvelle
@@ -282,8 +315,9 @@ export default function MeetingSynthesisWindow() {
             ) : (
               <button
                 type="button"
-                className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-2 text-[13px] font-medium text-white hover:bg-red-700"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-2 text-[13px] font-medium text-white hover:bg-red-700 disabled:opacity-50"
                 onClick={onStop}
+                disabled={busy}
               >
                 <Square className="h-3.5 w-3.5 fill-current" />
                 Arrêter
@@ -309,6 +343,17 @@ export default function MeetingSynthesisWindow() {
                 {savedFlash ? 'Sauvé' : 'Sauver'}
               </button>
             )}
+            {!readOnly && session.hasAudio && (
+              <button
+                type="button"
+                className="btn-ghost inline-flex items-center gap-1.5 text-[13px]"
+                onClick={() => downloadMeetingAudio()}
+                title="Télécharger l’audio de secours"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Audio
+              </button>
+            )}
           </div>
         )}
 
@@ -321,8 +366,8 @@ export default function MeetingSynthesisWindow() {
             <button
               type="button"
               className="btn-primary inline-flex items-center gap-1.5 text-[13px]"
-              onClick={() => {
-                clearMeetingDraft();
+              onClick={async () => {
+                await clearMeetingDraft();
                 setMeetingTranscript(viewing?.transcript || '');
                 setMeetingTitle(viewing?.title || '');
                 setEditTitle(viewing?.title || '');
@@ -360,15 +405,21 @@ export default function MeetingSynthesisWindow() {
           <p className="text-neya-muted text-[13px]">
             {readOnly
               ? 'Aucune transcription.'
-              : 'Appuyez sur Lancer, puis parlez. Le texte s’écrit au fur et à mesure — vous pouvez changer de page dans l’ERP sans couper l’enregistrement.'}
+              : safari
+                ? 'Appuyez sur Lancer (autorisez le micro), puis parlez. Sur Safari le texte peut arriver par à-coups — il est quand même écrit au fur et à mesure, et une piste audio de secours est enregistrée.'
+                : 'Appuyez sur Lancer, puis parlez. Le texte s’écrit au fur et à mesure — vous pouvez changer de page dans l’ERP sans couper l’enregistrement.'}
           </p>
         )}
       </div>
 
       <footer className="shrink-0 border-t border-neya-border px-3.5 py-2 text-[11px] text-neya-muted">
         {session.listening
-          ? 'Fenêtre indépendante · l’écoute continue si vous naviguez ou réduisez.'
-          : 'Brouillon conservé localement sur cet appareil.'}
+          ? safari
+            ? 'Safari · sessions dictée enchaînées · naviguez librement dans l’ERP.'
+            : 'Fenêtre indépendante · l’écoute continue si vous naviguez ou réduisez.'
+          : session.hasAudio
+            ? 'Brouillon local + audio de secours prêt à télécharger.'
+            : 'Brouillon conservé localement sur cet appareil.'}
       </footer>
     </div>
   );
