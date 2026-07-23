@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowRight, Lock, Mail } from 'lucide-react';
+import { ArrowRight, Lock, Mail, UserRound } from 'lucide-react';
 import { getApiUrl, getSavedLogin, saveLoginCredentials } from '../../lib/api';
 import { setStoredUser } from '../../lib/permissions';
 import NeyaMark from '../../components/NeyaMark';
@@ -10,20 +10,58 @@ import NeyaMark from '../../components/NeyaMark';
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [name, setName] = useState('Mehdi');
   const [remember, setRemember] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [apiHint, setApiHint] = useState('');
+  const [needsSetup, setNeedsSetup] = useState(null);
 
   useEffect(() => {
-    setApiHint(getApiUrl());
+    const apiBase = getApiUrl();
+    setApiHint(apiBase);
     const saved = getSavedLogin();
     if (saved.remember) {
       setEmail(saved.email);
       setPassword(saved.password);
       setRemember(true);
     }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${apiBase}/auth/setup-status`, { cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (data.needs_setup) {
+          setNeedsSetup(true);
+          if (!saved.remember) {
+            setEmail(data.default_email || 'mehdi@neya.local');
+            setName(data.default_name || 'Mehdi');
+            setPassword('31250');
+          }
+        } else {
+          setNeedsSetup(false);
+        }
+      } catch {
+        if (!cancelled) setNeedsSetup(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
+
+  async function finishAuth(data, loginEmail, loginPassword) {
+    if (!data.token) {
+      throw new Error('Connexion refusée : pas de jeton reçu');
+    }
+    localStorage.setItem('neya_token', data.token);
+    if (data.user) {
+      localStorage.setItem('neya_user', JSON.stringify(data.user));
+      setStoredUser(data.user);
+    }
+    saveLoginCredentials(loginEmail, loginPassword, remember);
+    window.location.href = '/';
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -35,15 +73,18 @@ export default function LoginPage() {
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15000);
+    const loginEmail = email.trim().toLowerCase();
 
     try {
-      const res = await fetch(`${apiBase}/auth/login`, {
+      const endpoint = needsSetup ? `${apiBase}/auth/setup` : `${apiBase}/auth/login`;
+      const body = needsSetup
+        ? { name: name.trim() || 'Mehdi', email: loginEmail, password }
+        : { email: loginEmail, password };
+
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: email.trim().toLowerCase(),
-          password,
-        }),
+        body: JSON.stringify(body),
         signal: controller.signal,
       });
 
@@ -60,17 +101,7 @@ export default function LoginPage() {
       if (!res.ok) {
         throw new Error(data.error || `Erreur connexion (${res.status})`);
       }
-      if (!data.token) {
-        throw new Error('Connexion refusée : pas de jeton reçu');
-      }
-
-      localStorage.setItem('neya_token', data.token);
-      if (data.user) {
-        localStorage.setItem('neya_user', JSON.stringify(data.user));
-        setStoredUser(data.user);
-      }
-      saveLoginCredentials(email.trim().toLowerCase(), password, remember);
-      window.location.href = '/';
+      await finishAuth(data, loginEmail, password);
     } catch (err) {
       if (err?.name === 'AbortError') {
         setError(`Délai dépassé — impossible de joindre ${apiBase}`);
@@ -89,6 +120,8 @@ export default function LoginPage() {
     minute: '2-digit',
   });
 
+  const setupMode = needsSetup === true;
+
   return (
     <div className="grid min-h-screen min-h-[100dvh] lg:grid-cols-[1fr_1.1fr]">
       <div className="flex flex-col justify-between px-6 py-10 sm:px-10 lg:px-16 bg-white">
@@ -101,10 +134,12 @@ export default function LoginPage() {
             Atelier Furniture · Québec
           </p>
           <h1 className="mt-3 font-display text-[32px] font-semibold leading-tight text-neya-ink sm:text-[36px]">
-            Bon retour à l&apos;atelier.
+            {setupMode ? 'Premier administrateur.' : 'Bon retour à l\'atelier.'}
           </h1>
           <p className="mt-2 text-[14px] text-neya-muted">
-            Reprends la production, tes courriels et tes projets clients — là où tu les as laissés.
+            {setupMode
+              ? 'Aucun compte admin sur cet ERP — crée le profil Mehdi pour débloquer Paramètres → Utilisateurs.'
+              : 'Reprends la production, tes courriels et tes projets clients — là où tu les as laissés.'}
           </p>
 
           <form onSubmit={handleSubmit} className="mt-8 space-y-4">
@@ -117,6 +152,24 @@ export default function LoginPage() {
               </div>
             )}
 
+            {setupMode && (
+              <label className="block">
+                <span className="mb-1.5 block text-[12px] font-medium text-neya-ink">Nom</span>
+                <div className="relative">
+                  <UserRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neya-muted" aria-hidden />
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Mehdi"
+                    className="h-11 w-full rounded-lg border border-neya-border bg-white pl-10 pr-3 text-[14px] outline-none focus:border-neya-orange/50 focus:ring-2 focus:ring-neya-orange/15"
+                    autoComplete="name"
+                    required
+                  />
+                </div>
+              </label>
+            )}
+
             <label className="block">
               <span className="mb-1.5 block text-[12px] font-medium text-neya-ink">Adresse courriel</span>
               <div className="relative">
@@ -126,7 +179,7 @@ export default function LoginPage() {
                   inputMode="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="mehdi@neyafurniture.ca"
+                  placeholder="mehdi@neya.local"
                   className="h-11 w-full rounded-lg border border-neya-border bg-white pl-10 pr-3 text-[14px] outline-none focus:border-neya-orange/50 focus:ring-2 focus:ring-neya-orange/15"
                   autoComplete="username"
                   autoCapitalize="none"
@@ -146,9 +199,9 @@ export default function LoginPage() {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
+                  placeholder={setupMode ? '31250' : '••••••••'}
                   className="h-11 w-full rounded-lg border border-neya-border bg-white pl-10 pr-3 text-[14px] outline-none focus:border-neya-orange/50 focus:ring-2 focus:ring-neya-orange/15"
-                  autoComplete="current-password"
+                  autoComplete={setupMode ? 'new-password' : 'current-password'}
                   required
                 />
               </div>
@@ -166,12 +219,13 @@ export default function LoginPage() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || needsSetup === null}
               className="mt-2 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-neya-orange text-[14px] font-semibold text-white shadow-orange transition-colors hover:bg-neya-orange-dark disabled:opacity-60"
             >
-              {loading ? 'Connexion…' : (
+              {loading ? (setupMode ? 'Création…' : 'Connexion…') : (
                 <>
-                  Ouvrir l&apos;atelier <ArrowRight className="h-4 w-4" />
+                  {setupMode ? 'Créer l\'administrateur' : 'Ouvrir l\'atelier'}{' '}
+                  <ArrowRight className="h-4 w-4" />
                 </>
               )}
             </button>
