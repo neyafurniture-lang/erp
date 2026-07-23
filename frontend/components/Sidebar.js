@@ -30,6 +30,7 @@ import {
   LogOut,
   MoreHorizontal,
   Truck,
+  Mic,
 } from 'lucide-react';
 import { api, logout } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
@@ -47,6 +48,7 @@ const NAV = [
   { href: '/clients', label: 'Clients', section: 'ops', permission: 'clients', icon: Users },
   { href: '/suppliers', label: 'Fournisseurs', section: 'ops', permission: 'purchases', icon: Truck },
   { href: '/calendar', label: 'Calendrier', section: 'ops', permission: 'calendar', icon: Calendar },
+  { href: '/reunions', label: 'Réunions', section: 'ops', permission: 'meetings', icon: Mic },
   { href: '/mes-heures', label: 'Mes heures', section: 'ops', permission: 'hours', icon: Clock },
   { href: '/marketplace', label: 'Ventes marketplace', section: 'ops', permission: 'marketplace', icon: Store },
   { href: '/social', label: 'Réseaux sociaux', section: 'ops', permission: 'social', icon: Share2 },
@@ -92,6 +94,7 @@ export default function Sidebar() {
     if (n.permission === 'finance') return canAccessPath(user, '/finance');
     if (n.permission === 'hours') return canAccessHours(user);
     if (n.permission === 'payroll') return canAccessPath(user, '/paie');
+    if (n.permission === 'meetings') return canAccessPath(user, '/reunions');
     return hasPermission(user, n.permission);
   });
   const showSettings = hasPermission(user, 'settings');

@@ -7,6 +7,7 @@ export const PERMISSION_AREAS = {
   inventory: { label: 'Stock', group: 'Opérations' },
   team: { label: 'Équipe', group: 'Opérations' },
   calendar: { label: 'Calendrier', group: 'Opérations' },
+  meetings: { label: 'Réunions / synthèse', group: 'Opérations' },
   drive: { label: 'Google Drive', group: 'Intégrations' },
   mail: { label: 'Gmail', group: 'Intégrations' },
   invoices: { label: 'Devis & factures', group: 'Finance' },
@@ -50,6 +51,7 @@ const PATH_MAP = [
   ['/inventory', 'inventory'],
   ['/team', 'team'],
   ['/calendar', 'calendar'],
+  ['/reunions', 'meetings'],
   ['/mes-heures', 'hours'],
   ['/drive', 'drive'],
   ['/mail', 'mail'],
@@ -90,6 +92,11 @@ export function canAccessPath(user, pathname) {
     return hasPermission(user, 'payroll')
       || hasPermission(user, 'finance')
       || hasPermission(user, 'team');
+  }
+  if (key === 'meetings') {
+    return hasPermission(user, 'meetings')
+      || hasPermission(user, 'calendar')
+      || hasPermission(user, 'admin');
   }
   return hasPermission(user, key);
 }

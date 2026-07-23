@@ -34,6 +34,7 @@ const MENU_GROUPS = [
       { href: '/clients', label: 'Clients', permission: 'clients' },
       { href: '/suppliers', label: 'Fournisseurs', permission: 'purchases' },
       { href: '/calendar', label: 'Calendrier', permission: 'calendar' },
+      { href: '/reunions', label: 'Réunions', permission: 'meetings' },
       { href: '/mes-heures', label: 'Mes heures', permission: 'hours' },
       { href: '/marketplace', label: 'Ventes marketplace', permission: 'marketplace' },
       { href: '/social', label: 'Réseaux sociaux', permission: 'social' },
@@ -89,6 +90,7 @@ export default function MobileNav() {
     if (permission === 'finance') return canAccessPath(user, href || '/finance');
     if (permission === 'hours') return canAccessHours(user);
     if (permission === 'payroll') return canAccessPath(user, href || '/paie');
+    if (permission === 'meetings') return canAccessPath(user, href || '/reunions');
     return hasPermission(user, permission);
   };
   const tabs = TABS.filter(t => canSee(t.permission, t.href));
