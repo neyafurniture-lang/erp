@@ -129,7 +129,7 @@ export default function LoginPage() {
                   inputMode="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="mehdi@neyafurniture.ca"
+                  placeholder="mehdi@neya.local"
                   className="h-11 w-full rounded-lg border border-neya-border bg-white pl-10 pr-3 text-[14px] outline-none focus:border-neya-orange/50 focus:ring-2 focus:ring-neya-orange/15"
                   autoComplete="username"
                   autoCapitalize="none"
