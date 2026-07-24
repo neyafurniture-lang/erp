@@ -62,6 +62,15 @@ const CLIENT_NAME_STOP = new Set([
 /** Longueur mini pour un nom client d’un seul mot (évite « Anne » → n’importe quel mail). */
 const MIN_SINGLE_NAME_LEN = 6;
 
+/** Forme compacte pour matcher « saunacloud » ↔ « Sauna Cloud ». */
+export function collapseClientName(s) {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
 /**
  * Match un nom client dans un texte (limites de mot, ignore stop-words).
  * Exporte pour tests.
@@ -77,7 +86,14 @@ export function clientNameAppearsInText(clientName, haystack) {
     if (n.length < MIN_SINGLE_NAME_LEN) return false;
     const escaped = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const whole = new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped}(?:[^\\p{L}\\p{N}]|$)`, 'iu');
-    return whole.test(hay);
+    if (whole.test(hay)) return true;
+    // « saunacloud » dans « Sauna Cloud » / saunacloud@… (forme compacte)
+    const collapsedName = collapseClientName(n);
+    const collapsedHay = collapseClientName(hay);
+    if (collapsedName.length >= MIN_SINGLE_NAME_LEN && collapsedHay.includes(collapsedName)) {
+      return true;
+    }
+    return false;
   }
 
   if (n.length < 4) return false;
@@ -88,10 +104,18 @@ export function clientNameAppearsInText(clientName, haystack) {
 
   const strongParts = parts.filter(p => p.length >= 4 && !CLIENT_NAME_STOP.has(p));
   if (strongParts.length >= 2) {
-    return strongParts.every((p) => {
+    const allParts = strongParts.every((p) => {
       const re = new RegExp(`(?:^|[^\\p{L}\\p{N}])${p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:[^\\p{L}\\p{N}]|$)`, 'iu');
       return re.test(hay);
     });
+    if (allParts) return true;
+  }
+
+  // « Sauna Cloud » ↔ « saunacloud » / saunacloud@domaine.com
+  const collapsedName = collapseClientName(n);
+  const collapsedHay = collapseClientName(hay);
+  if (collapsedName.length >= MIN_SINGLE_NAME_LEN && collapsedHay.includes(collapsedName)) {
+    return true;
   }
   return false;
 }

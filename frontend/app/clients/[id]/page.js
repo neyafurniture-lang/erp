@@ -108,7 +108,10 @@ export default function ClientDetailPage() {
       setEnrichMsg(
         keys.length
           ? `Complété : ${keys.join(', ')}`
-          : 'Rien de nouveau trouvé dans les mails (ou déjà complet).'
+          : (result.hint
+            || (result.source === 'no_trusted_mail'
+              ? 'Aucun mail lié ou trouvé pour ce client (nom / Gmail).'
+              : 'Rien de nouveau trouvé dans les mails (ou déjà complet).'))
       );
     } catch (err) {
       setError(err.message);
