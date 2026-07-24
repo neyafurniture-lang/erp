@@ -25,6 +25,8 @@ export const SAUNA_FRAME_STAGES = [
 /**
  * BOM Cutting Plan Sierra (PDF) — pièces par frame.
  * 2 longs + 2 shorts (périmètre) + traverses intérieures.
+ * Règle atelier : en général 2 traverses de chaque cote du frame
+ * (ex. 26×13 → 2×13 + 2×26).
  */
 export const SIERRA_CUTTING_BOM = {
   H2013: {
@@ -33,8 +35,10 @@ export const SIERRA_CUTTING_BOM = {
     short_in: 20,
     long_count: 2,
     short_count: 2,
-    traverse_in: 20,
-    traverse_count: 2,
+    traverses: [
+      { length_in: 13, count: 2 },
+      { length_in: 20, count: 2 },
+    ],
   },
   H2026: {
     label: '20×26"',
@@ -42,8 +46,10 @@ export const SIERRA_CUTTING_BOM = {
     short_in: 20,
     long_count: 2,
     short_count: 2,
-    traverse_in: 20,
-    traverse_count: 4,
+    traverses: [
+      { length_in: 20, count: 2 },
+      { length_in: 26, count: 2 },
+    ],
   },
   H2226: {
     label: '22×26"',
@@ -51,8 +57,10 @@ export const SIERRA_CUTTING_BOM = {
     short_in: 22,
     long_count: 2,
     short_count: 2,
-    traverse_in: 22,
-    traverse_count: 4,
+    traverses: [
+      { length_in: 22, count: 2 },
+      { length_in: 26, count: 2 },
+    ],
   },
   H3313: {
     label: '33×13"',
@@ -60,8 +68,10 @@ export const SIERRA_CUTTING_BOM = {
     short_in: 13,
     long_count: 2,
     short_count: 2,
-    traverse_in: 13,
-    traverse_count: 2,
+    traverses: [
+      { length_in: 13, count: 2 },
+      { length_in: 33, count: 2 },
+    ],
   },
   H3726: {
     label: '37×26"',
@@ -69,8 +79,10 @@ export const SIERRA_CUTTING_BOM = {
     short_in: 26,
     long_count: 2,
     short_count: 2,
-    traverse_in: 26,
-    traverse_count: 4,
+    traverses: [
+      { length_in: 26, count: 2 },
+      { length_in: 37, count: 2 },
+    ],
   },
 };
 
@@ -78,8 +90,61 @@ export const SIERRA_PLAN_META = {
   title: 'Cutting plan — Sierra Frames',
   invoice: '#1026',
   pdf_url: '/docs/Cutting_Plan_Sierra_EN.pdf',
-  notes: 'Stock structurel refendu ×2 · Traverses refendues ×4 · Planches 2×4 × 8 pi',
+  notes: 'Stock structurel refendu ×2 · Traverses : 2 de chaque cote du frame · Planches 2×4 × 8 pi · Longueurs en cm',
+  length_unit: 'cm',
 };
+
+/** Liste des traverses d’un BOM (2 longueurs typiques, ou legacy traverse_in). */
+export function traverseList(bom) {
+  if (!bom) return [];
+  if (Array.isArray(bom.traverses) && bom.traverses.length) {
+    return bom.traverses
+      .map((t) => ({
+        length_in: Number(t.length_in) || 0,
+        count: Math.max(0, Math.round(Number(t.count) || 0)),
+      }))
+      .filter((t) => t.length_in > 0 && t.count > 0);
+  }
+  const length_in = Number(bom.traverse_in) || 0;
+  const count = Math.max(0, Math.round(Number(bom.traverse_count) || 0));
+  if (!length_in || !count) return [];
+  return [{ length_in, count }];
+}
+
+/** Libellé court des traverses (ex. "33 cm×2 + 50.8 cm×2"). */
+export function formatTraversesLabel(bom, formatLength = formatLengthCm) {
+  return traverseList(bom)
+    .map((t) => `${formatLength(t.length_in)}×${t.count}`)
+    .join(' + ');
+}
+
+/** BOM stocke les cotes produit en pouces → affichage atelier en cm. */
+export function inchesToCm(inches) {
+  const n = Number(inches);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n * 2.54 * 10) / 10;
+}
+
+export function formatLengthCm(inches) {
+  const cm = inchesToCm(inches);
+  if (cm == null) return '';
+  const s = Number.isInteger(cm) ? String(cm) : String(cm);
+  return `${s} cm`;
+}
+
+/** Normalise une clé de longueur (legacy `"20"` / `20"` / `50.8 cm`) → label cm. */
+export function normalizeLengthKey(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  const cmMatch = s.match(/^(\d+(?:\.\d+)?)\s*cm$/i);
+  if (cmMatch) {
+    const cm = Math.round(Number(cmMatch[1]) * 10) / 10;
+    return `${Number.isInteger(cm) ? cm : cm} cm`;
+  }
+  const inchMatch = s.match(/^(\d+(?:\.\d+)?)\s*"?$/);
+  if (inchMatch) return formatLengthCm(inchMatch[1]);
+  return s;
+}
 
 /** Anciennes tâches checklist (conservées si déjà créées) */
 export const DEFAULT_SAUNA_FRAMES = [
@@ -166,12 +231,140 @@ export function normalizeTracker(saved) {
     });
   }
 
-  return { frames, stages: SAUNA_FRAME_STAGES };
+  return { frames, stages: SAUNA_FRAME_STAGES, size_logs: normalizeSizeLogs(saved?.size_logs) };
+}
+
+/**
+ * Entrées tailles atelier — liste éditable { cm, qty, note }.
+ * Accepte aussi l’ancien format map { "50.8 cm": "note" }.
+ */
+export function normalizeSizeLogs(raw) {
+  const out = { sides: [], traverses: [] };
+  if (!raw || typeof raw !== 'object') return out;
+
+  const parseCm = (rawKey) => {
+    const key = normalizeLengthKey(rawKey);
+    if (!key) return null;
+    const m = String(key).match(/^(\d+(?:\.\d+)?)\s*cm$/i);
+    return m ? Math.round(Number(m[1]) * 10) / 10 : null;
+  };
+
+  const pushEntry = (kind, cm, qty, note) => {
+    if (cm == null || !Number.isFinite(cm) || cm <= 0) return;
+    const rounded = Math.round(cm * 10) / 10;
+    out[kind].push({
+      cm: rounded,
+      length: `${Number.isInteger(rounded) ? rounded : rounded} cm`,
+      qty: clampInt(qty, 99999),
+      note: String(note ?? '').slice(0, 2000),
+    });
+  };
+
+  for (const kind of ['sides', 'traverses']) {
+    const src = raw[kind];
+    if (Array.isArray(src)) {
+      for (const row of src) {
+        if (!row || typeof row !== 'object') continue;
+        const cm = row.cm != null ? Number(row.cm) : parseCm(row.length);
+        pushEntry(kind, cm, row.qty, row.note);
+      }
+      continue;
+    }
+    if (!src || typeof src !== 'object') continue;
+    // Legacy : { "50.8 cm": "texte" } ou { "50.8 cm": { qty, note } }
+    for (const [k, v] of Object.entries(src)) {
+      const cm = parseCm(k);
+      if (v && typeof v === 'object' && !Array.isArray(v)) {
+        pushEntry(kind, cm, v.qty, v.note ?? v.text ?? '');
+      } else {
+        pushEntry(kind, cm, 0, v);
+      }
+    }
+  }
+
+  // Déduplique par cm (garde la dernière qty/note non vide)
+  for (const kind of ['sides', 'traverses']) {
+    const byCm = new Map();
+    for (const row of out[kind]) {
+      const prev = byCm.get(row.cm);
+      if (!prev) {
+        byCm.set(row.cm, row);
+        continue;
+      }
+      byCm.set(row.cm, {
+        ...prev,
+        qty: row.qty > 0 ? row.qty : prev.qty,
+        note: row.note || prev.note,
+      });
+    }
+    out[kind] = [...byCm.values()].sort((a, b) => b.cm - a.cm);
+  }
+  return out;
+}
+
+/** Préremplit les entrées depuis le BOM commande si aucune saisie atelier. */
+export function seedSizeLogsFromBom(frames = [], existing) {
+  const logs = normalizeSizeLogs(existing);
+  const seeded = { sides: [...logs.sides], traverses: [...logs.traverses] };
+  for (const kind of ['sides', 'traverses']) {
+    if (seeded[kind].length) continue;
+    const agg = aggregatePieceSizes(frames, kind);
+    seeded[kind] = agg.map((r) => ({
+      cm: r.cm,
+      length: r.length,
+      qty: r.qty,
+      note: '',
+    }));
+  }
+  return seeded;
+}
+
+/**
+ * Agrège les longueurs BOM pour la commande (qty × counts).
+ * kind = 'sides' → longs + shorts ; 'traverses' → traverses.
+ * Labels en cm (atelier).
+ */
+export function aggregatePieceSizes(frames = [], kind = 'sides') {
+  const by = new Map();
+  for (const row of frames) {
+    const sku = String(row.sku || '').toUpperCase();
+    const bom = SIERRA_CUTTING_BOM[sku];
+    if (!bom) continue;
+    const qty = Math.max(0, Math.round(Number(row.qty) || 0));
+    if (!qty) continue;
+    const add = (inches, count, role) => {
+      if (!inches || !count) return;
+      const length = formatLengthCm(inches);
+      const cm = inchesToCm(inches);
+      const prev = by.get(length) || {
+        length,
+        inches: Number(inches),
+        cm,
+        qty: 0,
+        roles: {},
+        skus: [],
+      };
+      const pieceQty = count * qty;
+      prev.qty += pieceQty;
+      prev.roles[role] = (prev.roles[role] || 0) + pieceQty;
+      if (!prev.skus.includes(sku)) prev.skus.push(sku);
+      by.set(length, prev);
+    };
+    if (kind === 'traverses') {
+      for (const t of traverseList(bom)) {
+        add(t.length_in, t.count, 'traverse');
+      }
+    } else {
+      add(bom.long_in, bom.long_count, 'long');
+      add(bom.short_in, bom.short_count, 'short');
+    }
+  }
+  return [...by.values()].sort((a, b) => (b.cm || 0) - (a.cm || 0));
 }
 
 function piecesPerFrame(bom) {
   if (!bom) return 0;
-  return (bom.long_count || 0) + (bom.short_count || 0) + (bom.traverse_count || 0);
+  return (bom.long_count || 0) + (bom.short_count || 0) + traversesPerFrame(bom);
 }
 
 /** Côtés de cadre = longs + shorts (périmètre). */
@@ -182,7 +375,7 @@ export function sidesPerFrame(bom) {
 
 export function traversesPerFrame(bom) {
   if (!bom) return 0;
-  return bom.traverse_count || 0;
+  return traverseList(bom).reduce((s, t) => s + t.count, 0);
 }
 
 /** Combien de frames n’ont pas encore atteint cette étape (pipeline exclusif). */
@@ -215,14 +408,16 @@ export function expandPiecesForSku(sku, frameCount) {
   const by_length = {};
   const add = (inches, count) => {
     if (!inches || !count) return;
-    const key = `${inches}"`;
+    const key = formatLengthCm(inches);
     by_length[key] = (by_length[key] || 0) + count;
   };
   add(bom.long_in, bom.long_count * n);
   add(bom.short_in, bom.short_count * n);
-  add(bom.traverse_in, bom.traverse_count * n);
+  for (const t of traverseList(bom)) {
+    add(t.length_in, t.count * n);
+  }
   const structural = (bom.long_count + bom.short_count) * n;
-  const traverses = bom.traverse_count * n;
+  const traverses = traversesPerFrame(bom) * n;
   return {
     sku: String(sku).toUpperCase(),
     frames: n,
@@ -319,14 +514,35 @@ export function computeSierraMissing(frames = []) {
   // Totaux « à débiter » = étape debited (pièces encore à couper)
   const to_cut = by_stage.debited;
   const length_list = Object.entries(to_cut.by_length)
-    .map(([length, qty]) => ({ length, qty }))
-    .sort((a, b) => parseFloat(b.length) - parseFloat(a.length));
+    .map(([length, qty]) => ({ length, qty, cm: parseFloat(length) || 0 }))
+    .sort((a, b) => b.cm - a.cm);
+
+  // Bois déjà débité = commande − encore à couper
+  let orderSides = 0;
+  let orderTrav = 0;
+  let orderFrames = 0;
+  for (const row of frames) {
+    const sku = String(row.sku || '').toUpperCase();
+    const bom = SIERRA_CUTTING_BOM[sku];
+    const qty = Math.max(0, Math.round(Number(row.qty) || 0));
+    orderFrames += qty;
+    if (!bom) continue;
+    orderSides += sidesPerFrame(bom) * qty;
+    orderTrav += traversesPerFrame(bom) * qty;
+  }
+  const cut = {
+    frames: Math.max(0, orderFrames - (to_cut.frames || 0)),
+    sides: Math.max(0, orderSides - (to_cut.structural || 0)),
+    traverses: Math.max(0, orderTrav - (to_cut.traverses || 0)),
+    pieces: Math.max(0, orderSides + orderTrav - (to_cut.pieces || 0)),
+  };
 
   return {
     plan: SIERRA_PLAN_META,
     bom: SIERRA_CUTTING_BOM,
     by_sku,
     by_stage,
+    cut,
     to_cut: {
       frames: to_cut.frames,
       pieces: to_cut.pieces,
@@ -349,6 +565,14 @@ export function enrichTrackerRow(row) {
   const pieces_missing = remaining * pieces_per_frame;
   const sides_missing = remaining * sides_per_frame;
   const traverses_missing = remaining * traverses_per_frame;
+  const qty = Number(row.qty) || 0;
+  const debitedCount = Number(row.counts?.debited) || 0;
+  // Bois déjà coupé = frames placées (≥ débité, pipeline exclusif)
+  const sides_cut = placed * sides_per_frame;
+  const traverses_cut = placed * traverses_per_frame;
+  // Bois compté dans la seule colonne « Débité »
+  const sides_debited = debitedCount * sides_per_frame;
+  const traverses_debited = debitedCount * traverses_per_frame;
   return {
     ...row,
     remaining,
@@ -357,17 +581,25 @@ export function enrichTrackerRow(row) {
     pieces_per_frame,
     sides_per_frame,
     traverses_per_frame,
-    pieces_total: (Number(row.qty) || 0) * pieces_per_frame,
-    sides_total: (Number(row.qty) || 0) * sides_per_frame,
-    traverses_total: (Number(row.qty) || 0) * traverses_per_frame,
+    pieces_total: qty * pieces_per_frame,
+    sides_total: qty * sides_per_frame,
+    traverses_total: qty * traverses_per_frame,
     pieces_missing,
     sides_missing,
     traverses_missing,
+    sides_cut,
+    traverses_cut,
+    sides_debited,
+    traverses_debited,
   };
 }
 
 export function summarizeTracker(tracker) {
-  const frames = (tracker.frames || []).map(enrichTrackerRow);
+  const normalized = Array.isArray(tracker?.frames) || tracker?.size_logs
+    ? tracker
+    : { frames: tracker?.frames || tracker || [], size_logs: tracker?.size_logs };
+  const frames = (normalized.frames || []).map(enrichTrackerRow);
+  const size_logs = normalizeSizeLogs(normalized.size_logs);
   const qty = frames.reduce((s, f) => s + (f.qty || 0), 0);
   const delivered = frames.reduce((s, f) => s + (f.counts?.delivered || 0), 0);
   const done = frames.reduce((s, f) => s + (f.counts?.done || 0), 0);
@@ -380,6 +612,11 @@ export function summarizeTracker(tracker) {
   return {
     frames,
     stages: SAUNA_FRAME_STAGES,
+    size_logs,
+    size_breakdown: {
+      sides: aggregatePieceSizes(frames, 'sides'),
+      traverses: aggregatePieceSizes(frames, 'traverses'),
+    },
     totals: {
       qty,
       remaining,
@@ -395,6 +632,12 @@ export function summarizeTracker(tracker) {
       pieces_total: frames.reduce((s, f) => s + (f.pieces_total || 0), 0),
       sides_total: frames.reduce((s, f) => s + (f.sides_total || 0), 0),
       traverses_total: frames.reduce((s, f) => s + (f.traverses_total || 0), 0),
+      // Colonne « Débité » uniquement
+      sides_debited: frames.reduce((s, f) => s + (f.sides_debited || 0), 0),
+      traverses_debited: frames.reduce((s, f) => s + (f.traverses_debited || 0), 0),
+      // Bois déjà coupé (débité + en cours + terminé + livré)
+      sides_cut: frames.reduce((s, f) => s + (f.sides_cut || 0), 0),
+      traverses_cut: frames.reduce((s, f) => s + (f.traverses_cut || 0), 0),
     },
     sierra: computeSierraMissing(frames),
   };
@@ -560,9 +803,14 @@ export async function updateFrameTracker(projectId, payload = {}) {
   const current = normalizeTracker(meta.sauna_frame_tracker || defaultTrackerRows());
 
   let nextFrames = current.frames;
+  let sizeLogs = normalizeSizeLogs(current.size_logs || meta.sauna_frame_tracker?.size_logs);
+
+  if (payload.size_logs !== undefined) {
+    sizeLogs = normalizeSizeLogs(payload.size_logs);
+  }
 
   if (Array.isArray(payload.frames)) {
-    nextFrames = normalizeTracker({ frames: payload.frames }).frames;
+    nextFrames = normalizeTracker({ frames: payload.frames, size_logs: sizeLogs }).frames;
   } else if (payload.sku) {
     const sku = String(payload.sku).trim().toUpperCase();
     nextFrames = current.frames.map((row) => {
@@ -595,12 +843,13 @@ export async function updateFrameTracker(projectId, payload = {}) {
         counts,
       });
     }
-  } else {
-    throw new Error('Indiquez frames[] ou sku + compteurs');
+  } else if (payload.size_logs === undefined) {
+    throw new Error('Indiquez frames[], sku + compteurs, ou size_logs');
   }
 
   meta.sauna_frame_tracker = {
     frames: nextFrames,
+    size_logs: sizeLogs,
     updated_at: new Date().toISOString(),
   };
 
@@ -616,6 +865,7 @@ export async function resetFrameTracker(projectId) {
   await writeProjectMeta(projectId, {
     sauna_frame_tracker: {
       frames: defaultTrackerRows(),
+      size_logs: { sides: [], traverses: [] },
       updated_at: new Date().toISOString(),
     },
   });

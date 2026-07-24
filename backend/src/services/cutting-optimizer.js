@@ -37,8 +37,12 @@ export function expandBom(skus = []) {
     const shorts = Number(sku.short_in) || 0;
     const longCount = Number(sku.long_count ?? 2);
     const shortCount = Number(sku.short_count ?? 2);
-    const traverses = Number(sku.traverse_in) || 0;
-    const traverseCount = Number(sku.traverse_count ?? 0);
+    const traverseSpecs = Array.isArray(sku.traverses) && sku.traverses.length
+      ? sku.traverses.map((t) => ({
+          length_in: Number(t.length_in) || 0,
+          count: Math.max(0, Number(t.count) || 0),
+        }))
+      : [{ length_in: Number(sku.traverse_in) || 0, count: Math.max(0, Number(sku.traverse_count ?? 0)) }];
 
     for (let i = 0; i < qty; i++) {
       for (let j = 0; j < longCount; j++) {
@@ -47,8 +51,10 @@ export function expandBom(skus = []) {
       for (let j = 0; j < shortCount; j++) {
         if (shorts > 0) pieces.push({ length: shorts, role: 'short', sku: sku.sku, stock: 'structural' });
       }
-      for (let j = 0; j < traverseCount; j++) {
-        if (traverses > 0) pieces.push({ length: traverses, role: 'traverse', sku: sku.sku, stock: 'traverse' });
+      for (const t of traverseSpecs) {
+        for (let j = 0; j < t.count; j++) {
+          if (t.length_in > 0) pieces.push({ length: t.length_in, role: 'traverse', sku: sku.sku, stock: 'traverse' });
+        }
       }
       // Pièces libres (liste)
       for (const p of sku.pieces || []) {
@@ -519,11 +525,11 @@ export function sierraFramesExample() {
     structural_rip_yield: 2,
     traverse_rip_yield: 4,
     skus: [
-      { sku: 'H2013', label: '20×13"', qty: 20, long_in: 13, short_in: 20, traverse_in: 20, traverse_count: 2 },
-      { sku: 'H2026', label: '20×26"', qty: 10, long_in: 26, short_in: 20, traverse_in: 20, traverse_count: 4 },
-      { sku: 'H2226', label: '22×26"', qty: 6, long_in: 26, short_in: 22, traverse_in: 22, traverse_count: 4 },
-      { sku: 'H3313', label: '33×13"', qty: 10, long_in: 33, short_in: 13, traverse_in: 13, traverse_count: 2 },
-      { sku: 'H3726', label: '37×26"', qty: 10, long_in: 37, short_in: 26, traverse_in: 26, traverse_count: 4 },
+      { sku: 'H2013', label: '20×13"', qty: 20, long_in: 13, short_in: 20, traverses: [{ length_in: 13, count: 2 }, { length_in: 20, count: 2 }] },
+      { sku: 'H2026', label: '20×26"', qty: 10, long_in: 26, short_in: 20, traverses: [{ length_in: 20, count: 2 }, { length_in: 26, count: 2 }] },
+      { sku: 'H2226', label: '22×26"', qty: 6, long_in: 26, short_in: 22, traverses: [{ length_in: 22, count: 2 }, { length_in: 26, count: 2 }] },
+      { sku: 'H3313', label: '33×13"', qty: 10, long_in: 33, short_in: 13, traverses: [{ length_in: 13, count: 2 }, { length_in: 33, count: 2 }] },
+      { sku: 'H3726', label: '37×26"', qty: 10, long_in: 37, short_in: 26, traverses: [{ length_in: 26, count: 2 }, { length_in: 37, count: 2 }] },
     ],
     existing_stock: [
       { length_in: 20, qty: 10, rip_factor: 2, stock: 'structural', note: 'non refendu' },
