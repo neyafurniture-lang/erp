@@ -1,128 +1,115 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
 import { api } from '../../lib/api';
 
-function FrameRow({ frame, onToggle, onNotes, onRename, onDelete }) {
-  const [notes, setNotes] = useState(frame.description || '');
-  const [title, setTitle] = useState(frame.title || '');
-  const [editingTitle, setEditingTitle] = useState(false);
-  const [notesOpen, setNotesOpen] = useState(Boolean(frame.description));
-  const [saving, setSaving] = useState(false);
-  const timer = useRef(null);
-  const done = frame.status === 'done';
+/** Catalogue local — le tableau s’affiche même si l’API n’a pas encore le tracker. */
+export const DEFAULT_FRAME_CATALOG = [
+  { sku: 'H2013', label: '20" × 13" Underbench', qty: 20 },
+  { sku: 'H2026', label: '20" × 26" Standard', qty: 20 },
+  { sku: 'H2226', label: '22" × 26" Standard', qty: 10 },
+  { sku: 'H2626', label: '26" × 26" Standard', qty: 10 },
+  { sku: 'H3313', label: '33" × 13" Underbench', qty: 10 },
+  { sku: 'H3326', label: '33" × 26" Standard', qty: 10 },
+  { sku: 'H3726', label: '37" × 26" Standard', qty: 10 },
+  { sku: 'FS750', label: 'Full-spectrum', qty: 10 },
+];
+
+const STAGES = [
+  { key: 'debited', label: 'Débité', hint: 'Bois débité' },
+  { key: 'in_progress', label: 'En cours', hint: 'En assemblage' },
+  { key: 'done', label: 'Terminé', hint: 'Fabriqué / prêt' },
+  { key: 'delivered', label: 'Livré', hint: 'Expédié / livré' },
+];
+
+function emptyCounts() {
+  return { debited: 0, in_progress: 0, done: 0, delivered: 0 };
+}
+
+function buildLocalFrames(apiFrames) {
+  const bySku = new Map();
+  for (const row of apiFrames || []) {
+    if (row?.sku) bySku.set(String(row.sku).toUpperCase(), row);
+  }
+  return DEFAULT_FRAME_CATALOG.map((cat) => {
+    const prev = bySku.get(cat.sku);
+    const counts = { ...emptyCounts(), ...(prev?.counts || {}) };
+    const qty = Number(prev?.qty) > 0 ? Number(prev.qty) : cat.qty;
+    const placed = STAGES.reduce((s, st) => s + (Number(counts[st.key]) || 0), 0);
+    return {
+      sku: cat.sku,
+      label: prev?.label || cat.label,
+      qty,
+      counts,
+      placed,
+      remaining: Math.max(0, qty - placed),
+    };
+  });
+}
+
+function summarize(frames) {
+  const qty = frames.reduce((s, f) => s + (f.qty || 0), 0);
+  const delivered = frames.reduce((s, f) => s + (f.counts?.delivered || 0), 0);
+  const done = frames.reduce((s, f) => s + (f.counts?.done || 0), 0);
+  const in_progress = frames.reduce((s, f) => s + (f.counts?.in_progress || 0), 0);
+  const debited = frames.reduce((s, f) => s + (f.counts?.debited || 0), 0);
+  const remaining = frames.reduce((s, f) => s + (f.remaining || 0), 0);
+  const pct = qty ? Math.min(100, Math.round((delivered / qty) * 100)) : 0;
+  return {
+    qty,
+    remaining,
+    debited,
+    in_progress,
+    done,
+    delivered,
+    pct,
+    complete: qty > 0 && delivered >= qty,
+  };
+}
+
+function QtyInput({ value, onCommit, disabled }) {
+  const [local, setLocal] = useState(String(value ?? 0));
+  const [focused, setFocused] = useState(false);
 
   useEffect(() => {
-    setNotes(frame.description || '');
-    setTitle(frame.title || '');
-  }, [frame.id, frame.description, frame.title]);
+    if (!focused) setLocal(String(value ?? 0));
+  }, [value, focused]);
 
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
-
-  function scheduleNotes(value) {
-    setNotes(value);
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(async () => {
-      setSaving(true);
-      try {
-        await onNotes(frame.id, value);
-      } finally {
-        setSaving(false);
-      }
-    }, 500);
-  }
-
-  async function saveTitle() {
-    const next = title.trim();
-    if (!next || next === frame.title) {
-      setTitle(frame.title);
-      setEditingTitle(false);
-      return;
-    }
-    setSaving(true);
-    try {
-      await onRename(frame.id, next);
-      setEditingTitle(false);
-    } finally {
-      setSaving(false);
-    }
+  function commit() {
+    const n = Math.max(0, Math.round(Number(local) || 0));
+    setLocal(String(n));
+    if (n !== Number(value || 0)) onCommit(n);
   }
 
   return (
-    <div className={`card rounded-2xl space-y-2 shadow-sm hover:shadow-md transition-shadow ${done ? 'bg-neya-surface/40 border-green-200' : ''}`}>
-      <div className="flex items-start gap-3">
-        <button
-          type="button"
-          onClick={() => onToggle(frame)}
-          className={`mt-0.5 w-9 h-9 shrink-0 rounded-lg border-2 flex items-center justify-center transition-colors ${
-            done
-              ? 'bg-green-600 border-green-600 text-white'
-              : 'border-neya-border bg-white hover:border-neya-orange'
-          }`}
-          aria-label={done ? 'Marquer à faire' : 'Marquer complété'}
-        >
-          {done ? '✓' : ''}
-        </button>
+    <input
+      type="number"
+      min="0"
+      inputMode="numeric"
+      disabled={disabled}
+      className="w-16 mx-auto text-center input py-1.5 text-sm tabular-nums disabled:bg-neya-surface/50 disabled:text-neya-muted"
+      value={local}
+      onChange={(e) => setLocal(e.target.value)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => {
+        setFocused(false);
+        commit();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur();
+      }}
+    />
+  );
+}
 
-        <div className="flex-1 min-w-0">
-          {editingTitle ? (
-            <input
-              className="input text-sm font-medium"
-              value={title}
-              autoFocus
-              onChange={e => setTitle(e.target.value)}
-              onBlur={saveTitle}
-              onKeyDown={e => {
-                if (e.key === 'Enter') saveTitle();
-                if (e.key === 'Escape') { setTitle(frame.title); setEditingTitle(false); }
-              }}
-            />
-          ) : (
-            <button
-              type="button"
-              onClick={() => setEditingTitle(true)}
-              className={`text-left text-sm font-medium w-full ${done ? 'text-neya-muted line-through' : 'text-neya-ink'}`}
-              title="Cliquer pour renommer"
-            >
-              {frame.title}
-            </button>
-          )}
-          <div className="flex flex-wrap items-center gap-2 mt-1">
-            <span className={`text-[10px] px-2 py-0.5 rounded-full ${done ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-900'}`}>
-              {done ? 'Complété' : 'À faire'}
-            </span>
-            <button
-              type="button"
-              onClick={() => setNotesOpen(v => !v)}
-              className="text-[11px] text-neya-muted hover:text-neya-ink"
-            >
-              {notesOpen ? 'Masquer notes' : (notes ? 'Voir notes' : '+ Note')}
-            </button>
-            {saving && <span className="text-[10px] text-neya-muted">…</span>}
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => onDelete(frame)}
-          className="btn-secondary text-xs py-1.5 px-2 text-red-600 border-red-200 shrink-0"
-          title="Supprimer la frame"
-        >
-          ✕
-        </button>
-      </div>
-
-      {notesOpen && (
-        <textarea
-          className="input text-sm min-h-[72px] resize-y"
-          placeholder="Notes sur cette frame (matériaux, mesures, problèmes…)"
-          value={notes}
-          onChange={e => scheduleNotes(e.target.value)}
-        />
-      )}
+function SummaryCard({ label, value, accent }) {
+  return (
+    <div className={`rounded-2xl border border-neya-border bg-white px-4 py-3 ${accent || ''}`}>
+      <p className="text-[11px] uppercase tracking-wide text-neya-muted">{label}</p>
+      <p className="text-2xl font-display font-semibold tabular-nums text-neya-ink">{value}</p>
     </div>
   );
 }
@@ -130,26 +117,37 @@ function FrameRow({ frame, onToggle, onNotes, onRename, onDelete }) {
 export default function SaunaCloudPage() {
   const [board, setBoard] = useState(null);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [savingSku, setSavingSku] = useState('');
   const [projectNotes, setProjectNotes] = useState('');
-  const [newFrame, setNewFrame] = useState('');
-  const [busy, setBusy] = useState(false);
   const notesTimer = useRef(null);
 
   async function load() {
+    setLoading(true);
     try {
       const data = await api('/sauna-cloud');
       setBoard(data);
       setProjectNotes(data.project?.notes || '');
       setError('');
     } catch (e) {
-      setError(e.message);
+      setError(e.message || 'Chargement impossible');
+    } finally {
+      setLoading(false);
     }
   }
 
   useEffect(() => {
     load();
-    return () => { if (notesTimer.current) clearTimeout(notesTimer.current); };
+    return () => {
+      if (notesTimer.current) clearTimeout(notesTimer.current);
+    };
   }, []);
+
+  const frames = useMemo(
+    () => buildLocalFrames(board?.tracker?.frames),
+    [board]
+  );
+  const totals = useMemo(() => summarize(frames), [frames]);
 
   function scheduleProjectNotes(value) {
     setProjectNotes(value);
@@ -167,86 +165,96 @@ export default function SaunaCloudPage() {
     }, 600);
   }
 
-  async function toggleFrame(frame) {
-    const next = frame.status === 'done' ? 'todo' : 'done';
-    const res = await api(`/sauna-cloud/frames/${frame.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status: next }),
-    });
-    setBoard(res.board);
-  }
-
-  async function saveFrameNotes(id, notes) {
-    const res = await api(`/sauna-cloud/frames/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ notes }),
-    });
-    setBoard(res.board);
-  }
-
-  async function renameFrame(id, title) {
-    const res = await api(`/sauna-cloud/frames/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ title }),
-    });
-    setBoard(res.board);
-  }
-
-  async function deleteFrame(frame) {
-    if (!confirm(`Supprimer « ${frame.title} » ?`)) return;
-    const res = await api(`/sauna-cloud/frames/${frame.id}`, { method: 'DELETE' });
-    setBoard(res.board);
-  }
-
-  async function addFrame(e) {
-    e.preventDefault();
-    if (!newFrame.trim()) return;
-    setBusy(true);
-    try {
-      const res = await api('/sauna-cloud/frames', {
-        method: 'POST',
-        body: JSON.stringify({ title: newFrame.trim() }),
+  async function setCount(sku, stageKey, value) {
+    setSavingSku(sku);
+    setError('');
+    // Optimistic UI
+    setBoard((prev) => {
+      const base = buildLocalFrames(prev?.tracker?.frames);
+      const nextFrames = base.map((row) => {
+        if (row.sku !== sku) return row;
+        const counts = { ...row.counts, [stageKey]: value };
+        const placed = STAGES.reduce((s, st) => s + (Number(counts[st.key]) || 0), 0);
+        return { ...row, counts, placed, remaining: Math.max(0, row.qty - placed) };
       });
-      setBoard(res.board);
-      setNewFrame('');
-    } catch (err) {
-      setError(err.message);
+      return {
+        ...(prev || {}),
+        tracker: { frames: nextFrames, stages: STAGES, totals: summarize(nextFrames) },
+      };
+    });
+    try {
+      const res = await api('/sauna-cloud/tracker', {
+        method: 'PATCH',
+        body: JSON.stringify({ sku, [stageKey]: value }),
+      });
+      setBoard(res);
+    } catch (e) {
+      setError(e.message || 'Enregistrement impossible — rebuild / merge requis si l’API manque');
+      load();
     } finally {
-      setBusy(false);
+      setSavingSku('');
     }
   }
 
-  if (!board && !error) {
-    return (
-      <AuthGuard>
-        <AppShell title="Sauna Cloud" subtitle="Frames à fabriquer — suivi de progression">
-          <p className="text-neya-muted py-12">Chargement…</p>
-        </AppShell>
-      </AuthGuard>
-    );
+  async function setQty(sku, qty) {
+    setSavingSku(sku);
+    setError('');
+    try {
+      const res = await api('/sauna-cloud/tracker', {
+        method: 'PATCH',
+        body: JSON.stringify({ sku, qty }),
+      });
+      setBoard(res);
+    } catch (e) {
+      setError(e.message || 'Enregistrement impossible');
+      load();
+    } finally {
+      setSavingSku('');
+    }
   }
 
-  const prog = board?.progress || { done: 0, total: 0, pct: 0 };
-  const todo = (board?.frames || []).filter(f => f.status !== 'done');
-  const done = (board?.frames || []).filter(f => f.status === 'done');
+  async function resetTracker() {
+    if (!confirm('Remettre tous les compteurs à zéro (quantités catalogue conservées) ?')) return;
+    setError('');
+    try {
+      const res = await api('/sauna-cloud/tracker/reset', {
+        method: 'POST',
+        body: JSON.stringify({ confirm: true }),
+      });
+      setBoard(res);
+    } catch (e) {
+      setError(e.message || 'Réinitialisation impossible');
+    }
+  }
 
   return (
     <AuthGuard>
-      <AppShell title="Sauna Cloud" subtitle="Frames à fabriquer — suivi de progression" wide>
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+      <AppShell title="Sauna Cloud" subtitle="Tableau de suivi des frames — 100 % = tout livré" wide>
+        <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
           <div>
-            <p className="text-sm text-neya-muted">
-              Liste des frames à fabriquer — cochez pour faire avancer le projet.
+            <p className="text-sm text-neya-muted max-w-xl">
+              Saisissez les quantités par étape. Le projet est à <strong className="font-medium text-neya-ink">100 %</strong> seulement
+              quand toutes les frames sont en colonne <strong className="font-medium text-neya-ink">Livré</strong>.
             </p>
             {board?.project?.id && (
               <Link href={`/projects/${board.project.id}`} className="text-xs text-neya-orange hover:underline">
                 Voir le projet ERP →
+                {board.project.status === 'done' ? ' (complété)' : ''}
               </Link>
             )}
+            {loading && <p className="text-xs text-neya-muted mt-1">Synchronisation…</p>}
           </div>
-          <div className="text-right">
-            <p className="text-2xl font-display font-semibold text-neya-orange tabular-nums">{prog.pct}%</p>
-            <p className="text-xs text-neya-muted">{prog.done} / {prog.total} frames</p>
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              <p className="text-2xl font-display font-semibold text-neya-orange tabular-nums">{totals.pct}%</p>
+              <p className="text-xs text-neya-muted">
+                {totals.delivered} / {totals.qty} livrées
+                {totals.complete ? ' · complet' : ''}
+              </p>
+            </div>
+            <button type="button" className="btn-secondary text-xs" onClick={resetTracker}>
+              Remettre à zéro
+            </button>
           </div>
         </div>
 
@@ -256,85 +264,108 @@ export default function SaunaCloudPage() {
           </div>
         )}
 
-        <div className="h-2.5 bg-neya-surface rounded-full overflow-hidden mb-8">
-          <div className="h-full bg-neya-orange transition-all" style={{ width: `${prog.pct}%` }} />
+        <div className="h-2.5 bg-neya-surface rounded-full overflow-hidden mb-6">
+          <div className="h-full bg-neya-orange transition-all" style={{ width: `${totals.pct}%` }} />
         </div>
 
-        <div className="grid lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-6">
-            <section>
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="font-display font-semibold text-lg">À faire ({todo.length})</h2>
-              </div>
-              <form onSubmit={addFrame} className="flex gap-2 mb-4">
-                <input
-                  className="input flex-1"
-                  placeholder="Ajouter une frame… ex. Frame mur latéral gauche"
-                  value={newFrame}
-                  onChange={e => setNewFrame(e.target.value)}
-                />
-                <button type="submit" disabled={busy || !newFrame.trim()} className="btn-primary shrink-0 disabled:opacity-40">
-                  + Ajouter
-                </button>
-              </form>
-              <div className="space-y-2">
-                {todo.length === 0 ? (
-                  <p className="text-sm text-neya-muted card rounded-2xl py-8 text-center">
-                    Aucune frame restante — projet à jour.
-                  </p>
-                ) : (
-                  todo.map(f => (
-                    <FrameRow
-                      key={f.id}
-                      frame={f}
-                      onToggle={toggleFrame}
-                      onNotes={saveFrameNotes}
-                      onRename={renameFrame}
-                      onDelete={deleteFrame}
-                    />
-                  ))
-                )}
-              </div>
-            </section>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+          <SummaryCard label="Commande" value={totals.qty} />
+          <SummaryCard label="À faire" value={totals.remaining} />
+          <SummaryCard label="Débité" value={totals.debited} />
+          <SummaryCard label="En cours" value={totals.in_progress} />
+          <SummaryCard label="Terminé" value={totals.done} />
+          <SummaryCard label="Livré" value={totals.delivered} accent="border-neya-orange/40" />
+        </div>
 
-            {done.length > 0 && (
-              <section>
-                <h2 className="font-display font-semibold text-lg mb-3">Complétées ({done.length})</h2>
-                <div className="space-y-2">
-                  {done.map(f => (
-                    <FrameRow
-                      key={f.id}
-                      frame={f}
-                      onToggle={toggleFrame}
-                      onNotes={saveFrameNotes}
-                      onRename={renameFrame}
-                      onDelete={deleteFrame}
-                    />
-                  ))}
-                </div>
-              </section>
-            )}
+        <div className="rounded-2xl border border-neya-border bg-white overflow-x-auto mb-8 shadow-sm">
+          <table className="w-full text-sm min-w-[720px]">
+            <thead>
+              <tr className="border-b border-neya-border bg-neya-cream/40">
+                <th className="px-4 py-3 text-left font-medium">SKU</th>
+                <th className="px-4 py-3 text-left font-medium">Frame</th>
+                <th className="px-3 py-3 text-center font-medium" title="Quantité commandée">Qty</th>
+                <th className="px-3 py-3 text-center font-medium" title="Reste à produire">À faire</th>
+                {STAGES.map((s) => (
+                  <th key={s.key} className="px-3 py-3 text-center font-medium" title={s.hint}>
+                    {s.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {frames.map((row) => {
+                const busy = savingSku === row.sku;
+                const over = row.placed > row.qty;
+                return (
+                  <tr key={row.sku} className={`border-b border-neya-border/60 ${over ? 'bg-red-50/60' : 'hover:bg-neya-surface/40'}`}>
+                    <td className="px-4 py-3 font-mono text-xs font-semibold text-neya-ink">{row.sku}</td>
+                    <td className="px-4 py-3 text-neya-ink">{row.label}</td>
+                    <td className="px-3 py-2 text-center">
+                      <QtyInput value={row.qty} disabled={busy} onCommit={(n) => setQty(row.sku, n)} />
+                    </td>
+                    <td className="px-3 py-3 text-center bg-neya-cream/20">
+                      <span
+                        className={`inline-block min-w-[2.5rem] font-display font-semibold tabular-nums ${
+                          row.remaining === 0 ? 'text-neya-muted' : 'text-neya-ink'
+                        }`}
+                      >
+                        {row.remaining}
+                      </span>
+                    </td>
+                    {STAGES.map((s) => (
+                      <td key={s.key} className="px-3 py-2 text-center">
+                        <QtyInput
+                          value={row.counts?.[s.key] || 0}
+                          disabled={busy}
+                          onCommit={(n) => setCount(row.sku, s.key, n)}
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="bg-neya-surface/50 font-medium">
+                <td className="px-4 py-3" colSpan={2}>
+                  Total
+                  {savingSku ? <span className="ml-2 text-[10px] text-neya-muted font-normal">Enregistrement…</span> : null}
+                </td>
+                <td className="px-3 py-3 text-center tabular-nums">{totals.qty}</td>
+                <td className="px-3 py-3 text-center tabular-nums bg-neya-cream/20">{totals.remaining}</td>
+                <td className="px-3 py-3 text-center tabular-nums">{totals.debited}</td>
+                <td className="px-3 py-3 text-center tabular-nums">{totals.in_progress}</td>
+                <td className="px-3 py-3 text-center tabular-nums">{totals.done}</td>
+                <td className="px-3 py-3 text-center tabular-nums">{totals.delivered}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        {frames.some((f) => f.placed > f.qty) && (
+          <p className="text-xs text-red-700 mb-6">
+            Une ligne a plus de frames placées que la quantité commandée — vérifiez les compteurs.
+          </p>
+        )}
+
+        <div className="grid lg:grid-cols-2 gap-4">
+          <div className="card rounded-2xl">
+            <h2 className="font-display font-semibold text-base mb-2">Notes projet</h2>
+            <textarea
+              className="input text-sm min-h-[120px] resize-y"
+              placeholder="Mesures, délais, problèmes atelier…"
+              value={projectNotes}
+              onChange={(e) => scheduleProjectNotes(e.target.value)}
+            />
           </div>
-
-          <aside className="space-y-4">
-            <div className="card rounded-2xl">
-              <h2 className="font-display font-semibold text-base mb-2">Notes projet</h2>
-              <p className="text-xs text-neya-muted mb-2">
-                Notes générales Sauna Cloud (sauvegarde auto).
-              </p>
-              <textarea
-                className="input text-sm min-h-[180px] resize-y"
-                placeholder="Mesures, client, délais, problèmes atelier…"
-                value={projectNotes}
-                onChange={e => scheduleProjectNotes(e.target.value)}
-              />
-            </div>
-            <div className="rounded-2xl border border-neya-border bg-neya-surface p-4 text-sm text-neya-muted space-y-1">
-              <p className="font-medium text-neya-ink">Astuce</p>
-              <p>Cochez une frame pour marquer l’avancement.</p>
-              <p>Cliquez le titre pour renommer. Ouvrez « + Note » pour les détails.</p>
-            </div>
-          </aside>
+          <div className="rounded-2xl border border-neya-border bg-neya-surface p-4 text-sm text-neya-muted space-y-2">
+            <p className="font-medium text-neya-ink">Comment remplir</p>
+            <p>Chaque frame ne compte que dans <em>une</em> colonne à la fois.</p>
+            <p>1. Débit → <span className="text-neya-ink">Débité</span></p>
+            <p>2. Assemblage → <span className="text-neya-ink">En cours</span></p>
+            <p>3. Prête → <span className="text-neya-ink">Terminé</span></p>
+            <p>4. Expédiée → <span className="text-neya-ink">Livré</span> (fait monter le %)</p>
+          </div>
         </div>
       </AppShell>
     </AuthGuard>
