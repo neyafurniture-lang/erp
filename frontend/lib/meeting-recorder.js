@@ -80,6 +80,8 @@ let lastAutosaveSnap = '';
 let persistInFlight = false;
 let persistQueued = false;
 let hydrated = false;
+let wakeLock = null;
+let keepAliveInstalled = false;
 
 function emit() {
   listeners.forEach((fn) => fn());
@@ -234,9 +236,17 @@ async function ensureMicStream() {
 }
 
 function startAudioBackup() {
-  audioChunks = [];
-  audioBlob = null;
+  ensureAudioBackupRunning({ reset: true });
+}
+
+/** Démarre/reprend MediaRecorder sans forcément vider les chunks (navigation Safari). */
+function ensureAudioBackupRunning({ reset = false } = {}) {
+  if (reset) {
+    audioChunks = [];
+    audioBlob = null;
+  }
   if (typeof MediaRecorder === 'undefined' || !micStream) return;
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') return;
   try {
     const mime = pickRecorderMime();
     mediaRecorder = mime
@@ -247,6 +257,13 @@ function startAudioBackup() {
         audioChunks.push(e.data);
         audioBlob = new Blob(audioChunks, { type: mediaRecorder?.mimeType || 'audio/webm' });
         syncState({ hasAudio: true });
+      }
+    };
+    mediaRecorder.onstop = () => {
+      // Si on veut encore enregistrer, Safari a souvent stoppé le recorder → relancer
+      if (wantListen) {
+        mediaRecorder = null;
+        ensureAudioBackupRunning({ reset: false });
       }
     };
     mediaRecorder.start(4000);
@@ -289,10 +306,95 @@ function releaseMic() {
   micStream = null;
 }
 
+async function requestWakeLock() {
+  if (typeof navigator === 'undefined' || !navigator.wakeLock?.request) return;
+  try {
+    if (wakeLock) {
+      try { await wakeLock.release(); } catch { /* ignore */ }
+      wakeLock = null;
+    }
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => {
+      wakeLock = null;
+    });
+  } catch {
+    /* non supporté / refusé */
+  }
+}
+
+async function releaseWakeLock() {
+  try {
+    await wakeLock?.release();
+  } catch {
+    /* ignore */
+  }
+  wakeLock = null;
+}
+
+/** Relance micro + MediaRecorder + SpeechRecognition si Safari a coupé au changement de page. */
+export async function ensureRecordingAlive() {
+  if (!wantListen) return false;
+  try {
+    await ensureMicStream();
+  } catch {
+    return false;
+  }
+  ensureAudioBackupRunning({ reset: false });
+  await requestWakeLock();
+  if (!recognition) {
+    scheduleRestart();
+    syncState({ listening: true, error: null });
+    return true;
+  }
+  // Instance présente mais parfois « zombie » après navigation Safari
+  if (isAppleSafari()) {
+    const idle = Date.now() - lastResultAt;
+    if (idle > 6000) {
+      commitInterim();
+      try {
+        recognition.stop();
+      } catch {
+        scheduleRestart();
+      }
+    }
+  }
+  syncState({ listening: true });
+  return true;
+}
+
+function installKeepAliveListeners() {
+  if (keepAliveInstalled || typeof window === 'undefined') return;
+  keepAliveInstalled = true;
+
+  const resume = () => {
+    if (!wantListen) return;
+    void ensureRecordingAlive();
+  };
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') resume();
+    else if (wantListen) {
+      // Snapshot SQL avant suspension éventuelle Safari
+      commitInterim();
+      void flushPersist({ status: 'saved' });
+    }
+  });
+  window.addEventListener('pageshow', resume);
+  window.addEventListener('focus', resume);
+  window.addEventListener('pagehide', () => {
+    if (!wantListen) return;
+    commitInterim();
+    void flushPersist({ status: 'saved' });
+  });
+  // Navigation SPA (Next.js) : history change sans unload
+  window.addEventListener('popstate', resume);
+}
+
 function scheduleRestart() {
   if (!wantListen) return;
   if (restartTimer) clearTimeout(restartTimer);
-  const delay = isAppleSafari() ? 280 : 120;
+  // Safari après navigation : délai un peu plus long pour éviter InvalidStateError
+  const delay = isAppleSafari() ? 350 : 120;
   restartTimer = setTimeout(() => {
     restartTimer = null;
     if (!wantListen) return;
@@ -304,10 +406,14 @@ function scheduleRestart() {
         try {
           startRecognitionInstance();
         } catch {
-          wantListen = false;
-          syncState({ listening: false, error: 'Safari a coupé la reconnaissance. Reprenez.' });
+          // Ne pas abandonner définitivement sur Safari — retenter plus tard via watchdog
+          syncState({
+            listening: true,
+            error: 'Safari a interrompu la dictée — relance auto…',
+          });
+          scheduleRestart();
         }
-      }, 500);
+      }, 700);
     }
   }, delay);
 }
@@ -317,8 +423,14 @@ function startWatchdog() {
   lastResultAt = Date.now();
   watchdogTimer = setInterval(() => {
     if (!wantListen) return;
+    // Coupe typique Safari à la navigation : recognition morte, wantListen encore true
+    if (!recognition) {
+      scheduleRestart();
+      ensureAudioBackupRunning({ reset: false });
+      return;
+    }
     const idle = Date.now() - lastResultAt;
-    if (isAppleSafari() && idle > 12000 && recognition) {
+    if (isAppleSafari() && idle > 10000) {
       commitInterim();
       syncState({ listening: true });
       try {
@@ -327,7 +439,7 @@ function startWatchdog() {
         scheduleRestart();
       }
     }
-  }, 4000);
+  }, 2500);
 }
 
 function startHistoryAutosave() {
@@ -348,9 +460,11 @@ function startRecognitionInstance() {
   const SpeechRecognition = getSpeechRecognition();
   if (!SpeechRecognition || !wantListen) return;
 
+  // Une seule instance à la fois
   if (recognition) {
     try {
       recognition.onend = null;
+      recognition.onerror = null;
       recognition.abort();
     } catch {
       /* ignore */
@@ -388,30 +502,48 @@ function startRecognitionInstance() {
   };
 
   rec.onerror = (event) => {
-    if (event.error === 'aborted') return;
-    if ((event.error === 'no-speech' || event.error === 'audio-capture') && wantListen) {
-      if (safari) {
+    const errName = event.error || '';
+    // Navigation SPA / blur Safari → aborted : NE PAS abandonner, relancer
+    if (errName === 'aborted') {
+      if (wantListen) {
         commitInterim();
-        syncState({});
+        scheduleRestart();
       }
+      return;
+    }
+    // Erreurs soft : garder wantListen et relancer (surtout Safari)
+    if (
+      wantListen
+      && (errName === 'no-speech' || errName === 'audio-capture' || errName === 'network')
+    ) {
+      commitInterim();
+      syncState({
+        listening: true,
+        error: errName === 'network' ? 'Dictée Safari instable — relance auto…' : null,
+      });
+      scheduleRestart();
       return;
     }
     const messages = {
       'not-allowed': 'Accès au micro refusé. Réglages Safari → Site → Microphone.',
-      'no-speech': 'Aucune voix détectée.',
-      network: 'Erreur réseau (dictée Safari). Vérifiez la connexion / Siri.',
       'service-not-allowed': 'Dictée Safari bloquée. Activez Dictée dans Réglages système.',
     };
-    if (event.error === 'network' && safari && wantListen) {
+    // Sur Safari, toute autre erreur transitoire → relancer plutôt que tuer
+    if (safari && wantListen && !messages[errName]) {
       commitInterim();
-      syncState({ error: 'Dictée Safari instable — relance auto…' });
+      syncState({
+        listening: true,
+        error: `Dictée interrompue (${errName || 'safari'}) — relance…`,
+      });
+      scheduleRestart();
       return;
     }
     wantListen = false;
     clearTimers();
+    void releaseWakeLock();
     syncState({
       listening: false,
-      error: messages[event.error] || `Erreur micro : ${event.error}`,
+      error: messages[errName] || `Erreur micro : ${errName}`,
     });
     void flushPersist({ status: 'saved' });
   };
@@ -506,6 +638,10 @@ export function isMeetingSpeechSupported() {
 
 export function isSafariMeetingBrowser() {
   return isAppleSafari();
+}
+
+export function isMeetingRecordingDesired() {
+  return wantListen;
 }
 
 export function getMeetingState() {
@@ -605,6 +741,7 @@ export async function startMeetingRecording({ title = '', clear = true, lang = '
   }
 
   wantListen = true;
+  installKeepAliveListeners();
   syncState({});
   // Créer la ligne SQL immédiatement (brouillon)
   await flushPersist({ status: 'draft', force: true });
@@ -620,10 +757,9 @@ export async function startMeetingRecording({ title = '', clear = true, lang = '
     return false;
   }
 
-  if (!mediaRecorder || mediaRecorder.state === 'inactive') {
-    startAudioBackup();
-  }
-
+  // clear=true a déjà vidé audioChunks ; en reprise on conserve
+  ensureAudioBackupRunning({ reset: false });
+  await requestWakeLock();
   startWatchdog();
   startHistoryAutosave();
   startRecognitionInstance();
@@ -633,6 +769,7 @@ export async function startMeetingRecording({ title = '', clear = true, lang = '
 export async function stopMeetingRecording() {
   wantListen = false;
   clearTimers();
+  void releaseWakeLock();
   try {
     recognition?.stop();
   } catch {
@@ -714,6 +851,7 @@ export async function clearMeetingDraft() {
   }
   wantListen = false;
   clearTimers();
+  void releaseWakeLock();
   try {
     recognition?.abort();
   } catch {
