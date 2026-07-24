@@ -174,6 +174,17 @@ function piecesPerFrame(bom) {
   return (bom.long_count || 0) + (bom.short_count || 0) + (bom.traverse_count || 0);
 }
 
+/** Côtés de cadre = longs + shorts (périmètre). */
+export function sidesPerFrame(bom) {
+  if (!bom) return 0;
+  return (bom.long_count || 0) + (bom.short_count || 0);
+}
+
+export function traversesPerFrame(bom) {
+  if (!bom) return 0;
+  return bom.traverse_count || 0;
+}
+
 /** Combien de frames n’ont pas encore atteint cette étape (pipeline exclusif). */
 export function framesNotReachedStage(row, stageKey) {
   const qty = Number(row.qty) || 0;
@@ -265,8 +276,11 @@ export function computeSierraMissing(frames = []) {
       qty: Number(row.qty) || 0,
       remaining,
       pieces_per_frame: piecesPerFrame(bom),
+      sides_per_frame: sidesPerFrame(bom),
+      traverses_per_frame: traversesPerFrame(bom),
       pieces_missing: cutMissing.pieces,
       structural_missing: cutMissing.structural,
+      sides_missing: cutMissing.structural, // alias FR : côtés de cadre
       traverses_missing: cutMissing.traverses,
       by_length: cutMissing.by_length,
       has_bom: Boolean(bom),
@@ -317,6 +331,7 @@ export function computeSierraMissing(frames = []) {
       frames: to_cut.frames,
       pieces: to_cut.pieces,
       structural: to_cut.structural,
+      sides: to_cut.structural, // côtés de cadre
       traverses: to_cut.traverses,
       by_length: length_list,
     },
@@ -329,14 +344,22 @@ export function enrichTrackerRow(row) {
   const sku = String(row.sku || '').toUpperCase();
   const bom = SIERRA_CUTTING_BOM[sku] || null;
   const pieces_per_frame = piecesPerFrame(bom);
+  const sides_per_frame = sidesPerFrame(bom);
+  const traverses_per_frame = traversesPerFrame(bom);
   const pieces_missing = remaining * pieces_per_frame;
+  const sides_missing = remaining * sides_per_frame;
+  const traverses_missing = remaining * traverses_per_frame;
   return {
     ...row,
     remaining,
     placed,
     bom,
     pieces_per_frame,
+    sides_per_frame,
+    traverses_per_frame,
     pieces_missing,
+    sides_missing,
+    traverses_missing,
   };
 }
 
@@ -364,6 +387,8 @@ export function summarizeTracker(tracker) {
       pct,
       complete,
       pieces_missing: frames.reduce((s, f) => s + (f.pieces_missing || 0), 0),
+      sides_missing: frames.reduce((s, f) => s + (f.sides_missing || 0), 0),
+      traverses_missing: frames.reduce((s, f) => s + (f.traverses_missing || 0), 0),
     },
     sierra: computeSierraMissing(frames),
   };

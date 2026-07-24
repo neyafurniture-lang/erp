@@ -39,15 +39,31 @@ describe('Sierra cutting missing pieces', () => {
     assert.equal(after.to_cut.pieces, 10 * 6);
   });
 
-  it('enrichTrackerRow expose pieces_missing', () => {
+  it('enrichTrackerRow expose pieces_missing, côtés et traverses', () => {
     const row = enrichTrackerRow({
       sku: 'H3726',
       qty: 10,
       counts: { debited: 0, in_progress: 0, done: 0, delivered: 2 },
     });
-    // 8 remaining × (2+2+4) = 64
+    // 8 remaining × (2+2+4) = 64 ; 8×4 côtés ; 8×4 traverses
     assert.equal(row.remaining, 8);
     assert.equal(row.pieces_per_frame, 8);
+    assert.equal(row.sides_per_frame, 4);
+    assert.equal(row.traverses_per_frame, 4);
     assert.equal(row.pieces_missing, 64);
+    assert.equal(row.sides_missing, 32);
+    assert.equal(row.traverses_missing, 32);
+  });
+
+  it('H2013 : 2 côtés longs+shorts = 4, 2 traverses', () => {
+    const row = enrichTrackerRow({
+      sku: 'H2013',
+      qty: 20,
+      counts: { debited: 0, in_progress: 0, done: 0, delivered: 0 },
+    });
+    assert.equal(row.sides_per_frame, 4);
+    assert.equal(row.traverses_per_frame, 2);
+    assert.equal(row.sides_missing, 80);
+    assert.equal(row.traverses_missing, 40);
   });
 });
