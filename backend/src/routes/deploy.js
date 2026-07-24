@@ -12,6 +12,7 @@ import {
   resolveExportFile,
 } from '../services/deploy-pack.js';
 import {
+  getDeployProgress,
   getDeploySyncStatus,
   getGitDeployConfig,
   getLocalGitStatus,
@@ -72,6 +73,16 @@ router.get('/sync-status', async (req, res) => {
   }
 });
 
+/** Progression du déploiement Git one-click (barre de chargement UI). */
+router.get('/git/progress', async (req, res) => {
+  try {
+    if (!(await requireAdmin(req, res))) return;
+    res.json(getDeployProgress());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.post('/git/config', async (req, res) => {
   try {
     if (!(await requireAdmin(req, res))) return;
@@ -91,10 +102,7 @@ router.post('/git/deploy', async (req, res) => {
     });
     res.json({
       ok: true,
-      message: result.message
-        || (result.mode === 'local'
-          ? 'Mise à jour lancée en local sur le serveur.'
-          : 'Déploiement Git lancé sur le VPS (pull + build Docker).'),
+      message: result.message || 'Mise à jour en cours…',
       ...result,
     });
   } catch (err) {

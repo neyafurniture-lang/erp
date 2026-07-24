@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, getApiRoot, getApiUrl, getToken } from '../lib/api';
 
 function formatBytes(n) {
@@ -20,6 +20,9 @@ function formatActivityAge(minutes) {
   return `il y a ${Math.floor(h / 24)} j`;
 }
 
+const DEPLOY_POLL_MS = 2000;
+const DEPLOY_TIMEOUT_MS = 8 * 60 * 1000;
+
 export default function DeployVpsPanel() {
   const [local, setLocal] = useState(null);
   const [git, setGit] = useState(null);
@@ -30,6 +33,7 @@ export default function DeployVpsPanel() {
   const [repoUrl, setRepoUrl] = useState('');
   const [preparing, setPreparing] = useState(false);
   const [deploying, setDeploying] = useState(false);
+  const [deployProgress, setDeployProgress] = useState(null);
   const [savingRepo, setSavingRepo] = useState(false);
   const [probing, setProbing] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -40,6 +44,15 @@ export default function DeployVpsPanel() {
   const [vpsHost, setVpsHost] = useState('51.222.31.75');
   const [includeDb, setIncludeDb] = useState(true);
   const [showLegacy, setShowLegacy] = useState(false);
+  const pollRef = useRef(null);
+  const deployStartedAt = useRef(null);
+
+  function stopDeployPoll() {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }
 
   async function load() {
     setErr('');
@@ -81,7 +94,10 @@ export default function DeployVpsPanel() {
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    return () => stopDeployPoll();
+  }, []);
 
   async function probeVps() {
     setProbing(true);
@@ -116,24 +132,76 @@ export default function DeployVpsPanel() {
     }
   }
 
+  async function pollDeployProgress() {
+    try {
+      const data = await api('/deploy/git/progress');
+      setDeployProgress(data);
+
+      const elapsed = Date.now() - (deployStartedAt.current || Date.now());
+      const finished = data.status === 'done' || data.status === 'skipped' || data.status === 'error';
+      const timedOut = elapsed > DEPLOY_TIMEOUT_MS;
+
+      if (finished || timedOut) {
+        stopDeployPoll();
+        setDeploying(false);
+        if (data.status === 'error' || timedOut) {
+          setErr(
+            timedOut
+              ? 'Délai dépassé — vérifiez les logs sur le VPS (deploy/logs/one-click-latest.log).'
+              : (data.label || 'Échec du déploiement')
+          );
+          setOkMsg('');
+          return;
+        }
+        setOkMsg(data.status === 'skipped' ? (data.label || 'Déjà à jour') : 'Mise à jour terminée.');
+        setTimeout(() => {
+          window.location.reload();
+        }, 900);
+      }
+    } catch {
+      // Pendant le redémarrage Docker l’API peut 502 — on continue à poller
+      setDeployProgress(prev => ({
+        ...(prev || {}),
+        active: true,
+        status: 'running',
+        percent: Math.min(96, Math.max(Number(prev?.percent) || 60, 60)),
+        label: prev?.label || 'Redémarrage des services…',
+      }));
+    }
+  }
+
   async function deployFromGit(force = false) {
+    stopDeployPoll();
     setDeploying(true);
     setErr('');
     setOkMsg('');
+    setDeployProgress({
+      active: true,
+      percent: 2,
+      stage: 'queued',
+      label: 'Lancement…',
+      status: 'running',
+    });
+    deployStartedAt.current = Date.now();
     try {
-      const data = await api('/deploy/git/deploy', {
+      await api('/deploy/git/deploy', {
         method: 'POST',
         body: JSON.stringify({ force, vpsHost }),
       });
-      setOkMsg(data.message || (data.started
-        ? 'Mise à jour lancée sur le VPS (1–3 min). Rechargez après.'
-        : 'Déploiement lancé.'));
-      // Laisser le rebuild finir avant de re-sonder la prod
-      setTimeout(() => { probeVps().catch(() => {}); }, data.started ? 45000 : 3000);
+      setDeployProgress(prev => ({
+        ...(prev || {}),
+        percent: Math.max(Number(prev?.percent) || 0, 5),
+        label: 'Mise à jour en cours…',
+        status: 'running',
+        active: true,
+      }));
+      await pollDeployProgress();
+      pollRef.current = setInterval(pollDeployProgress, DEPLOY_POLL_MS);
     } catch (e) {
-      setErr(e.message);
-    } finally {
+      stopDeployPoll();
       setDeploying(false);
+      setDeployProgress(null);
+      setErr(e.message);
     }
   }
 
@@ -196,6 +264,8 @@ export default function DeployVpsPanel() {
   const mailIssue = remote?.ok && !remote?.mailOk;
   const origin = git?.remoteUrl || repoUrl || 'git@github.com:VOTRE_ORG/neya-erp.git';
   const branch = git?.branch || gitConfig?.branch || 'main';
+  const progressPct = Math.min(100, Math.max(0, Number(deployProgress?.percent) || 0));
+  const showProgress = deploying || (deployProgress && deployProgress.status !== 'idle');
 
   return (
     <div className="space-y-6">
@@ -208,7 +278,7 @@ export default function DeployVpsPanel() {
         {err && (
           <div className="text-sm text-red-700 bg-red-50 px-3 py-2 rounded mb-4">{err}</div>
         )}
-        {okMsg && (
+        {okMsg && !showProgress && (
           <div className="text-sm text-green-800 bg-green-50 border border-green-200 px-3 py-2 rounded mb-4">{okMsg}</div>
         )}
 
@@ -225,13 +295,46 @@ export default function DeployVpsPanel() {
             <button type="button" onClick={() => deployFromGit(true)} disabled={deploying} className="btn-secondary min-h-[44px]">
               Forcer rebuild
             </button>
-            <button type="button" onClick={refreshSync} disabled={syncing} className="btn-secondary min-h-[44px]">
+            <button type="button" onClick={refreshSync} disabled={syncing || deploying} className="btn-secondary min-h-[44px]">
               {syncing ? '…' : 'Vérifier vs GitHub'}
             </button>
-            <button type="button" onClick={testSsh} disabled={probing} className="btn-ghost text-sm min-h-[44px]">
+            <button type="button" onClick={testSsh} disabled={probing || deploying} className="btn-ghost text-sm min-h-[44px]">
               {probing ? '…' : 'Tester connexion VPS'}
             </button>
           </div>
+
+          {showProgress && (
+            <div className="mt-4 rounded-lg border border-neya-orange/30 bg-white/90 p-3" role="status" aria-live="polite">
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <p className="text-sm font-medium text-neya-ink truncate">
+                  {deployProgress?.label || 'Mise à jour en cours…'}
+                </p>
+                <span className="text-sm font-semibold tabular-nums text-neya-orange shrink-0">
+                  {Math.round(progressPct)} %
+                </span>
+              </div>
+              <div className="h-2.5 w-full overflow-hidden rounded-full bg-neya-cream">
+                <div
+                  className={`h-full rounded-full transition-[width] duration-500 ease-out ${
+                    deployProgress?.status === 'error'
+                      ? 'bg-red-500'
+                      : deployProgress?.status === 'done' || deployProgress?.status === 'skipped'
+                        ? 'bg-green-600'
+                        : 'bg-neya-orange'
+                  }`}
+                  style={{ width: `${progressPct}%` }}
+                />
+              </div>
+              <p className="mt-2 text-[11px] text-neya-muted">
+                {deployProgress?.status === 'done' || deployProgress?.status === 'skipped'
+                  ? 'Rechargement automatique…'
+                  : deployProgress?.status === 'error'
+                    ? 'Le déploiement a échoué.'
+                    : 'Ne fermez pas cette page — la progression se met à jour toute seule.'}
+              </p>
+            </div>
+          )}
+
           <p className="text-xs text-neya-muted mt-3">
             VPS <span className="font-mono text-neya-ink">{vpsHost || gitConfig?.vpsHost || '51.222.31.75'}</span>
             {' · '}
