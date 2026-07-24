@@ -296,23 +296,246 @@ export async function applyContactHints(clientId, hints = {}) {
   return { client: rows[0], filled, changed: true };
 }
 
-async function gatherMailCorpus(clientId) {
+/**
+ * Détecte une adresse / email d’entreprise clairement étrangère au nom client
+ * (ex. Atlas Machinery collé sur « Anne »).
+ */
+export function looksLikeForeignCompanyContact(clientName, { address, email, contact } = {}) {
+  const nameTokens = clientIdentityTokens(clientName);
+  // Noms courts d’une seule partie : plus strict
+  const singleShort = String(clientName || '').trim().split(/\s+/).length === 1
+    && String(clientName || '').trim().length < 6;
+  const addressNorm = normToken(address);
+  const contactNorm = normToken(contact);
+  const emailDom = emailDomain(email);
+  const emailDomNorm = normToken(emailDom);
+  const companyRe = /\b(inc|ltd|llc|corp|machinery|tools|industries|company|cie|corporation)\b/;
+  const companyHit = companyRe.test(addressNorm)
+    || companyRe.test(contactNorm)
+    || companyRe.test(emailDomNorm);
+  if (!companyHit) return false;
+
+  // Le prénom seul dans « contact » ne prouve PAS que l’adresse/email sont bons
+  const nameInAddressOrDomain = nameTokens.some(
+    t => addressNorm.includes(t) || emailDomNorm.includes(t)
+  );
+  if (nameInAddressOrDomain) return false;
+
+  if (singleShort || nameTokens.length === 0 || nameTokens.every(t => t.length < 6)) {
+    return true;
+  }
+  return !nameTokens.some(t => emailDomNorm.includes(t) || addressNorm.includes(t));
+}
+
+/** Efface les champs déjà remplis mais clairement d’une autre entreprise. */
+export async function scrubForeignCompanyFields(clientId) {
+  const { rows } = await pool.query('SELECT * FROM clients WHERE id = $1', [clientId]);
+  const c = rows[0];
+  if (!c) return { client: null, cleared: {} };
+
+  if (!looksLikeForeignCompanyContact(c.name, {
+    address: c.address,
+    email: c.email,
+    contact: c.contact,
+  })) {
+    return { client: c, cleared: {} };
+  }
+
+  const cleared = {};
+  // On efface adresse / ville / téléphone / email générique info@ — garde le nom
+  const sets = [];
+  const params = [];
+  let i = 1;
+  for (const col of ['address', 'city', 'phone']) {
+    if (!blank(c[col])) {
+      sets.push(`${col} = NULL`);
+      cleared[col] = c[col];
+    }
+  }
+  // Email type info@domaine-entreprise sans lien avec le nom
+  if (!blank(c.email) && /^info@|contact@|sales@|admin@/i.test(c.email)) {
+    sets.push(`email = NULL`);
+    cleared.email = c.email;
+  }
+  if (!blank(c.contact) && looksLikeForeignCompanyContact(c.name, { contact: c.contact, address: c.address, email: c.email })) {
+    // contact = "Anne" est ok ; "Atlas Tools" non
+    const cn = normToken(c.contact);
+    const nn = normToken(c.name);
+    if (cn !== nn && !clientIdentityTokens(c.name).some(t => cn.includes(t))) {
+      sets.push(`contact = NULL`);
+      cleared.contact = c.contact;
+    }
+  }
+  if (!sets.length) return { client: c, cleared: {} };
+
+  params.push(clientId);
+  const { rows: updated } = await pool.query(
+    `UPDATE clients SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`,
+    params
+  );
+  return { client: updated[0], cleared };
+}
+
+function emailDomain(email) {
+  const m = String(email || '').toLowerCase().match(/@([\w.-]+\.\w{2,})/);
+  return m ? m[1] : null;
+}
+
+function normToken(s) {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+/** Tokens significatifs d’un nom client (ignore prénoms trop courts). */
+function clientIdentityTokens(clientName) {
+  return normToken(clientName)
+    .split(/\s+/)
+    .filter(t => t.length >= 4);
+}
+
+/**
+ * Ne garde que les hints plausibles pour CE client (évite Atlas → Anne).
+ * Exporte pour tests.
+ */
+export function filterHintsForClient(client, hints = {}, corpus = {}) {
+  const name = String(client?.name || '').trim();
+  const clientEmail = String(client?.email || hints.email || '').toLowerCase().trim();
+  const clientDom = emailDomain(clientEmail);
+  const nameTokens = clientIdentityTokens(name);
+  const blob = String(corpus.text || '');
+  const blobNorm = normToken(blob);
+  const participants = (corpus.participantEmails || []).map(e => String(e).toLowerCase());
+  const fromDom = emailDomain(corpus.fromEmail || hints.email);
+
+  const nameInCorpus = nameTokens.length
+    ? nameTokens.every(t => blobNorm.includes(t)) || blobNorm.includes(normToken(name))
+    : false;
+
+  // Domaine mail « connu » pour ce client : email fiche, ou domaine participant
+  // seulement si le nom client apparaît aussi dans le corpus.
+  const domainTrusted = Boolean(
+    (clientDom && fromDom && clientDom === fromDom)
+    || (clientDom && participants.some(e => emailDomain(e) === clientDom))
+  );
+
+  const contactNorm = normToken(hints.contact);
+  const contactMatchesClient = Boolean(
+    contactNorm
+    && (
+      contactNorm === normToken(name)
+      || nameTokens.some(t => contactNorm.includes(t))
+      || (nameTokens.length && nameTokens.every(t => contactNorm.includes(t)))
+    )
+  );
+
+  const addressNorm = normToken(hints.address);
+  const foreignCompany = looksLikeForeignCompanyContact(name, {
+    address: hints.address,
+    email: hints.email,
+    contact: hints.contact,
+  });
+
+  // Un simple prénom dans « contact » ne suffit pas si le reste sent l’autre entreprise
+  const identityOk = (domainTrusted || nameInCorpus || contactMatchesClient) && !foreignCompany;
+
+  const out = {
+    email: null,
+    phone: null,
+    contact: null,
+    address: null,
+    city: null,
+  };
+
+  // Email : OK si domaine déjà celui du client, ou si identité OK + pas un domaine générique seul
+  if (hints.email && !foreignCompany) {
+    const hintDom = emailDomain(hints.email);
+    if (clientDom && hintDom === clientDom) out.email = hints.email;
+    else if (!clientDom && (nameInCorpus || (contactMatchesClient && domainTrusted))) out.email = hints.email;
+    else if (domainTrusted && hintDom === fromDom && nameInCorpus) out.email = hints.email;
+  }
+
+  // Contact : seulement s’il ressemble au client et pas d’entreprise étrangère dominante
+  if (hints.contact && contactMatchesClient && !foreignCompany) {
+    out.contact = hints.contact;
+  } else if (hints.contact && identityOk && contactMatchesClient) {
+    out.contact = hints.contact;
+  }
+
+  // Adresse / ville / téléphone : exigent une identité fiable et pas une boîte étrangère
+  if (identityOk && !foreignCompany) {
+    out.address = hints.address || null;
+    out.city = hints.city || null;
+    out.phone = hints.phone || null;
+  } else if (domainTrusted && !foreignCompany && nameInCorpus) {
+    out.phone = hints.phone || null;
+  }
+
+  // Ville seule type province (Ontario) sans adresse fiable → drop
+  if (out.city && !out.address) {
+    const cityOnly = normToken(out.city);
+    if (['ontario', 'quebec', 'québec', 'canada', 'qc', 'on', 'bc', 'ab'].includes(cityOnly)) {
+      out.city = null;
+    }
+  }
+
+  return out;
+}
+
+async function gatherMailCorpus(clientId, client = null) {
+  // Préférer les fils liés de façon fiable (email exact / manuel)
   const { rows: threads } = await pool.query(
-    `SELECT id, gmail_thread_id, subject, participant_emails
+    `SELECT id, gmail_thread_id, subject, participant_emails, link_source, link_confidence
      FROM email_threads
      WHERE client_id = $1
-     ORDER BY last_message_at DESC NULLS LAST
+     ORDER BY
+       CASE
+         WHEN link_source IN ('client_email', 'client_email_auto', 'manual', 'mail_import') THEN 0
+         WHEN COALESCE(link_confidence, 0) >= 0.9 THEN 1
+         ELSE 2
+       END,
+       last_message_at DESC NULLS LAST
      LIMIT 12`,
     [clientId]
   );
+
+  const clientEmail = String(client?.email || '').toLowerCase();
+  const clientDom = emailDomain(clientEmail);
+  const nameTokens = clientIdentityTokens(client?.name);
+
+  const trusted = [];
+  const weak = [];
+  for (const t of threads) {
+    const src = String(t.link_source || '');
+    const conf = Number(t.link_confidence) || 0;
+    const parts = (t.participant_emails || []).map(e => String(e).toLowerCase());
+    const subject = String(t.subject || '');
+    const subjectNorm = normToken(subject);
+    const emailHit = clientEmail && parts.includes(clientEmail);
+    const domainHit = clientDom && parts.some(e => emailDomain(e) === clientDom);
+    const nameHit = nameTokens.length >= 1 && nameTokens.every(tok => subjectNorm.includes(tok));
+    const strongLink = ['client_email', 'client_email_auto', 'manual', 'mail_import'].includes(src)
+      || conf >= 0.9
+      || emailHit
+      || (domainHit && nameHit);
+
+    if (strongLink) trusted.push(t);
+    else weak.push(t);
+  }
+
+  // Si on a des fils fiables, ignorer les faibles (souvent la source Atlas→Anne)
+  const useThreads = trusted.length ? trusted : [];
 
   const parts = [];
   const participants = [];
   let fromEmail = null;
   let fromRaw = null;
 
-  if (threads.length) {
-    const ids = threads.map(t => t.id);
+  if (useThreads.length) {
+    const ids = useThreads.map(t => t.id);
     const { rows: msgs } = await pool.query(
       `SELECT thread_id, from_email, subject, snippet, body_text, is_outbound, sent_at
        FROM email_messages
@@ -322,7 +545,7 @@ async function gatherMailCorpus(clientId) {
       [ids]
     );
 
-    for (const t of threads) {
+    for (const t of useThreads) {
       for (const pe of t.participant_emails || []) participants.push(String(pe).toLowerCase());
       if (t.subject) parts.push(t.subject);
     }
@@ -338,16 +561,22 @@ async function gatherMailCorpus(clientId) {
     }
   }
 
-  // Documents mail classés sur les projets du client (meta.mail_files)
+  // Documents mail classés sur les projets : seulement si on a déjà un corpus fiable
+  // ou si le nom du fichier évoque le client
   try {
     const { rows: projects } = await pool.query(
-      `SELECT meta FROM projects WHERE client_id = $1 ORDER BY created_at DESC LIMIT 15`,
+      `SELECT name, meta FROM projects WHERE client_id = $1 ORDER BY created_at DESC LIMIT 15`,
       [clientId]
     );
     for (const p of projects) {
       const meta = typeof p.meta === 'string' ? JSON.parse(p.meta || '{}') : (p.meta || {});
       const files = Array.isArray(meta.mail_files) ? meta.mail_files : [];
       for (const f of files.slice(0, 10)) {
+        const fileBlob = [f?.name, f?.ocr_text, f?.extracted_text, f?.text].filter(Boolean).join(' ');
+        const fileNorm = normToken(fileBlob);
+        const fileOk = useThreads.length > 0
+          || (nameTokens.length && nameTokens.some(t => fileNorm.includes(t)));
+        if (!fileOk) continue;
         if (f?.name) parts.push(f.name);
         if (f?.ocr_text) parts.push(String(f.ocr_text).slice(0, 3000));
         if (f?.extracted_text) parts.push(String(f.extracted_text).slice(0, 3000));
@@ -364,7 +593,8 @@ async function gatherMailCorpus(clientId) {
     fromEmail,
     fromRaw,
     participantEmails: [...new Set(participants)],
-    threadCount: threads.length,
+    threadCount: useThreads.length,
+    skippedWeakThreads: weak.length,
   };
 }
 
@@ -373,16 +603,36 @@ async function gatherMailCorpus(clientId) {
  */
 export async function enrichClientFromMail(clientId, { useAi = false } = {}) {
   const id = Number(clientId);
-  const { rows } = await pool.query('SELECT * FROM clients WHERE id = $1', [id]);
-  if (!rows[0]) throw new Error('Client introuvable');
-  const client = rows[0];
+  // Nettoie d’abord les faux remplissages (Atlas → Anne, etc.)
+  const scrubbed = await scrubForeignCompanyFields(id);
+  const client = scrubbed.client;
+  if (!client) throw new Error('Client introuvable');
 
   const missing = ['email', 'phone', 'address', 'city', 'contact'].filter(k => blank(client[k]));
   if (!missing.length) {
-    return { client, filled: {}, changed: false, missing: [], source: 'complete' };
+    return {
+      client,
+      filled: {},
+      changed: Boolean(Object.keys(scrubbed.cleared || {}).length),
+      cleared: scrubbed.cleared || {},
+      missing: [],
+      source: Object.keys(scrubbed.cleared || {}).length ? 'scrubbed' : 'complete',
+    };
   }
 
-  const corpus = await gatherMailCorpus(id);
+  const corpus = await gatherMailCorpus(id, client);
+  if (!corpus.text.trim() && !corpus.participantEmails.length) {
+    return {
+      client,
+      filled: {},
+      changed: Boolean(Object.keys(scrubbed.cleared || {}).length),
+      cleared: scrubbed.cleared || {},
+      missing,
+      source: 'no_trusted_mail',
+      skippedWeakThreads: corpus.skippedWeakThreads,
+    };
+  }
+
   const ownEmails = await getOwnEmailSet();
   let hints = extractContactHints({
     text: corpus.text,
@@ -409,12 +659,17 @@ export async function enrichClientFromMail(clientId, { useAi = false } = {}) {
     }
   }
 
+  hints = filterHintsForClient(client, hints, corpus);
+
   const result = await applyContactHints(id, hints);
   return {
     ...result,
+    cleared: scrubbed.cleared || {},
+    changed: result.changed || Boolean(Object.keys(scrubbed.cleared || {}).length),
     missing,
     hints_found: hints,
     threads_scanned: corpus.threadCount,
+    skipped_weak_threads: corpus.skippedWeakThreads,
     source: 'mail',
   };
 }
@@ -425,7 +680,12 @@ async function extractContactWithAi(text, clientName, fields) {
   const systemPrompt = `Tu extrais des coordonnées client pour l’ERP NEYA Furniture.
 Réponds UNIQUEMENT en JSON valide :
 {"email":null,"phone":null,"contact":null,"address":null,"city":null}
-Ne remplis que les champs demandés. Ignore les coordonnées de Neya / Mehdi / l’atelier.`;
+Règles strictes :
+- Ne remplis que les champs demandés.
+- Les valeurs DOIVENT appartenir au client nommé (pas une autre entreprise citée dans le mail).
+- Si l’adresse / téléphone / email semble être ceux d’un autre contact ou fournisseur, renvoie null.
+- Ignore les coordonnées de Neya / Mehdi / l’atelier.
+- city = ville seulement (pas une province comme Ontario).`;
   const message = `Client : ${clientName}
 Champs à chercher : ${fields.join(', ')}
 

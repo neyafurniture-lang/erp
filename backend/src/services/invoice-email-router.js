@@ -85,8 +85,22 @@ export async function matchProjectFromRules(supplierId, keywords) {
   for (const p of projects) {
     const pn = norm(p.name);
     const tokens = pn.split(/\s+/).filter(t => t.length >= 4);
-    if (tokens.some(t => keywords.some(k => k.includes(t) || t.includes(k)))) {
+    if (!tokens.length) continue;
+    // Un seul token court / générique : trop risqué (ex. « Anne » dans Pharmacie Anne)
+    const PROJECT_TOKEN_STOP = new Set([
+      'anne', 'marie', 'jean', 'paul', 'marc', 'lisa', 'john', 'projet', 'devis', 'sauna',
+    ]);
+    const strong = tokens.filter(t => t.length >= 6 && !PROJECT_TOKEN_STOP.has(t));
+    const matchedStrong = strong.filter(t => keywords.some(k => k.includes(t) || t.includes(k)));
+    if (matchedStrong.length) {
       return { project_id: p.id, project_name: p.name, confidence: 'project_name' };
+    }
+    // Multi-tokens : exiger ≥2 tokens matchés (évite anne seul → Pharmacie Anne)
+    if (tokens.length >= 2) {
+      const matched = tokens.filter(t => keywords.some(k => k.includes(t) || t.includes(k)));
+      if (matched.length >= 2) {
+        return { project_id: p.id, project_name: p.name, confidence: 'project_name' };
+      }
     }
   }
   return null;

@@ -99,4 +99,13 @@ describe('clientNameAppearsInText', () => {
   it('rejette une sous-chaîne collée', () => {
     assert.equal(clientNameAppearsInText('Neya', 'neyafurniture.ca'), false);
   });
+
+  it('rejette un prénom court trop générique (Anne)', () => {
+    assert.equal(clientNameAppearsInText('Anne', 'Devis pour Anne pharmacie'), false);
+    assert.equal(clientNameAppearsInText('Anne', 'Atlas Tools meeting with Anne'), false);
+  });
+
+  it('accepte un nom composé', () => {
+    assert.equal(clientNameAppearsInText('Corridor Culturel', 'Devis Corridor Culturel'), true);
+  });
 });

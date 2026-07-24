@@ -53,7 +53,14 @@ const CLIENT_NAME_STOP = new Set([
   'son', 'ses', 'les', 'des', 'une', 'des', 'pour', 'avec', 'dans', 'sur', 'par',
   'the', 'and', 'for', 'from', 'your', 'our', 'new', 'all', 'any', 'you', 'are',
   'mail', 'email', 'info', 'news', 'team', 'atelier', 'neya',
+  // Prénoms / mots trop génériques (faux positifs dans sujets / signatures)
+  'anne', 'marie', 'jean', 'paul', 'luc', 'marc', 'lisa', 'john', 'mike',
+  'alex', 'julie', 'pierre', 'claire', 'louis', 'hugo', 'emma', 'sara', 'sarah',
+  'david', 'thomas', 'martin', 'client', 'projet', 'devis', 'facture',
 ]);
+
+/** Longueur mini pour un nom client d’un seul mot (évite « Anne » → n’importe quel mail). */
+const MIN_SINGLE_NAME_LEN = 6;
 
 /**
  * Match un nom client dans un texte (limites de mot, ignore stop-words).
@@ -63,15 +70,25 @@ export function clientNameAppearsInText(clientName, haystack) {
   const n = String(clientName || '').trim().toLowerCase();
   const hay = String(haystack || '').toLowerCase();
   if (!n || !hay || CLIENT_NAME_STOP.has(n)) return false;
+
+  const parts = n.split(/\s+/).filter(Boolean);
+  // Un seul mot : exige longueur ≥ 6 et pas un stop-word
+  if (parts.length === 1) {
+    if (n.length < MIN_SINGLE_NAME_LEN) return false;
+    const escaped = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const whole = new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped}(?:[^\\p{L}\\p{N}]|$)`, 'iu');
+    return whole.test(hay);
+  }
+
   if (n.length < 4) return false;
 
   const escaped = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const whole = new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped}(?:[^\\p{L}\\p{N}]|$)`, 'iu');
   if (whole.test(hay)) return true;
 
-  const parts = n.split(/\s+/).filter(p => p.length >= 4 && !CLIENT_NAME_STOP.has(p));
-  if (parts.length >= 2) {
-    return parts.every((p) => {
+  const strongParts = parts.filter(p => p.length >= 4 && !CLIENT_NAME_STOP.has(p));
+  if (strongParts.length >= 2) {
+    return strongParts.every((p) => {
       const re = new RegExp(`(?:^|[^\\p{L}\\p{N}])${p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:[^\\p{L}\\p{N}]|$)`, 'iu');
       return re.test(hay);
     });
@@ -131,6 +148,9 @@ export async function guessClientAndProject({
     );
     for (const c of allClients) {
       const n = String(c.name).trim();
+      // Un seul mot trop court / générique : jamais de lien par nom
+      const tokens = n.toLowerCase().split(/\s+/).filter(Boolean);
+      if (tokens.length === 1 && (tokens[0].length < 6 || CLIENT_NAME_STOP.has(tokens[0]))) continue;
       if (!clientNameAppearsInText(n, hay)) continue;
       const escaped = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const fullName = new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped}(?:[^\\p{L}\\p{N}]|$)`, 'iu').test(hay);
@@ -176,7 +196,8 @@ export async function guessClientAndProject({
   }
 
   // 5) Si projet connu sans client → hériter le client du projet
-  if (project_id && !client_id) {
+  //    Seulement si le match projet est une règle (fiable), pas un simple mot-clé faible.
+  if (project_id && !client_id && projectMatch?.confidence === 'rule') {
     const { rows } = await pool.query(
       `SELECT c.id, c.name FROM projects p JOIN clients c ON c.id = p.client_id WHERE p.id = $1`,
       [project_id]

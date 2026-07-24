@@ -159,7 +159,7 @@ function ClientsContent() {
         body: JSON.stringify({ limit: 60, use_ai: true }),
       });
       setEnrichInfo(
-        `${result.updated || 0} fiche${(result.updated || 0) !== 1 ? 's' : ''} complétée${(result.updated || 0) !== 1 ? 's' : ''} sur ${result.scanned || 0} client(s) incomplets (champs vides seulement).`
+        `${result.updated || 0} fiche${(result.updated || 0) !== 1 ? 's' : ''} complétée${(result.updated || 0) !== 1 ? 's' : ''} sur ${result.scanned || 0} client(s) incomplets (champs vides seulement · liens mail fiables).`
       );
       await load();
     } catch (err) {
