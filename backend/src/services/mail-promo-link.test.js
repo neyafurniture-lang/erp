@@ -108,4 +108,10 @@ describe('clientNameAppearsInText', () => {
   it('accepte un nom composé', () => {
     assert.equal(clientNameAppearsInText('Corridor Culturel', 'Devis Corridor Culturel'), true);
   });
+
+  it('match saunacloud ↔ Sauna Cloud', () => {
+    assert.equal(clientNameAppearsInText('saunacloud', 'Devis Sauna Cloud — frames'), true);
+    assert.equal(clientNameAppearsInText('Sauna Cloud', 'from:info@saunacloud.ca'), true);
+    assert.equal(clientNameAppearsInText('saunacloud', 'Olive Richardson facture'), false);
+  });
 });

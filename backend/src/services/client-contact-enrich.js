@@ -5,6 +5,7 @@
 import pool from '../db/pool.js';
 import { isNoiseEmail } from './clients-from-mail.js';
 import { isPromotion } from './mail-sort.js';
+import { clientNameAppearsInText, collapseClientName } from './email-threads.js';
 
 const QC_CITIES = [
   'montreal', 'montréal', 'quebec', 'québec', 'laval', 'gatineau', 'longueuil',
@@ -458,9 +459,21 @@ function normToken(s) {
 
 /** Tokens significatifs d’un nom client (ignore prénoms trop courts). */
 function clientIdentityTokens(clientName) {
-  return normToken(clientName)
+  const parts = normToken(clientName)
     .split(/\s+/)
     .filter(t => t.length >= 4);
+  if (parts.length) return parts;
+  const collapsed = collapseClientName(clientName);
+  return collapsed.length >= 4 ? [collapsed] : [];
+}
+
+/** True si le nom client apparaît dans le texte (y compris saunacloud ↔ Sauna Cloud). */
+function nameMatchesCorpus(clientName, text) {
+  if (!clientName || !text) return false;
+  if (clientNameAppearsInText(clientName, text)) return true;
+  const collapsedName = collapseClientName(clientName);
+  const collapsedText = collapseClientName(text);
+  return collapsedName.length >= 6 && collapsedText.includes(collapsedName);
 }
 
 /**
@@ -478,7 +491,9 @@ export function filterHintsForClient(client, hints = {}, corpus = {}) {
   const fromDom = emailDomain(corpus.fromEmail || hints.email);
 
   const nameInCorpus = nameTokens.length
-    ? nameTokens.every(t => blobNorm.includes(t)) || blobNorm.includes(normToken(name))
+    ? nameTokens.every(t => blobNorm.includes(t) || collapseClientName(blob).includes(t))
+      || blobNorm.includes(normToken(name))
+      || nameMatchesCorpus(name, blob)
     : false;
 
   // Domaine mail « connu » pour ce client : email fiche, ou domaine participant
@@ -570,30 +585,51 @@ async function gatherMailCorpus(clientId, client = null) {
 
   const clientEmail = String(client?.email || '').toLowerCase();
   const clientDom = emailDomain(clientEmail);
-  const nameTokens = clientIdentityTokens(client?.name);
+  const clientName = String(client?.name || '').trim();
+  const nameTokens = clientIdentityTokens(clientName);
 
   const trusted = [];
-  const weak = [];
+  const weakNamed = [];
+  const weakOther = [];
   for (const t of threads) {
     const src = String(t.link_source || '');
     const conf = Number(t.link_confidence) || 0;
     const parts = (t.participant_emails || []).map(e => String(e).toLowerCase());
     const subject = String(t.subject || '');
-    const subjectNorm = normToken(subject);
+    const hay = `${subject} ${parts.join(' ')}`;
     const emailHit = clientEmail && parts.includes(clientEmail);
     const domainHit = clientDom && parts.some(e => emailDomain(e) === clientDom);
-    const nameHit = nameTokens.length >= 1 && nameTokens.every(tok => subjectNorm.includes(tok));
+    const nameHit = Boolean(clientName && nameMatchesCorpus(clientName, hay));
     const strongLink = ['client_email', 'client_email_auto', 'manual', 'mail_import'].includes(src)
       || conf >= 0.9
       || emailHit
       || (domainHit && nameHit);
 
     if (strongLink) trusted.push(t);
-    else weak.push(t);
+    else if (nameHit || ['client_name', 'client_name_parts'].includes(src)) weakNamed.push(t);
+    else weakOther.push(t);
   }
 
-  // Si on a des fils fiables, ignorer les faibles (souvent la source Atlas→Anne)
-  const useThreads = trusted.length ? trusted : [];
+  // Fiables d’abord ; sinon fils liés par nom (ex. saunacloud sans email fiche)
+  let useThreads = trusted.length ? trusted : weakNamed.slice(0, 8);
+  let gmailSearched = 0;
+
+  // Aucun fil lié → chercher dans Gmail par nom client
+  if (!useThreads.length && clientName.length >= 4) {
+    const gmailHits = await searchGmailCorpusForClient(client);
+    if (gmailHits.threadRows?.length) {
+      useThreads = gmailHits.threadRows;
+      gmailSearched = gmailHits.searched || 0;
+    } else if (gmailHits.directCorpus) {
+      return {
+        ...gmailHits.directCorpus,
+        threadCount: gmailHits.directCorpus.threadCount || 0,
+        skippedWeakThreads: weakOther.length + weakNamed.length,
+        gmailSearched: gmailHits.searched || 0,
+        source: 'gmail_search',
+      };
+    }
+  }
 
   const parts = [];
   const participants = [];
@@ -601,19 +637,36 @@ async function gatherMailCorpus(clientId, client = null) {
   let fromRaw = null;
 
   if (useThreads.length) {
-    const ids = useThreads.map(t => t.id);
-    const { rows: msgs } = await pool.query(
-      `SELECT thread_id, from_email, subject, snippet, body_text, is_outbound, sent_at
-       FROM email_messages
-       WHERE thread_id = ANY($1)
-       ORDER BY sent_at DESC NULLS LAST
-       LIMIT 40`,
-      [ids]
-    );
+    const ids = useThreads.map(t => t.id).filter(Boolean);
+    let msgs = [];
+    if (ids.length) {
+      const { rows } = await pool.query(
+        `SELECT thread_id, from_email, subject, snippet, body_text, is_outbound, sent_at
+         FROM email_messages
+         WHERE thread_id = ANY($1)
+         ORDER BY sent_at DESC NULLS LAST
+         LIMIT 40`,
+        [ids]
+      );
+      msgs = rows;
+    }
 
     for (const t of useThreads) {
       for (const pe of t.participant_emails || []) participants.push(String(pe).toLowerCase());
       if (t.subject) parts.push(t.subject);
+      // Messages déjà attachés au thread row (recherche Gmail directe)
+      if (Array.isArray(t._messages)) {
+        for (const m of t._messages) {
+          if (!m.is_outbound && m.from_email && !fromEmail) {
+            fromEmail = String(m.from_email).toLowerCase();
+            fromRaw = m.from_email;
+          }
+          if (m.from_email) participants.push(String(m.from_email).toLowerCase());
+          if (m.snippet) parts.push(m.snippet);
+          if (m.body_text) parts.push(String(m.body_text).slice(0, 4000));
+          if (m.subject) parts.push(m.subject);
+        }
+      }
     }
 
     for (const m of msgs) {
@@ -639,9 +692,9 @@ async function gatherMailCorpus(clientId, client = null) {
       const files = Array.isArray(meta.mail_files) ? meta.mail_files : [];
       for (const f of files.slice(0, 10)) {
         const fileBlob = [f?.name, f?.ocr_text, f?.extracted_text, f?.text].filter(Boolean).join(' ');
-        const fileNorm = normToken(fileBlob);
         const fileOk = useThreads.length > 0
-          || (nameTokens.length && nameTokens.some(t => fileNorm.includes(t)));
+          || nameMatchesCorpus(clientName, fileBlob)
+          || (nameTokens.length && nameTokens.some(t => collapseClientName(fileBlob).includes(t)));
         if (!fileOk) continue;
         if (f?.name) parts.push(f.name);
         if (f?.ocr_text) parts.push(String(f.ocr_text).slice(0, 3000));
@@ -660,7 +713,153 @@ async function gatherMailCorpus(clientId, client = null) {
     fromRaw,
     participantEmails: [...new Set(participants)],
     threadCount: useThreads.length,
-    skippedWeakThreads: weak.length,
+    skippedWeakThreads: weakOther.length,
+    gmailSearched,
+    source: gmailSearched ? 'gmail_search' : (trusted.length ? 'trusted_threads' : (useThreads.length ? 'named_threads' : 'none')),
+  };
+}
+
+/** Variantes de recherche Gmail pour un nom client (saunacloud / Sauna Cloud). */
+export function buildClientGmailQueries(clientName) {
+  const raw = String(clientName || '').trim();
+  if (raw.length < 3) return [];
+  const queries = new Set();
+  queries.add(`"${raw}"`);
+  const spaced = raw.replace(/([a-z])([A-Z])/g, '$1 $2');
+  // saunacloud → "sauna cloud" si on détecte un motif fréquent
+  const collapsed = collapseClientName(raw);
+  if (/^saunacloud$/i.test(collapsed) || /^sonacloud$/i.test(collapsed)) {
+    queries.add('"sauna cloud"');
+    queries.add('saunacloud');
+    queries.add('sauna cloud');
+  } else if (!/\s/.test(raw) && raw.length >= 8) {
+    // Essai soft : garder aussi la forme compacte
+    queries.add(collapsed);
+  } else if (/\s/.test(raw)) {
+    queries.add(collapsed);
+    queries.add(`"${raw}"`);
+  }
+  // Limite 4 requêtes
+  return [...queries].slice(0, 4);
+}
+
+/**
+ * Cherche des mails Gmail liés au nom client, lie les fils trouvés, renvoie un corpus.
+ */
+async function searchGmailCorpusForClient(client) {
+  const name = String(client?.name || '').trim();
+  const queries = buildClientGmailQueries(name);
+  if (!queries.length) return { searched: 0 };
+
+  let gmail;
+  try {
+    gmail = await import('./google-gmail.js');
+  } catch {
+    return { searched: 0 };
+  }
+
+  const seenIds = new Set();
+  const messages = [];
+  let searched = 0;
+
+  for (const q of queries) {
+    try {
+      const { messages: found } = await gmail.searchMessages(q, 8);
+      searched += 1;
+      for (const m of found || []) {
+        if (!m?.id || seenIds.has(m.id)) continue;
+        seenIds.add(m.id);
+        // Re-filtre local : le sujet / from doit vraiment coller au client
+        const hay = `${m.subject || ''} ${m.from || ''} ${m.snippet || ''}`;
+        if (!nameMatchesCorpus(name, hay)) continue;
+        messages.push(m);
+      }
+    } catch {
+      /* Gmail optionnel / quota */
+    }
+    if (messages.length >= 6) break;
+  }
+
+  if (!messages.length) return { searched };
+
+  // Lier les fils au client (processGmailMessage) pour les prochaines fois
+  const threadRows = [];
+  const directParts = [];
+  const participants = [];
+  let fromEmail = null;
+  let fromRaw = null;
+
+  for (const preview of messages.slice(0, 6)) {
+    try {
+      const full = await gmail.getMessage(preview.id);
+      const from = String(full.from || preview.from || '');
+      const subject = String(full.subject || preview.subject || '');
+      const snippet = String(full.snippet || preview.snippet || '');
+      const body = String(full.body || '').slice(0, 4000);
+      const hay = `${subject} ${from} ${snippet} ${body}`;
+      if (!nameMatchesCorpus(name, hay)) continue;
+
+      const emailMatch = from.match(/[\w.+-]+@[\w.-]+\.\w+/);
+      const fe = emailMatch ? emailMatch[0].toLowerCase() : null;
+      if (fe && !fromEmail) {
+        fromEmail = fe;
+        fromRaw = from;
+      }
+      if (fe) participants.push(fe);
+      if (subject) directParts.push(subject);
+      if (snippet) directParts.push(snippet);
+      if (body) directParts.push(body);
+
+      // Persiste le lien client pour les prochaines fois
+      try {
+        const { syncGmailThread, linkThread } = await import('./email-threads.js');
+        if (full.threadId) {
+          const thread = await syncGmailThread(full.threadId, {
+            client_id: client.id,
+            link_source: 'client_name_search',
+            link_confidence: 0.75,
+          });
+          if (thread?.id) {
+            if (!thread.client_id || Number(thread.client_id) !== Number(client.id)) {
+              await linkThread(thread.id, {
+                client_id: client.id,
+                link_source: 'client_name_search',
+                link_confidence: 0.75,
+              });
+            }
+            threadRows.push({
+              id: thread.id,
+              gmail_thread_id: thread.gmail_thread_id || full.threadId,
+              subject: thread.subject || subject,
+              participant_emails: thread.participant_emails || (fe ? [fe] : []),
+              link_source: 'client_name_search',
+              link_confidence: 0.75,
+            });
+          }
+        }
+      } catch {
+        /* liaison optionnelle — le corpus direct suffit */
+      }
+    } catch {
+      /* message illisible */
+    }
+  }
+
+  if (threadRows.length) {
+    return { searched, threadRows };
+  }
+
+  if (!directParts.length && !participants.length) return { searched };
+
+  return {
+    searched,
+    directCorpus: {
+      text: directParts.join('\n\n').slice(0, 24000),
+      fromEmail,
+      fromRaw,
+      participantEmails: [...new Set(participants)],
+      threadCount: messages.length,
+    },
   };
 }
 
@@ -696,6 +895,8 @@ export async function enrichClientFromMail(clientId, { useAi = false } = {}) {
       missing,
       source: 'no_trusted_mail',
       skippedWeakThreads: corpus.skippedWeakThreads,
+      gmail_searched: corpus.gmailSearched || 0,
+      hint: 'Aucun mail trouvé pour ce client. Vérifiez le nom (ex. « Sauna Cloud ») ou liez un fil dans Mail.',
     };
   }
 
@@ -736,7 +937,8 @@ export async function enrichClientFromMail(clientId, { useAi = false } = {}) {
     hints_found: hints,
     threads_scanned: corpus.threadCount,
     skipped_weak_threads: corpus.skippedWeakThreads,
-    source: 'mail',
+    gmail_searched: corpus.gmailSearched || 0,
+    source: corpus.source || 'mail',
   };
 }
 

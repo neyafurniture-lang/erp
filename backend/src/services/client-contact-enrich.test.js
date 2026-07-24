@@ -9,6 +9,7 @@ import {
   normalizePhone,
   filterHintsForClient,
   looksLikeForeignCompanyContact,
+  buildClientGmailQueries,
 } from './client-contact-enrich.js';
 
 describe('client-contact-enrich extractors', () => {
@@ -111,5 +112,13 @@ describe('filterHintsForClient anti faux client', () => {
       }),
       true
     );
+  });
+});
+
+describe('buildClientGmailQueries', () => {
+  it('ajoute Sauna Cloud pour saunacloud', () => {
+    const qs = buildClientGmailQueries('saunacloud');
+    assert.ok(qs.some(q => /sauna cloud/i.test(q)));
+    assert.ok(qs.some(q => /saunacloud/i.test(q)));
   });
 });
