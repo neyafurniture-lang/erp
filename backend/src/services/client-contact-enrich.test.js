@@ -7,6 +7,8 @@ import {
   extractContactName,
   extractContactHints,
   normalizePhone,
+  filterHintsForClient,
+  looksLikeForeignCompanyContact,
 } from './client-contact-enrich.js';
 
 describe('client-contact-enrich extractors', () => {
@@ -54,5 +56,60 @@ marie.tremblay@example.com
     assert.equal(hints.email, 'sophie@martin.ca');
     assert.ok(hints.phone);
     assert.ok(hints.address);
+  });
+});
+
+describe('filterHintsForClient anti faux client', () => {
+  it('rejette Atlas Machinery pour le client Anne', () => {
+    const filtered = filterHintsForClient(
+      { name: 'Anne', email: null },
+      {
+        email: 'info@atlas-machinery.com',
+        phone: '(514) 545-8107',
+        contact: 'Anne',
+        address: 'Atlas Tools & Machinery 111 Creditview Rd Vaughan',
+        city: 'Ontario',
+      },
+      {
+        text: 'Atlas Tools & Machinery 111 Creditview Rd',
+        fromEmail: 'info@atlas-machinery.com',
+        participantEmails: ['info@atlas-machinery.com'],
+      }
+    );
+    assert.equal(filtered.address, null);
+    assert.equal(filtered.email, null);
+    assert.equal(filtered.phone, null);
+  });
+
+  it('accepte une adresse cohérente avec le client', () => {
+    const filtered = filterHintsForClient(
+      { name: 'Marie Tremblay', email: null },
+      {
+        email: 'marie@tremblay.ca',
+        phone: '(514) 555-1212',
+        contact: 'Marie Tremblay',
+        address: '12 rue Saint-Denis',
+        city: 'Montréal',
+      },
+      {
+        text: 'Marie Tremblay\n12 rue Saint-Denis\nMontréal',
+        fromEmail: 'marie@tremblay.ca',
+        participantEmails: ['marie@tremblay.ca'],
+      }
+    );
+    assert.equal(filtered.email, 'marie@tremblay.ca');
+    assert.ok(filtered.address);
+    assert.ok(filtered.city);
+  });
+
+  it('détecte un contact entreprise collé sur un prénom', () => {
+    assert.equal(
+      looksLikeForeignCompanyContact('Anne', {
+        address: 'Atlas Tools & Machinery 111 Creditview Rd',
+        email: 'info@atlas-machinery.com',
+        contact: 'Anne',
+      }),
+      true
+    );
   });
 });
