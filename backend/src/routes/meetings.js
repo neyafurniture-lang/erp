@@ -45,8 +45,11 @@ function mapRow(row) {
     serverId: row.id,
     title: row.title || '',
     transcript: row.transcript || '',
+    interim: row.interim || '',
+    status: row.status === 'draft' ? 'draft' : 'saved',
     startedAt: row.started_at || null,
     savedAt: row.saved_at || row.updated_at || null,
+    updatedAt: row.updated_at || null,
     hasAudio: Boolean(row.has_audio),
     userId: row.user_id || null,
   };
@@ -56,22 +59,87 @@ function normalizeIncoming(body = {}) {
   const clientKey = String(body.id || body.client_key || '').trim();
   const title = String(body.title || '').trim().slice(0, 240);
   const transcript = String(body.transcript || '');
+  const interim = String(body.interim || '');
+  const status = body.status === 'draft' ? 'draft' : 'saved';
   const startedAt = body.startedAt || body.started_at || null;
   const savedAt = body.savedAt || body.saved_at || new Date().toISOString();
   const hasAudio = Boolean(body.hasAudio ?? body.has_audio);
-  return { clientKey, title, transcript, startedAt, savedAt, hasAudio };
+  return { clientKey, title, transcript, interim, status, startedAt, savedAt, hasAudio };
 }
 
+async function upsertMeeting(userId, incoming) {
+  const key = incoming.clientKey;
+  const { rows } = await pool.query(
+    `INSERT INTO meetings (
+       client_key, user_id, title, transcript, interim, status,
+       started_at, saved_at, has_audio, updated_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+     ON CONFLICT (client_key) DO UPDATE SET
+       title = EXCLUDED.title,
+       transcript = EXCLUDED.transcript,
+       interim = EXCLUDED.interim,
+       status = EXCLUDED.status,
+       started_at = COALESCE(EXCLUDED.started_at, meetings.started_at),
+       saved_at = EXCLUDED.saved_at,
+       has_audio = EXCLUDED.has_audio OR meetings.has_audio,
+       user_id = COALESCE(meetings.user_id, EXCLUDED.user_id),
+       updated_at = NOW()
+     RETURNING *`,
+    [
+      key,
+      userId || null,
+      incoming.title || 'Réunion',
+      incoming.transcript,
+      incoming.interim,
+      incoming.status,
+      incoming.startedAt,
+      incoming.savedAt,
+      incoming.hasAudio,
+    ]
+  );
+  return rows[0];
+}
+
+/** Liste des réunions sauvegardées (pas les brouillons vides). */
 router.get('/', async (req, res) => {
   try {
     const limit = Math.min(Math.max(Number(req.query.limit) || 80, 1), 200);
+    const includeDrafts = req.query.include_drafts === '1' || req.query.include_drafts === 'true';
     const { rows } = await pool.query(
-      `SELECT * FROM meetings
-       ORDER BY saved_at DESC NULLS LAST, id DESC
-       LIMIT $1`,
+      includeDrafts
+        ? `SELECT * FROM meetings
+           ORDER BY saved_at DESC NULLS LAST, id DESC
+           LIMIT $1`
+        : `SELECT * FROM meetings
+           WHERE status = 'saved'
+              OR (status = 'draft' AND length(trim(transcript)) > 0)
+           ORDER BY saved_at DESC NULLS LAST, id DESC
+           LIMIT $1`,
       [limit]
     );
     res.json(rows.map(mapRow));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Brouillon actif de l’utilisateur (reprise après refresh). */
+router.get('/draft', async (req, res) => {
+  try {
+    const uid = req.user?.id || null;
+    const { rows } = await pool.query(
+      uid
+        ? `SELECT * FROM meetings
+           WHERE status = 'draft' AND user_id = $1
+           ORDER BY updated_at DESC NULLS LAST, id DESC
+           LIMIT 1`
+        : `SELECT * FROM meetings
+           WHERE status = 'draft'
+           ORDER BY updated_at DESC NULLS LAST, id DESC
+           LIMIT 1`,
+      uid ? [uid] : []
+    );
+    res.json(rows[0] ? mapRow(rows[0]) : null);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -94,38 +162,17 @@ router.get('/:key', async (req, res) => {
   }
 });
 
-/** Upsert par client_key (id local m_…) */
+/** Upsert par client_key — source de vérité PostgreSQL. */
 router.put('/:key', async (req, res) => {
   try {
     const key = String(req.params.key || req.body?.id || '').trim();
     if (!key) return res.status(400).json({ error: 'id requis' });
     const incoming = normalizeIncoming({ ...req.body, id: key });
-    if (!incoming.transcript && !incoming.title) {
+    if (!incoming.transcript && !incoming.title && !incoming.interim) {
       return res.status(400).json({ error: 'Titre ou transcription requis' });
     }
-    const { rows } = await pool.query(
-      `INSERT INTO meetings (client_key, user_id, title, transcript, started_at, saved_at, has_audio, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-       ON CONFLICT (client_key) DO UPDATE SET
-         title = EXCLUDED.title,
-         transcript = EXCLUDED.transcript,
-         started_at = COALESCE(EXCLUDED.started_at, meetings.started_at),
-         saved_at = EXCLUDED.saved_at,
-         has_audio = EXCLUDED.has_audio OR meetings.has_audio,
-         user_id = COALESCE(meetings.user_id, EXCLUDED.user_id),
-         updated_at = NOW()
-       RETURNING *`,
-      [
-        key,
-        req.user?.id || null,
-        incoming.title || 'Réunion',
-        incoming.transcript,
-        incoming.startedAt,
-        incoming.savedAt,
-        incoming.hasAudio,
-      ]
-    );
-    res.json(mapRow(rows[0]));
+    const row = await upsertMeeting(req.user?.id, incoming);
+    res.json(mapRow(row));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -134,83 +181,41 @@ router.put('/:key', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const incoming = normalizeIncoming(req.body);
-    const key = incoming.clientKey || `m_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-    if (!incoming.transcript && !incoming.title) {
+    incoming.clientKey = incoming.clientKey
+      || `m_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    if (!incoming.transcript && !incoming.title && !incoming.interim) {
       return res.status(400).json({ error: 'Titre ou transcription requis' });
     }
-    const { rows } = await pool.query(
-      `INSERT INTO meetings (client_key, user_id, title, transcript, started_at, saved_at, has_audio, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-       ON CONFLICT (client_key) DO UPDATE SET
-         title = EXCLUDED.title,
-         transcript = EXCLUDED.transcript,
-         started_at = COALESCE(EXCLUDED.started_at, meetings.started_at),
-         saved_at = EXCLUDED.saved_at,
-         has_audio = EXCLUDED.has_audio OR meetings.has_audio,
-         user_id = COALESCE(meetings.user_id, EXCLUDED.user_id),
-         updated_at = NOW()
-       RETURNING *`,
-      [
-        key,
-        req.user?.id || null,
-        incoming.title || 'Réunion',
-        incoming.transcript,
-        incoming.startedAt,
-        incoming.savedAt,
-        incoming.hasAudio,
-      ]
-    );
-    res.status(201).json(mapRow(rows[0]));
+    const row = await upsertMeeting(req.user?.id, incoming);
+    res.status(201).json(mapRow(row));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-/** Import / sync bulk depuis localStorage navigateur */
+/**
+ * Migration one-shot : importer d’anciennes données navigateur puis les oublier côté client.
+ * Préférer ce endpoint uniquement pour récupérer l’historique localStorage existant.
+ */
 router.post('/sync', async (req, res) => {
   try {
     const list = Array.isArray(req.body?.meetings) ? req.body.meetings : [];
     let upserted = 0;
-    const out = [];
     for (const item of list.slice(0, 100)) {
-      const incoming = normalizeIncoming(item);
+      const incoming = normalizeIncoming({
+        ...item,
+        status: item.status === 'draft' ? 'draft' : 'saved',
+      });
       if (!incoming.clientKey) continue;
       if (!incoming.transcript && !incoming.title) continue;
-      const { rows } = await pool.query(
-        `INSERT INTO meetings (client_key, user_id, title, transcript, started_at, saved_at, has_audio, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-         ON CONFLICT (client_key) DO UPDATE SET
-           title = CASE
-             WHEN length(EXCLUDED.transcript) >= length(meetings.transcript) THEN EXCLUDED.title
-             ELSE meetings.title
-           END,
-           transcript = CASE
-             WHEN length(EXCLUDED.transcript) >= length(meetings.transcript) THEN EXCLUDED.transcript
-             ELSE meetings.transcript
-           END,
-           started_at = COALESCE(meetings.started_at, EXCLUDED.started_at),
-           saved_at = GREATEST(COALESCE(meetings.saved_at, EXCLUDED.saved_at), EXCLUDED.saved_at),
-           has_audio = EXCLUDED.has_audio OR meetings.has_audio,
-           user_id = COALESCE(meetings.user_id, EXCLUDED.user_id),
-           updated_at = NOW()
-         RETURNING *`,
-        [
-          incoming.clientKey,
-          req.user?.id || null,
-          incoming.title || 'Réunion',
-          incoming.transcript,
-          incoming.startedAt,
-          incoming.savedAt,
-          incoming.hasAudio,
-        ]
-      );
-      if (rows[0]) {
-        upserted += 1;
-        out.push(mapRow(rows[0]));
-      }
+      await upsertMeeting(req.user?.id, incoming);
+      upserted += 1;
     }
     const { rows: all } = await pool.query(
-      `SELECT * FROM meetings ORDER BY saved_at DESC NULLS LAST, id DESC LIMIT 80`
+      `SELECT * FROM meetings
+       WHERE status = 'saved' OR (status = 'draft' AND length(trim(transcript)) > 0)
+       ORDER BY saved_at DESC NULLS LAST, id DESC
+       LIMIT 80`
     );
     res.json({ ok: true, upserted, meetings: all.map(mapRow) });
   } catch (err) {

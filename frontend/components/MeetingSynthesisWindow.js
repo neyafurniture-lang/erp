@@ -76,7 +76,7 @@ export default function MeetingSynthesisWindow() {
   useEffect(() => {
     if (hydrated.current) return;
     hydrated.current = true;
-    hydrateMeetingFromStorage();
+    void hydrateMeetingFromStorage();
   }, []);
 
   useEffect(() => {
@@ -133,10 +133,10 @@ export default function MeetingSynthesisWindow() {
     }
   };
 
-  const onSave = () => {
+  const onSave = async () => {
     if (readOnly) return;
     if (editTitle.trim()) setMeetingTitle(editTitle.trim());
-    const entry = saveMeetingToHistory();
+    const entry = await saveMeetingToHistory();
     if (entry) {
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 1800);
@@ -225,11 +225,11 @@ export default function MeetingSynthesisWindow() {
             {readOnly
               ? viewing?.title || 'Lecture'
               : session.listening
-                ? `Live · ${duration}${safari ? ' · mode Safari' : ''} · sync auto serveur`
+                ? `Live · ${duration}${safari ? ' · mode Safari' : ''} · SQL auto`
                 : supported
                   ? safari
-                    ? 'Safari · dictée Apple + secours audio'
-                    : 'Speak-to-text navigateur · sync serveur'
+                    ? 'Safari · dictée Apple · PostgreSQL'
+                    : 'Speak-to-text · stocké en base SQL'
                   : 'Navigateur non supporté'}
           </p>
         </div>

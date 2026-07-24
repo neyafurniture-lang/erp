@@ -433,6 +433,8 @@ export async function initDb() {
       user_id INT REFERENCES users(id) ON DELETE SET NULL,
       title TEXT NOT NULL DEFAULT '',
       transcript TEXT NOT NULL DEFAULT '',
+      interim TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'saved',
       started_at TIMESTAMPTZ,
       saved_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       has_audio BOOLEAN NOT NULL DEFAULT false,
@@ -440,8 +442,11 @@ export async function initDb() {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS interim TEXT NOT NULL DEFAULT ''`);
+  await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'saved'`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_meetings_saved ON meetings(saved_at DESC)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_meetings_user ON meetings(user_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_meetings_status ON meetings(status)`);
 
   await pool.query(`ALTER TABLE admin_tasks ADD COLUMN IF NOT EXISTS priority_tier TEXT NOT NULL DEFAULT 'p2'`);
   await pool.query(`ALTER TABLE assistant_memories ADD COLUMN IF NOT EXISTS client_id INT REFERENCES clients(id) ON DELETE CASCADE`);

@@ -2,19 +2,14 @@
 
 /**
  * Enregistreur de réunion hors React — survit aux changements de page.
- * Speak-to-text navigateur (Web Speech API), optimisé Safari/iOS :
- * - préchauffage micro (getUserMedia)
- * - sessions courtes enchaînées (continuous=false)
- * - interim promu en final à chaque fin de session
- * - piste audio MediaRecorder en secours (téléchargeable)
- * - historique local + sync serveur (/api/meetings) pour ne plus perdre les synthèses
+ * Source de vérité : PostgreSQL (/api/meetings). Aucun localStorage.
+ * Mémoire vive uniquement pour la session d’écoute en cours.
  */
 
 import { api, getToken } from './api';
 
-const DRAFT_KEY = 'neya_meeting_draft';
-const HISTORY_KEY = 'neya_meetings';
-const MAX_HISTORY = 80;
+const LEGACY_DRAFT_KEY = 'neya_meeting_draft';
+const LEGACY_HISTORY_KEY = 'neya_meetings';
 
 function getSpeechRecognition() {
   if (typeof window === 'undefined') return null;
@@ -33,102 +28,16 @@ function uid() {
   return `m_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function loadDraft() {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem(DRAFT_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
+function defaultTitle() {
+  const d = new Date();
+  const date = d.toLocaleDateString('fr-CA', { day: 'numeric', month: 'short', year: 'numeric' });
+  const time = d.toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' });
+  return `Réunion ${date} · ${time}`;
 }
 
-function saveDraft(draft) {
-  if (typeof window === 'undefined') return;
-  try {
-    if (!draft) localStorage.removeItem(DRAFT_KEY);
-    else localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-  } catch {
-    /* quota / private mode */
-  }
-}
-
-function loadHistory() {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = localStorage.getItem(HISTORY_KEY);
-    const list = raw ? JSON.parse(raw) : [];
-    return Array.isArray(list) ? list : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveHistory(list) {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, MAX_HISTORY)));
-  } catch {
-    /* ignore */
-  }
-}
-
-function mergeMeetingLists(primary = [], secondary = []) {
-  const map = new Map();
-  for (const item of [...secondary, ...primary]) {
-    if (!item?.id) continue;
-    const prev = map.get(item.id);
-    if (!prev) {
-      map.set(item.id, item);
-      continue;
-    }
-    const prevLen = String(prev.transcript || '').length;
-    const nextLen = String(item.transcript || '').length;
-    const prevSaved = Date.parse(prev.savedAt || prev.startedAt || 0) || 0;
-    const nextSaved = Date.parse(item.savedAt || item.startedAt || 0) || 0;
-    if (nextLen > prevLen || (nextLen === prevLen && nextSaved >= prevSaved)) {
-      map.set(item.id, { ...prev, ...item });
-    } else {
-      map.set(item.id, { ...item, ...prev });
-    }
-  }
-  return Array.from(map.values()).sort((a, b) => {
-    const ta = Date.parse(a.savedAt || a.startedAt || 0) || 0;
-    const tb = Date.parse(b.savedAt || b.startedAt || 0) || 0;
-    return tb - ta;
-  });
-}
-
-async function persistMeetingToServer(entry) {
-  if (!entry?.id || typeof window === 'undefined') return null;
-  if (!getToken()) return null;
-  try {
-    return await api(`/meetings/${encodeURIComponent(entry.id)}`, {
-      method: 'PUT',
-      body: JSON.stringify({
-        id: entry.id,
-        title: entry.title,
-        transcript: entry.transcript,
-        startedAt: entry.startedAt,
-        savedAt: entry.savedAt,
-        hasAudio: entry.hasAudio,
-      }),
-    });
-  } catch (err) {
-    console.warn('Meeting server save:', err?.message || err);
-    return null;
-  }
-}
-
-async function deleteMeetingOnServer(id) {
-  if (!id || typeof window === 'undefined') return;
-  if (!getToken()) return;
-  try {
-    await api(`/meetings/${encodeURIComponent(id)}`, { method: 'DELETE' });
-  } catch {
-    /* ignore */
-  }
-}
+/** Cache mémoire (jamais localStorage) — rempli depuis l’API. */
+/** @type {Array<object>} */
+let historyCache = [];
 
 /** @typedef {{ id: string, title: string, transcript: string, interim: string, startedAt: string, updatedAt: string, listening: boolean, error: string|null, safari: boolean, hasAudio: boolean }} MeetingDraft */
 
@@ -165,8 +74,12 @@ let audioBlob = null;
 let restartTimer = null;
 let watchdogTimer = null;
 let autosaveTimer = null;
+let debouncePersistTimer = null;
 let lastResultAt = 0;
 let lastAutosaveSnap = '';
+let persistInFlight = false;
+let persistQueued = false;
+let hydrated = false;
 
 function emit() {
   listeners.forEach((fn) => fn());
@@ -176,11 +89,89 @@ function snapshot() {
   return state;
 }
 
+function setHistoryCache(list) {
+  historyCache = Array.isArray(list) ? list : [];
+  emit();
+}
+
+function upsertHistoryCache(entry) {
+  if (!entry?.id) return;
+  historyCache = [entry, ...historyCache.filter((m) => m.id !== entry.id)];
+}
+
 function commitInterim() {
   const inter = (interimText || '').trim();
   if (!inter) return;
   finals.push(inter);
   interimText = '';
+}
+
+function buildEntry({ status = 'saved' } = {}) {
+  const text = getFullMeetingText();
+  return {
+    id: state.id || uid(),
+    title: state.title || defaultTitle(),
+    transcript: text || state.transcript || '',
+    interim: interimText || '',
+    startedAt: state.startedAt || new Date().toISOString(),
+    savedAt: new Date().toISOString(),
+    hasAudio: Boolean(getMeetingAudioBlob()?.size),
+    status,
+  };
+}
+
+async function persistToDb(entry) {
+  if (!entry?.id || typeof window === 'undefined') return null;
+  if (!getToken()) return null;
+  try {
+    const saved = await api(`/meetings/${encodeURIComponent(entry.id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        id: entry.id,
+        title: entry.title,
+        transcript: entry.transcript,
+        interim: entry.interim || '',
+        startedAt: entry.startedAt,
+        savedAt: entry.savedAt,
+        hasAudio: entry.hasAudio,
+        status: entry.status === 'draft' ? 'draft' : 'saved',
+      }),
+    });
+    if (saved?.id) upsertHistoryCache(saved);
+    return saved;
+  } catch (err) {
+    console.warn('Meeting DB save:', err?.message || err);
+    return null;
+  }
+}
+
+async function flushPersist({ status = 'draft', force = false } = {}) {
+  if (!state.id) return null;
+  const entry = buildEntry({ status });
+  if (!force && !entry.transcript.trim() && !entry.title) return null;
+  if (persistInFlight) {
+    persistQueued = true;
+    return null;
+  }
+  persistInFlight = true;
+  try {
+    const saved = await persistToDb(entry);
+    return saved;
+  } finally {
+    persistInFlight = false;
+    if (persistQueued) {
+      persistQueued = false;
+      void flushPersist({ status, force });
+    }
+  }
+}
+
+function scheduleDbPersist(status = 'draft') {
+  if (debouncePersistTimer) clearTimeout(debouncePersistTimer);
+  debouncePersistTimer = setTimeout(() => {
+    debouncePersistTimer = null;
+    void flushPersist({ status });
+  }, 1500);
 }
 
 function syncState(patch = {}) {
@@ -193,17 +184,7 @@ function syncState(patch = {}) {
     safari: isAppleSafari(),
     hasAudio: Boolean(audioBlob) || audioChunks.length > 0,
   };
-  if (state.id) {
-    saveDraft({
-      id: state.id,
-      title: state.title,
-      transcript: state.transcript,
-      interim: state.interim,
-      startedAt: state.startedAt,
-      updatedAt: state.updatedAt,
-      listening: false,
-    });
-  }
+  if (state.id) scheduleDbPersist('draft');
   emit();
 }
 
@@ -219,6 +200,10 @@ function clearTimers() {
   if (autosaveTimer) {
     clearInterval(autosaveTimer);
     autosaveTimer = null;
+  }
+  if (debouncePersistTimer) {
+    clearTimeout(debouncePersistTimer);
+    debouncePersistTimer = null;
   }
 }
 
@@ -355,8 +340,8 @@ function startHistoryAutosave() {
     const snap = `${state.id}|${state.title}|${text}`;
     if (snap === lastAutosaveSnap) return;
     lastAutosaveSnap = snap;
-    saveMeetingToHistory({ silent: true });
-  }, 12000);
+    void flushPersist({ status: 'saved', force: true });
+  }, 8000);
 }
 
 function startRecognitionInstance() {
@@ -428,6 +413,7 @@ function startRecognitionInstance() {
       listening: false,
       error: messages[event.error] || `Erreur micro : ${event.error}`,
     });
+    void flushPersist({ status: 'saved' });
   };
 
   rec.onend = () => {
@@ -449,6 +435,71 @@ function startRecognitionInstance() {
   }
 }
 
+/** Migre l’ancien localStorage vers SQL une fois, puis purge ces clés. */
+async function migrateLegacyLocalStorageOnce() {
+  if (typeof window === 'undefined') return;
+  if (!getToken()) return;
+
+  let hasLegacy = false;
+  try {
+    hasLegacy = Boolean(
+      localStorage.getItem(LEGACY_HISTORY_KEY) || localStorage.getItem(LEGACY_DRAFT_KEY)
+    );
+  } catch {
+    return;
+  }
+  if (!hasLegacy) return;
+
+  const payload = [];
+  try {
+    const rawHist = localStorage.getItem(LEGACY_HISTORY_KEY);
+    const list = rawHist ? JSON.parse(rawHist) : [];
+    if (Array.isArray(list)) {
+      for (const m of list) {
+        if (m?.id) payload.push({ ...m, status: 'saved' });
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    const rawDraft = localStorage.getItem(LEGACY_DRAFT_KEY);
+    const draft = rawDraft ? JSON.parse(rawDraft) : null;
+    if (draft?.id && (draft.transcript || draft.title)) {
+      payload.push({
+        id: draft.id,
+        title: draft.title,
+        transcript: draft.transcript || '',
+        interim: draft.interim || '',
+        startedAt: draft.startedAt,
+        savedAt: draft.updatedAt || draft.startedAt,
+        status: 'draft',
+      });
+    }
+  } catch {
+    /* ignore */
+  }
+
+  if (payload.length) {
+    try {
+      await api('/meetings/sync', {
+        method: 'POST',
+        body: JSON.stringify({ meetings: payload }),
+      });
+    } catch (err) {
+      console.warn('Meeting legacy migrate:', err?.message || err);
+      return; // ne pas effacer si l’import a échoué
+    }
+  }
+
+  try {
+    localStorage.removeItem(LEGACY_DRAFT_KEY);
+    localStorage.removeItem(LEGACY_HISTORY_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function isMeetingSpeechSupported() {
   return !!getSpeechRecognition();
 }
@@ -466,35 +517,51 @@ export function subscribeMeeting(listener) {
   return () => listeners.delete(listener);
 }
 
-export function hydrateMeetingFromStorage() {
-  const draft = loadDraft();
-  if (!draft?.id) return;
-  finals = draft.transcript ? [draft.transcript] : [];
-  interimText = draft.interim || '';
-  state = {
-    id: draft.id,
-    title: draft.title || '',
-    transcript: draft.transcript || '',
-    interim: interimText,
-    startedAt: draft.startedAt || '',
-    updatedAt: draft.updatedAt || '',
-    listening: false,
-    error: null,
-    safari: isAppleSafari(),
-    hasAudio: false,
-  };
-  // Brouillon avec texte hors historique → le sauver (local + serveur)
-  if (draft.transcript?.trim()) {
-    const exists = loadHistory().some((m) => m.id === draft.id);
-    if (!exists) saveMeetingToHistory({ silent: true });
+/**
+ * Charge brouillon + liste depuis PostgreSQL (plus de localStorage).
+ * Conservé sous ce nom pour compatibilité des imports existants.
+ */
+export async function hydrateMeetingFromStorage() {
+  if (typeof window === 'undefined') return;
+  if (!getToken()) return;
+  await migrateLegacyLocalStorageOnce();
+
+  try {
+    const [draft, list] = await Promise.all([
+      api('/meetings/draft').catch(() => null),
+      api('/meetings').catch(() => []),
+    ]);
+    setHistoryCache(Array.isArray(list) ? list : []);
+
+    // Ne pas écraser une session d’écoute en cours
+    if (wantListen || state.listening) {
+      hydrated = true;
+      return;
+    }
+
+    if (draft?.id && (draft.transcript || draft.interim || draft.title)) {
+      finals = draft.transcript ? [draft.transcript] : [];
+      interimText = draft.interim || '';
+      state = {
+        id: draft.id,
+        title: draft.title || '',
+        transcript: draft.transcript || '',
+        interim: interimText,
+        startedAt: draft.startedAt || '',
+        updatedAt: draft.updatedAt || draft.savedAt || '',
+        listening: false,
+        error: null,
+        safari: isAppleSafari(),
+        hasAudio: Boolean(draft.hasAudio),
+      };
+      emit();
+    }
+  } catch (err) {
+    console.warn('Meeting hydrate:', err?.message || err);
   }
-  emit();
+  hydrated = true;
 }
 
-/**
- * Démarre (ou reprend) l’écoute. Si clear=true, nouvelle session.
- * Async : préchauffe le micro (obligatoire Safari).
- */
 export async function startMeetingRecording({ title = '', clear = true, lang = 'fr-CA' } = {}) {
   const SpeechRecognition = getSpeechRecognition();
   if (!SpeechRecognition) {
@@ -509,7 +576,7 @@ export async function startMeetingRecording({ title = '', clear = true, lang = '
   if (clear || !state.id) {
     const prevText = getFullMeetingText() || state.transcript;
     if (prevText?.trim() && state.id) {
-      saveMeetingToHistory({ silent: true });
+      await flushPersist({ status: 'saved', force: true });
     }
     finals = [];
     interimText = '';
@@ -539,6 +606,8 @@ export async function startMeetingRecording({ title = '', clear = true, lang = '
 
   wantListen = true;
   syncState({});
+  // Créer la ligne SQL immédiatement (brouillon)
+  await flushPersist({ status: 'draft', force: true });
 
   try {
     await ensureMicStream();
@@ -575,8 +644,8 @@ export async function stopMeetingRecording() {
   await stopAudioBackup();
   releaseMic();
   syncState({ listening: false });
-  if (getFullMeetingText().trim()) {
-    saveMeetingToHistory({ silent: true });
+  if (getFullMeetingText().trim() || state.title) {
+    await flushPersist({ status: 'saved', force: true });
   }
   return getFullMeetingText();
 }
@@ -641,7 +710,7 @@ export function setMeetingTitle(title) {
 export async function clearMeetingDraft() {
   const text = getFullMeetingText() || state.transcript;
   if (text?.trim() && state.id) {
-    saveMeetingToHistory({ silent: true });
+    await flushPersist({ status: 'saved', force: true });
   }
   wantListen = false;
   clearTimers();
@@ -669,76 +738,58 @@ export async function clearMeetingDraft() {
     safari: isAppleSafari(),
     hasAudio: false,
   };
-  saveDraft(null);
   emit();
 }
 
-export function saveMeetingToHistory(opts = {}) {
+export async function saveMeetingToHistory(opts = {}) {
   const text = getFullMeetingText();
-  if (!text?.trim() && !state.id) return null;
   if (!text?.trim() && !opts.allowEmpty) return null;
-  const entry = {
-    id: state.id || uid(),
-    title: state.title || defaultTitle(),
-    transcript: text || state.transcript || '',
-    startedAt: state.startedAt || new Date().toISOString(),
-    savedAt: new Date().toISOString(),
-    hasAudio: Boolean(getMeetingAudioBlob()?.size),
-  };
-  if (!entry.transcript.trim() && !opts.allowEmpty) return null;
-  const list = loadHistory().filter((m) => m.id !== entry.id);
-  list.unshift(entry);
-  saveHistory(list);
-  void persistMeetingToServer(entry);
+  if (!state.id) {
+    state = {
+      ...state,
+      id: uid(),
+      title: state.title || defaultTitle(),
+      startedAt: state.startedAt || new Date().toISOString(),
+    };
+  }
+  const saved = await flushPersist({ status: 'saved', force: true });
   emit();
-  return entry;
+  return saved || buildEntry({ status: 'saved' });
 }
 
 export function listSavedMeetings() {
-  return loadHistory();
+  return historyCache.slice();
 }
 
-/** Charge serveur + fusionne avec le cache navigateur. */
+/** Recharge la liste depuis PostgreSQL. */
 export async function syncMeetingsFromServer() {
-  const local = loadHistory();
-  if (!getToken()) return local;
+  if (!getToken()) return historyCache.slice();
+  if (!hydrated) await hydrateMeetingFromStorage();
   try {
-    if (local.length) {
-      const synced = await api('/meetings/sync', {
-        method: 'POST',
-        body: JSON.stringify({ meetings: local }),
-      });
-      const merged = mergeMeetingLists(synced?.meetings || [], local);
-      saveHistory(merged);
-      return merged;
-    }
     const remote = await api('/meetings');
-    const merged = mergeMeetingLists(Array.isArray(remote) ? remote : [], local);
-    saveHistory(merged);
-    return merged;
+    setHistoryCache(Array.isArray(remote) ? remote : []);
+    return historyCache.slice();
   } catch (err) {
     console.warn('Meeting sync:', err?.message || err);
-    return local;
+    return historyCache.slice();
   }
 }
 
 export function getSavedMeeting(id) {
-  return loadHistory().find((m) => m.id === id) || null;
+  return historyCache.find((m) => m.id === id) || null;
 }
 
-export function deleteSavedMeeting(id) {
-  saveHistory(loadHistory().filter((m) => m.id !== id));
-  void deleteMeetingOnServer(id);
+export async function deleteSavedMeeting(id) {
+  historyCache = historyCache.filter((m) => m.id !== id);
   emit();
+  if (!id || !getToken()) return;
+  try {
+    await api(`/meetings/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  } catch {
+    /* ignore */
+  }
 }
 
 export function clearMeetingError() {
   syncState({ error: null });
-}
-
-function defaultTitle() {
-  const d = new Date();
-  const date = d.toLocaleDateString('fr-CA', { day: 'numeric', month: 'short', year: 'numeric' });
-  const time = d.toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' });
-  return `Réunion ${date} · ${time}`;
 }

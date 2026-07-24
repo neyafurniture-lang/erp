@@ -74,7 +74,7 @@ export default function ReunionsPage() {
     <AuthGuard>
       <AppShell
         title="Réunions"
-        subtitle="Synthèse speak-to-text — sauvegarde serveur + fenêtre indépendante"
+        subtitle="Synthèse speak-to-text — stockée en base PostgreSQL"
       >
         <div className="space-y-6">
           <section className="cf-panel overflow-hidden">
@@ -89,8 +89,8 @@ export default function ReunionsPage() {
                   </h2>
                   <p className="mt-2 text-[14px] text-neya-muted leading-relaxed">
                     Une seule fenêtre flottante. Changez de page dans l’ERP : l’enregistrement
-                    continue. Transcription navigateur, sauvegardée automatiquement sur le serveur
-                    (plus seulement dans le navigateur).
+                    continue. Transcription navigateur, enregistrée directement dans la base
+                    PostgreSQL (pas de localStorage).
                   </p>
                 </div>
                 <div className="flex flex-col gap-2 shrink-0">
@@ -122,7 +122,7 @@ export default function ReunionsPage() {
             <div className="grid sm:grid-cols-3 gap-px bg-neya-border border-t border-neya-border">
               {[
                 { t: 'Speak-to-text', d: 'Safari / Chrome · fr-CA · dictée système' },
-                { t: 'Anti-perte', d: 'Sauvegarde auto locale + serveur toutes les 12 s' },
+                { t: 'Base SQL', d: 'Tout dans PostgreSQL — zéro localStorage' },
                 { t: 'Fenêtre fixe', d: 'Réduire ou naviguer sans couper le micro' },
               ].map((item) => (
                 <div key={item.t} className="bg-white px-4 py-3.5">
@@ -208,10 +208,10 @@ export default function ReunionsPage() {
                       <button
                         type="button"
                         className="btn-ghost text-[12px] text-red-600 inline-flex items-center gap-1"
-                        onClick={() => {
+                        onClick={async () => {
                           if (!window.confirm('Supprimer cette synthèse ?')) return;
-                          deleteSavedMeeting(m.id);
-                          refresh();
+                          await deleteSavedMeeting(m.id);
+                          await refresh();
                         }}
                       >
                         <Trash2 className="h-3.5 w-3.5" />

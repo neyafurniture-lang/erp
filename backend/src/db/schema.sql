@@ -675,6 +675,8 @@ CREATE TABLE IF NOT EXISTS meetings (
   user_id INT REFERENCES users(id) ON DELETE SET NULL,
   title TEXT NOT NULL DEFAULT '',
   transcript TEXT NOT NULL DEFAULT '',
+  interim TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'saved',
   started_at TIMESTAMPTZ,
   saved_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   has_audio BOOLEAN NOT NULL DEFAULT false,
@@ -683,6 +685,7 @@ CREATE TABLE IF NOT EXISTS meetings (
 );
 CREATE INDEX IF NOT EXISTS idx_meetings_saved ON meetings(saved_at DESC);
 CREATE INDEX IF NOT EXISTS idx_meetings_user ON meetings(user_id);
+CREATE INDEX IF NOT EXISTS idx_meetings_status ON meetings(status);
 
 CREATE INDEX IF NOT EXISTS idx_inventory_category ON inventory_items(category);
 CREATE INDEX IF NOT EXISTS idx_shifts_employee ON shifts(employee_id, start_at);
