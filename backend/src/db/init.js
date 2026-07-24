@@ -19,6 +19,7 @@ export async function initDb() {
   // Colonnes mail critiques tôt (CREATE IF NOT EXISTS ne met pas à jour les tables existantes)
   await pool.query(`ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS mail_category TEXT`);
   await pool.query(`ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS mail_category_manual BOOLEAN DEFAULT false`);
+  await pool.query(`ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS suggested_client_name TEXT`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_email_threads_category ON email_threads(mail_category)`);
 
   // Mes heures : shift_id manquant sur les bases déjà créées (sinon pending-shifts / insert cassent)
@@ -290,6 +291,7 @@ export async function initDb() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_email_messages_thread ON email_messages(thread_id)`);
   await pool.query(`ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS mail_category TEXT`);
   await pool.query(`ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS mail_category_manual BOOLEAN DEFAULT false`);
+  await pool.query(`ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS suggested_client_name TEXT`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_email_threads_category ON email_threads(mail_category)`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS integration_tokens (

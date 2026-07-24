@@ -472,6 +472,7 @@ CREATE TABLE IF NOT EXISTS email_threads (
   status TEXT DEFAULT 'open',
   mail_category TEXT,
   mail_category_manual BOOLEAN DEFAULT false,
+  suggested_client_name TEXT,
   last_message_at TIMESTAMPTZ,
   message_count INT DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW(),
