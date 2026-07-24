@@ -122,6 +122,12 @@ export async function importAttachmentFromEmail(message, pageContext = null, par
   const keywords = extractKeywords(full.subject, full.snippet, full.body || '');
   const projectId = await resolveProjectId({ message, pageContext, params, study, keywords });
 
+  const { buildClientCreateFields } = await import('./client-contact-enrich.js');
+  const contactHints = buildClientCreateFields(
+    { from: full.from },
+    `${full.subject || ''}\n${full.body || full.snippet || ''}\n${extracts.map(e => e.text || '').join('\n')}`
+  );
+
   const actions = [{
     type: 'import_email_attachment',
     data: {
@@ -131,6 +137,15 @@ export async function importAttachmentFromEmail(message, pageContext = null, par
       files: savedAttachments.map(a => a.name),
       doc_type: study.doc_type,
       project_id: projectId,
+      contact_hints: {
+        name: contactHints.name,
+        contact: contactHints.contact,
+        email: contactHints.email,
+        phone: contactHints.phone,
+        address: contactHints.address,
+        city: contactHints.city,
+      },
+      pdf_weak: extracts.some(e => e.weak),
     },
   }];
 
@@ -142,6 +157,38 @@ export async function importAttachmentFromEmail(message, pageContext = null, par
     study.label_fr ? `Type : ${study.label_fr}` : null,
     study.summary ? `\n${study.summary}` : null,
   ].filter(Boolean);
+
+  if (extracts.some(e => e.weak || e.note)) {
+    const notes = extracts.map(e => e.note).filter(Boolean);
+    if (notes.length) lines.push(`\n⚠ ${notes[0]}`);
+  }
+  if (contactHints.email) {
+    lines.push(`\nContact suggéré : ${contactHints.name || '—'} <${contactHints.email}>`);
+  }
+
+  // Si la consigne demande un contact/client → créer depuis From / PDF (même si PDF faible)
+  const wantsContact = /nouveau\s+contact|nouveau\s+client|cr[eé]e[r]?.*\b(contact|client)|ajouter?\s+(un\s+)?(contact|client)/i.test(message);
+  if (wantsContact && contactHints.email) {
+    try {
+      const { runSkillAction } = await import('./skill-actions.js');
+      const created = await runSkillAction('create_client', message, pageContext, {}, {
+        name: contactHints.name,
+        contact: contactHints.contact,
+        email: contactHints.email,
+        phone: contactHints.phone,
+        address: contactHints.address,
+        city: contactHints.city,
+        from: full.from,
+        notes: `Import mail « ${full.subject || ''} » (${savedAttachments.map(a => a.name).join(', ') || 'sans PJ'})`.slice(0, 500),
+      });
+      if (created?.actions?.length) actions.push(...created.actions);
+      if (created?.reply) lines.push(`\n✓ ${created.reply}`);
+    } catch (err) {
+      lines.push(`\nCréation contact impossible : ${err.message}`);
+    }
+  } else if (contactHints.email && !wantsContact && extracts.some(e => e.weak)) {
+    lines.push('→ Pour créer le client : « crée le contact » (utilise l’expéditeur du mail).');
+  }
 
   // Dépense si montant détecté
   if (amount && Number(amount) > 0) {
