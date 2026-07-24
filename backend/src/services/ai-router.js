@@ -27,9 +27,10 @@ export const BUSINESS_ACTIONS = new Set([
   'create_client', 'update_client', 'delete_client',
   'create_expense', 'list_expenses', 'delete_expense',
   'create_quote', 'update_quote', 'get_quote', 'send_quote', 'convert_quote',
-  'create_invoice', 'update_invoice', 'send_invoice',
+  'create_invoice', 'send_invoice',
   'list_emails', 'search_emails', 'get_email', 'list_mail_threads',
   'create_fabrication_plan', 'search_memory',
+  'create_project_from_quote_email', 'atelier_habits',
 ]);
 
 /**

@@ -454,7 +454,12 @@ router.get('/:id/send-preview', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   try {
-    const { status, lines, due_date, notes, title, subtitle, reference, terms, order_summary } = req.body;
+    let { status, lines, due_date, notes, title, subtitle, reference, terms, order_summary } = req.body;
+    if (status === 'partial') status = 'partially_paid';
+    const allowed = new Set(['draft', 'sent', 'partially_paid', 'paid', 'overdue', 'cancelled', 'void']);
+    if (status != null && status !== '' && !allowed.has(status)) {
+      return res.status(400).json({ error: `Statut invalide : ${status}` });
+    }
     let subtotal, total;
     if (lines) ({ subtotal, total } = calcTotals(lines));
     const { rows } = await pool.query(
@@ -471,7 +476,7 @@ router.put('/:id', async (req, res) => {
         terms = COALESCE($10, terms),
         order_summary = COALESCE($11, order_summary)
        WHERE id = $12 RETURNING *`,
-      [status, lines ? JSON.stringify(lines) : null, subtotal, total, due_date, notes, title, subtitle, reference, terms, order_summary, req.params.id]
+      [status || null, lines ? JSON.stringify(lines) : null, subtotal, total, due_date, notes, title, subtitle, reference, terms, order_summary, req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Facture introuvable' });
     res.json(rows[0]);

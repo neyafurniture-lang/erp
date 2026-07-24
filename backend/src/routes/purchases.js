@@ -34,12 +34,13 @@ function needSelect() {
 
 router.get('/needs', async (req, res) => {
   try {
-    const { status, category, priority } = req.query;
+    const { status, category, priority, project_id } = req.query;
     let q = `${needSelect()} WHERE 1=1`;
     const params = [];
     if (status) { params.push(status); q += ` AND n.status = $${params.length}`; }
     if (category) { params.push(category); q += ` AND n.category = $${params.length}`; }
     if (priority) { params.push(priority); q += ` AND n.priority = $${params.length}`; }
+    if (project_id) { params.push(Number(project_id)); q += ` AND n.project_id = $${params.length}`; }
     q += ` ORDER BY
       CASE n.status WHEN 'needed' THEN 0 WHEN 'ordered' THEN 1 ELSE 2 END,
       CASE n.priority WHEN 'urgent' THEN 0 ELSE 1 END,
@@ -129,6 +130,16 @@ router.patch('/needs/:id', async (req, res) => {
         req.params.id,
       ]
     );
+    // Première réception → ajoute la quantité au stock lié
+    if (status === 'received' && n.status !== 'received' && n.inventory_item_id) {
+      const qty = Number(rows[0].quantity) || 0;
+      if (qty > 0) {
+        await pool.query(
+          'UPDATE inventory_items SET quantity = quantity + $1 WHERE id = $2',
+          [qty, n.inventory_item_id]
+        );
+      }
+    }
     const { rows: full } = await pool.query(`${needSelect()} WHERE n.id = $1`, [rows[0].id]);
     res.json(full[0]);
   } catch (err) {
@@ -258,17 +269,36 @@ router.post('/', async (req, res) => {
 });
 
 router.patch('/:id/status', async (req, res) => {
+  const client = await pool.connect();
   try {
     const { status } = req.body;
+    await client.query('BEGIN');
+    const { rows: prev } = await client.query('SELECT * FROM purchase_orders WHERE id = $1', [req.params.id]);
+    if (!prev[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Commande introuvable' });
+    }
     const extra = status === 'ordered' ? ', ordered_at = NOW()' : status === 'received' ? ', received_at = NOW()' : '';
-    const { rows } = await pool.query(
+    const { rows } = await client.query(
       `UPDATE purchase_orders SET status = $1${extra} WHERE id = $2 RETURNING *`,
       [status, req.params.id]
     );
-    if (!rows[0]) return res.status(404).json({ error: 'Commande introuvable' });
+    if (status === 'received' && prev[0].status !== 'received') {
+      await client.query(
+        `UPDATE inventory_items i
+         SET quantity = i.quantity + pi.quantity
+         FROM purchase_items pi
+         WHERE pi.purchase_id = $1 AND pi.inventory_item_id = i.id`,
+        [req.params.id]
+      );
+    }
+    await client.query('COMMIT');
     res.json(rows[0]);
   } catch (err) {
+    await client.query('ROLLBACK');
     res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 

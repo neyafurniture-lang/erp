@@ -9,7 +9,8 @@
     "db:seed-standards": "node src/db/seed-standards.js",
     "db:link-projects": "node src/db/link-projects.js",
     "db:migrate-export": "node scripts/migrate-to-vps.mjs",
-    "fiches:copy-images": "node scripts/copy-fiche-images.js"
+    "fiches:copy-images": "node scripts/copy-fiche-images.js",
+    "test": "node --test src/services/day-plan-classify.test.js"
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.23",

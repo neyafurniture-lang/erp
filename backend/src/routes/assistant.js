@@ -5,7 +5,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { processMessage, getSkills, createSkill, updateSkill, deleteSkill, getChatHistory } from '../services/assistant.js';
 import { saveFeedback } from '../services/assistant-memory.js';
-import { buildOperationPlan } from '../services/assistant-plan.js';
+import { buildOperationPlan, executeOperationPlan } from '../services/assistant-plan.js';
 import {
   buildAssistantProtocol,
   executeProtocolAction,
@@ -85,6 +85,23 @@ router.post('/plan', async (req, res) => {
         : req.body.context;
     }
     res.json(await buildOperationPlan(transcript, pageContext));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Exécute un plan d'opérations confirmé (steps avec action_type). */
+router.post('/execute-plan', async (req, res) => {
+  try {
+    const plan = req.body?.plan || req.body;
+    if (!plan?.steps?.length && !plan?.transcript) {
+      return res.status(400).json({ error: 'plan.steps requis' });
+    }
+    let pageContext = req.body?.context || null;
+    if (typeof pageContext === 'string') {
+      try { pageContext = JSON.parse(pageContext); } catch { pageContext = null; }
+    }
+    res.json(await executeOperationPlan(plan, pageContext));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

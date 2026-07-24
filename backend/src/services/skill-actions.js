@@ -1,17 +1,28 @@
 import pool from '../db/pool.js';
 import { createQuoteRecord, createInvoiceRecord, convertQuoteToInvoice } from './invoice-helpers.js';
 import { sendDocumentEmail } from './document-email.js';
+import {
+  stripPlanPrefix,
+  isJunkPlanSegment,
+  splitPlanItems,
+  isMultiIntentErpMessage,
+  isDayPlanMessage,
+  torontoWallTime,
+} from './day-plan-classify.js';
+
+export { splitPlanItems, isMultiIntentErpMessage, isDayPlanMessage };
 
 const DAY_MAP = {
   lundi: 1, mardi: 2, mercredi: 3, jeudi: 4, vendredi: 5, samedi: 6, dimanche: 0,
 };
 
 export const ACTION_TYPES = [
-  'create_task', 'create_project', 'schedule_task', 'plan_day', 'create_expense', 'list_today', 'list_tomorrow', 'create_client',
+  'create_task', 'create_project', 'create_project_from_quote_email', 'schedule_task', 'plan_day', 'create_expense', 'list_today', 'list_tomorrow', 'create_client',
   'complete_task', 'update_task', 'delete_task', 'unlink_task', 'list_project_tasks',
   'update_project', 'update_client', 'list_projects', 'list_clients', 'list_expenses',
-  'search_projects', 'search_memory', 'get_project',
+  'search_projects', 'search_memory', 'get_project', 'add_project_material',
   'list_emails', 'search_emails', 'get_email', 'import_email_attachment', 'scan_mail_invoice_todos', 'list_mail_threads',
+  'import_mail_dates_to_project',
   'create_fabrication_plan',
   'list_skills', 'create_skill', 'update_skill',
   'create_quote', 'create_invoice', 'convert_quote', 'send_quote', 'send_invoice',
@@ -19,8 +30,20 @@ export const ACTION_TYPES = [
   'delete_project', 'delete_client', 'delete_expense',
   'update_standard', 'sync_wordpress', 'sync_web_orders', 'list_web_orders', 'sync_web_photos',
   'ui_edit_mode', 'ui_add_todo_list', 'ui_move_section', 'ui_hide_section', 'ui_show_section', 'ui_reset_layout',
-  'erp_manual',
+  'erp_manual', 'atelier_habits',
 ];
+
+/** Info matériel (essence, panneau, quincaillerie…) — pas une tâche à créer. */
+export function isMaterialInfoMessage(message = '') {
+  const m = String(message || '');
+  const material = /\b(merisier|ch[eê]ne|noyer|[eé]rable|frêne|frene|pin|c[eè]dre|contreplaqu[eé]|m[eé]lamine|mdf|baltic|panneau[x]?|quincaillerie|charni[eè]res?|coulisses?|vis\b|colle\b|vernis|teinture|bois\s+(franc|brut)|mat[eé]riau|mat[eé]riaux|mat[eé]riel|plaque|fer|acier|verre)\b/i.test(m);
+  if (!material) return false;
+  const taskVerb = /\b(fini[rs]?|termine[rz]?|coupe[rz]?|d[eé]bite[rz]?|assemble[rz]?|ponce[rz]?|usine[rz]?|installe[rz]?|livre[rz]?|appelle[rz]?|planifie[rz]?|rappelle|n['']oublie)\b/i.test(m);
+  const infoHint = /\b(utilis(e|é|er)|acheté|achete|reçu|recu|commande|commandé|en\s+stock|il\s+reste|on\s+a\s+(pris|mis)|mat[eé]riaux?\s*:|pour\s+ce\s+projet\s*:|ajouter|ajoute|besoin|pr[eé]voir|noter|inscrire)\b/i.test(m)
+    || /\b\d+\s*(pi|pieds?|pmp|feuilles?|plaques?|planches?|morceaux?|unit[eé]s?|pi[eè]ces?|\/4)\b/i.test(m)
+    || /\bx\s*\d+\b/i.test(m);
+  return infoHint && !taskVerb;
+}
 
 /** Extrait un éventuel objet params JSON préfixé au message (mode LLM). */
 export function extractActionParams(message) {
@@ -44,6 +67,15 @@ export function extractActionParams(message) {
 
 export function extractAmount(text) {
   const m = text.match(/(\d+(?:[.,]\d+)?)\s*\$?/);
+  return m ? parseFloat(m[1].replace(',', '.')) : null;
+}
+
+/** Montant monétaire explicite ($ / CAD / dollars) — évite « du 15 » → 15$. */
+export function extractMoneyAmount(text) {
+  const s = String(text || '');
+  const m = s.match(/(\d+(?:[.,]\d+)?)\s*(?:\$|CAD|cad|dollars?)\b/i)
+    || s.match(/(\d+(?:[.,]\d+)?)\s*\$/)
+    || s.match(/(?:\$|CAD|cad)\s*(\d+(?:[.,]\d+)?)/i);
   return m ? parseFloat(m[1].replace(',', '.')) : null;
 }
 
@@ -107,15 +139,14 @@ export function extractAfterKeyword(text, keywords) {
 
 function parseStatus(message) {
   if (/terminé|termine|fini|fait|done|complét|complete/i.test(message)) return 'done';
-  if (/en cours|progress|wip/i.test(message)) return 'in_progress';
+  if (/en cours|progress|wip|doing/i.test(message)) return 'doing';
   if (/à faire|a faire|todo|reprendre/i.test(message)) return 'todo';
   return null;
 }
 
 function parseProjectStatus(message) {
   if (/terminé|termine|livré|livre|completed|done|fermer/i.test(message)) return 'done';
-  if (/en attente|attente client|waiting|on[_ -]?hold|pending/i.test(message)) return 'waiting';
-  if (/pause|en pause/i.test(message)) return 'paused';
+  if (/pause|en pause|on hold/i.test(message)) return 'paused';
   if (/actif|active|en cours|rouvrir|réouvrir|reouvrir/i.test(message)) return 'active';
   if (/annulé|annule|cancel/i.test(message)) return 'cancelled';
   return null;
@@ -380,21 +411,6 @@ function inferTaskType(text) {
   return 'admin';
 }
 
-function stripPlanPrefix(message) {
-  return message
-    .replace(/^(planifie[rz]?|programme[rz]?|prévois|prevoyez|organise[rz]?)\s+(ma\s+)?(journée|journee|planning|étapes?|etapes?)\s+(de\s+|pour\s+)?(demain|lundi|mardi|mercredi|jeudi|vendredi)\s*[:,-]?\s*/i, '')
-    .replace(/^(mes\s+)?(étapes?|etapes?)\s+(de\s+|pour\s+)?(demain|lundi|mardi|mercredi|jeudi|vendredi)\s*[:,-]?\s*/i, '')
-    .replace(/^(demain|pour\s+demain|lundi|mardi|mercredi|jeudi|vendredi)\s*[:,-]?\s*/i, '')
-    .trim();
-}
-
-function splitPlanItems(text) {
-  return text
-    .split(/\s*(?:,|;|\.|\bet\b|\bpuis\b|\baprès\b|\bapres\b|\bensuite\b)\s*/i)
-    .map(s => s.trim())
-    .filter(s => s.length > 2 && !/^(demain|pour|planifier|programmer|journée|journee|matin|après-midi)$/i.test(s));
-}
-
 function tokenizeForMatch(text) {
   return text
     .toLowerCase()
@@ -408,7 +424,7 @@ async function fetchProjectsForMatching() {
     SELECT p.id, p.name, c.name AS client_name
     FROM projects p
     LEFT JOIN clients c ON c.id = p.client_id
-    WHERE p.status IN ('active', 'waiting', 'on_hold', 'paused')
+    WHERE p.status IN ('active', 'paused')
     ORDER BY p.created_at DESC
     LIMIT 80
   `);
@@ -483,21 +499,16 @@ async function findOrCreatePlannedTask({ segment, type, project, pageContext }) 
   return rows[0];
 }
 
-export function isDayPlanMessage(message) {
-  const lower = message.toLowerCase();
-  const hasDate = /demain|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche/i.test(lower);
-  const multiItems = /,| et | puis | ensuite/i.test(lower);
-  const planIntent = /planif|journée|journee|étapes|etapes|programme|prévois|prevoyez|organise/i.test(lower);
-  const workKeywords = /finition|débitage|debitage|usinage|assemblage|mail|courriel|tâche|tache|étape|etape/i.test(lower);
-  const segments = splitPlanItems(stripPlanPrefix(message));
-  return (
-    (hasDate && segments.length >= 2 && workKeywords)
-    || (planIntent && hasDate)
-    || (hasDate && multiItems && workKeywords)
-  );
-}
-
 async function planDay(message, pageContext) {
+  if (isMultiIntentErpMessage(message)) {
+    return {
+      reply: 'Cette demande mélange plusieurs actions ERP (calendrier, devis, client…). '
+        + 'Utilisez le micro → « Créer le plan » pour les séparer, ou envoyez une action à la fois. '
+        + 'Pour une journée atelier : « Demain finition X, mail Y, débitage Z ».',
+      actions: [],
+    };
+  }
+
   const planDate = parseDateHint(message) || (() => {
     const d = new Date();
     d.setDate(d.getDate() + 1);
@@ -505,7 +516,7 @@ async function planDay(message, pageContext) {
   })();
 
   const body = stripPlanPrefix(message);
-  const items = splitPlanItems(body);
+  const items = splitPlanItems(body).filter(s => !isJunkPlanSegment(s));
   if (!items.length) {
     return {
       reply: 'Dites par ex. : « Demain finition banc olive Mehdi, mail pour The NNS, débitage table chêne »',
@@ -513,16 +524,13 @@ async function planDay(message, pageContext) {
     };
   }
 
-  const dayStart = new Date(planDate);
-  if (!parseDateHint(message) || !/\d{1,2}[h:]\d{0,2}/i.test(message)) {
-    dayStart.setHours(8, 30, 0, 0);
-  } else {
-    dayStart.setSeconds(0, 0);
-  }
+  const timeMatch = String(message).match(/(\d{1,2})[h:](\d{2})?/i);
+  let cursor = timeMatch
+    ? torontoWallTime(planDate, parseInt(timeMatch[1], 10), parseInt(timeMatch[2] || '0', 10))
+    : torontoWallTime(planDate, 8, 30);
 
   const actions = [];
   const lines = [];
-  let cursor = new Date(dayStart);
 
   for (const segment of items) {
     const type = inferTaskType(segment);
@@ -538,13 +546,22 @@ async function planDay(message, pageContext) {
     const scheduled = rows[0];
 
     actions.push({ type: 'plan_day', data: scheduled });
-    const timeStr = cursor.toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' });
+    const timeStr = cursor.toLocaleTimeString('fr-CA', {
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: 'America/Toronto',
+    });
     const projLabel = project ? ` (${project.name})` : '';
     lines.push(`• ${timeStr} — ${scheduled.title}${projLabel}`);
     cursor = end;
   }
 
-  const dateLabel = dayStart.toLocaleDateString('fr-CA', { weekday: 'long', day: 'numeric', month: 'long' });
+  const dateLabel = torontoWallTime(planDate, 12, 0).toLocaleDateString('fr-CA', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    timeZone: 'America/Toronto',
+  });
   return {
     reply: `Planning ${dateLabel} — ${items.length} étape(s) :\n${lines.join('\n')}`,
     actions,
@@ -879,7 +896,10 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
       return listTomorrow();
 
     case 'create_expense': {
-      const amount = extractAmount(message) || Number(params.amount) || 0;
+      const amount = Number(params.amount) || extractMoneyAmount(message) || extractAmount(message) || 0;
+      if (!amount || amount <= 0) {
+        return { reply: 'Indiquez un montant (ex. « dépense 85$ matériaux »).', actions };
+      }
       let category = 'materiaux';
       if (/outil/i.test(message) || params.category === 'outils') category = 'outils';
       else if (/transport/i.test(message) || params.category === 'transport') category = 'transport';
@@ -907,9 +927,9 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
       const { rows } = await pool.query(`
         SELECT t.*, p.name as project_name FROM tasks t
         LEFT JOIN projects p ON p.id = t.project_id
-        WHERE DATE(t.start_time) = CURRENT_DATE
-           OR (t.start_time IS NOT NULL AND t.start_time <= NOW() + INTERVAL '1 day')
-        ORDER BY t.start_time LIMIT 15
+        WHERE t.start_time IS NOT NULL
+          AND DATE(t.start_time AT TIME ZONE 'America/Toronto') = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Toronto')::date
+        ORDER BY t.start_time LIMIT 20
       `);
       if (!rows.length) return { reply: 'Aucune tâche planifiée pour aujourd\'hui.', actions };
       const list = rows.map(t => `• ${t.title}${t.start_time ? ` (${new Date(t.start_time).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' })})` : ''}`).join('\n');
@@ -1014,17 +1034,6 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
       const name = params.name || extractQuotedText(msg)
         || (/renommer|appeler/i.test(msg) ? extractAfterKeyword(msg, ['renommer', 'appeler']) : null);
       const status = params.status || parseProjectStatus(msg);
-      let priority = params.priority;
-      if (priority === undefined) {
-        if (/prioritaire|haute priorit|mettre.*(en )?prio|marquer.*prio/i.test(msg)
-          && !/plus prioritaire|retirer.*(la )?prio|enlever.*(la )?prio|pas prioritaire/i.test(msg)) {
-          priority = 1;
-        } else if (/retirer.*(la )?prio|enlever.*(la )?prio|plus prioritaire|pas prioritaire|déprioris/i.test(msg)) {
-          priority = 0;
-        }
-      } else {
-        priority = priority === true || priority === 'true' || Number(priority) > 0 ? 1 : 0;
-      }
       const deadline = params.deadline ? new Date(params.deadline) : parseDateHint(msg);
       const budget = params.budget_estimated != null ? Number(params.budget_estimated) : extractAmount(msg);
       let notes = params.notes ?? params.description ?? null;
@@ -1041,7 +1050,7 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
         clientId = pageContext.id;
       }
       const { rows } = await pool.query(
-        `UPDATE projects SET name=$1, status=$2, deadline=$3, budget_estimated=$4, notes=$5, client_id=$6, priority=$7 WHERE id=$8 RETURNING *`,
+        `UPDATE projects SET name=$1, status=$2, deadline=$3, budget_estimated=$4, notes=$5, client_id=$6 WHERE id=$7 RETURNING *`,
         [
           name || p.name,
           status || p.status,
@@ -1049,7 +1058,6 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
           budget != null && (params.budget_estimated != null || /budget/i.test(msg)) ? budget : p.budget_estimated,
           notes != null ? notes : p.notes,
           clientId,
-          priority !== undefined ? priority : (p.priority ?? 0),
           id,
         ]
       );
@@ -1594,13 +1602,18 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
     }
 
     case 'create_invoice': {
-      const clientId = pageContext?.type === 'client' ? pageContext.id : null;
-      if (!clientId) return { reply: 'Ouvrez la fiche client pour créer une facture.', actions };
+      let clientId = pageContext?.type === 'client' ? pageContext.id : null;
+      let projId = pageContext?.type === 'project' ? pageContext.id : null;
+      if (!clientId && projId) {
+        const { rows: pr } = await pool.query('SELECT client_id FROM projects WHERE id = $1', [projId]);
+        clientId = pr[0]?.client_id || null;
+      }
+      if (!clientId) return { reply: 'Ouvrez la fiche client (ou un projet lié à un client) pour créer une facture.', actions };
       const title = extractQuotedText(message) || extractAfterKeyword(message, ['facture', 'invoice']) || 'Facture';
       const amount = extractAmount(message) || 0;
       const inv = await createInvoiceRecord({
         client_id: clientId,
-        project_id: pageContext?.type === 'project' ? pageContext.id : null,
+        project_id: projId,
         title,
         lines: [{ description: title, qty: 1, price: amount }],
       });
@@ -1697,24 +1710,19 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
 
     case 'delete_expense': {
       const amount = extractAmount(message);
-      if (amount == null) {
-        return {
-          reply: 'Pour supprimer une dépense, précisez le montant (ex. « supprimer dépense 45,99$ »).',
-          actions: [],
-        };
-      }
-      const params = [Number(amount)];
-      let q = `DELETE FROM expenses WHERE id IN (
-        SELECT id FROM expenses WHERE ABS(amount - $1) < 0.02`;
+      const params = [];
+      let q = 'DELETE FROM expenses WHERE id IN (SELECT id FROM expenses WHERE 1=1';
       if (projectId) {
         params.push(projectId);
-        q += ` AND project_id = $${params.length}`;
+        q += ` AND project_id=$${params.length}`;
+      }
+      if (amount && amount > 0) {
+        params.push(amount);
+        q += ` AND amount=$${params.length}`;
       }
       q += ' ORDER BY created_at DESC LIMIT 1) RETURNING *';
       const { rows } = await pool.query(q, params);
-      if (!rows[0]) {
-        return { reply: `Aucune dépense trouvée à ${Number(amount).toFixed(2)} $.`, actions: [] };
-      }
+      if (!rows[0]) return { reply: 'Aucune dépense à supprimer.', actions };
       actions.push({ type: 'delete_expense', data: rows[0] });
       return { reply: `Dépense supprimée (${Number(rows[0].amount).toFixed(2)} $).`, actions };
     }
@@ -1867,6 +1875,180 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
       const { reply, href, section } = buildManualReply(message);
       actions.push({ type: 'navigate', data: { href, section } });
       return { reply: reply.replace(/\*\*/g, ''), actions };
+    }
+
+    case 'list_skills': {
+      const { rows: skills } = await pool.query('SELECT * FROM assistant_skills ORDER BY name');
+      const list = skills.map(s => {
+        const patterns = (s.trigger_patterns || []).slice(0, 3).join(', ');
+        return `${s.enabled ? '✓' : '○'} ${s.name} → ${s.action_type}${patterns ? ` (${patterns}…)` : ''}`;
+      }).join('\n');
+      actions.push({ type: 'list_skills', data: skills });
+      return {
+        reply: `Skills NEYA (${skills.length}) :\n${list || '(aucune)'}`,
+        actions,
+      };
+    }
+
+    case 'create_skill': {
+      const name = params.name
+        || extractQuotedText(msg)
+        || extractAfterKeyword(msg, ['skill', 'capacité', 'capacite']);
+      const action_type = params.action_type
+        || (msg.match(/action\s+([a-z_]+)/i) || [])[1];
+      if (!name || !action_type || !ACTION_TYPES.includes(action_type)) {
+        return {
+          reply: 'Format : skill « nom » action complete_task. Ou params {name, action_type, triggers}.',
+          actions,
+        };
+      }
+      const triggers = Array.isArray(params.triggers)
+        ? params.triggers
+        : (params.trigger_patterns || [String(name).replace(/_/g, ' ')]);
+      const skillName = String(name).replace(/\s+/g, '_').toLowerCase().slice(0, 80);
+      const { rows } = await pool.query(
+        `INSERT INTO assistant_skills (name, description, trigger_patterns, action_type, enabled)
+         VALUES ($1,$2,$3,$4,true)
+         ON CONFLICT (name) DO UPDATE SET
+           description = EXCLUDED.description,
+           trigger_patterns = EXCLUDED.trigger_patterns,
+           action_type = EXCLUDED.action_type,
+           enabled = true
+         RETURNING *`,
+        [
+          skillName,
+          params.description || `Via protocol — ${action_type}`,
+          JSON.stringify(triggers),
+          action_type,
+        ]
+      );
+      actions.push({ type: 'create_skill', data: rows[0] });
+      return { reply: `Skill « ${rows[0].name} » créée (${action_type}).`, actions };
+    }
+
+    case 'update_skill': {
+      const name = params.name || extractQuotedText(msg) || (msg.match(/skill\s+([a-z0-9_-]+)/i) || [])[1];
+      if (!name) return { reply: 'Précisez le skill (ex. « activer skill create_task »).', actions };
+      const { rows } = await pool.query('SELECT * FROM assistant_skills WHERE name ILIKE $1', [name]);
+      if (!rows[0]) return { reply: `Skill « ${name} » introuvable.`, actions };
+      const skill = rows[0];
+      let enabled = skill.enabled;
+      let action_type = skill.action_type;
+      let triggers = skill.trigger_patterns;
+      if (params.enabled !== undefined) enabled = !!params.enabled;
+      else if (/désactiver|desactiver|disable/i.test(msg)) enabled = false;
+      else if (/activer|enable/i.test(msg)) enabled = true;
+      if (params.action_type && ACTION_TYPES.includes(params.action_type)) action_type = params.action_type;
+      if (Array.isArray(params.triggers)) triggers = params.triggers;
+      const { rows: updated } = await pool.query(
+        `UPDATE assistant_skills SET enabled=$1, action_type=$2, trigger_patterns=$3 WHERE id=$4 RETURNING *`,
+        [enabled, action_type, JSON.stringify(triggers || []), skill.id]
+      );
+      actions.push({ type: 'update_skill', data: updated[0] });
+      return {
+        reply: `Skill « ${updated[0].name} » mise à jour${updated[0].enabled ? ' (active)' : ' (désactivée)'}.`,
+        actions,
+      };
+    }
+
+    case 'import_mail_dates_to_project': {
+      const id = projectId || await resolveProjectId(params, msg, pageContext);
+      if (!id) return { reply: 'Précisez le projet (page ouverte ou nom).', actions };
+      const { scanProjectInstallationDates } = await import('./installation-billing.js');
+      const result = await scanProjectInstallationDates(id);
+      actions.push({ type: 'import_mail_dates_to_project', data: result });
+      const n = result?.billing?.dates?.length || result?.dates?.length || 0;
+      return {
+        reply: n
+          ? `Dates d’installation scannées pour le projet #${id} (${n} date(s)). Voir l’onglet Installation.`
+          : `Scan terminé — aucune date d’installation trouvée pour le projet #${id}.`,
+        actions,
+      };
+    }
+
+    case 'create_project_from_quote_email': {
+      const {
+        createProjectsFromQuoteEmails,
+        extractQuoteImportQuery,
+      } = await import('./project-from-quote-email.js');
+      const query = params.query || extractQuoteImportQuery(msg) || extractQuotedText(msg);
+      const message_id = params.message_id || params.messageId || null;
+      const max = Number(params.max || params.maxEmails || 4) || 4;
+      try {
+        const result = await createProjectsFromQuoteEmails({
+          query,
+          messageId: message_id,
+          maxEmails: max,
+        });
+        actions.push({ type: 'create_project_from_quote_email', data: result });
+        if (result.actions?.length) actions.push(...result.actions);
+        const n = result.created?.length || 0;
+        const names = (result.created || []).map(c => c.project?.name).filter(Boolean).join(', ');
+        return {
+          reply: n
+            ? `Créé ${n} projet(s) depuis les devis${result.client?.name ? ` pour ${result.client.name}` : ''}${names ? ` : ${names}` : ''}.`
+            : 'Aucun projet créé — vérifiez la requête ou les PJ devis.',
+          actions,
+        };
+      } catch (err) {
+        return { reply: err.message || 'Import devis mail impossible.', actions };
+      }
+    }
+
+    case 'atelier_habits': {
+      const { appendHabit, readHabitsFile } = await import('./atelier-habits.js');
+      const rule = params.rule || params.habit
+        || extractAfterKeyword(msg, ['habitude', 'habitude :', 'règle', 'regle', 'ajoute']);
+      if (!rule) {
+        const { content } = readHabitsFile();
+        actions.push({ type: 'atelier_habits', data: { content } });
+        return {
+          reply: `Habitudes atelier actuelles :\n${String(content || '').slice(0, 1500)}`,
+          actions,
+        };
+      }
+      const result = appendHabit({ section: params.section || 'Général', rule });
+      actions.push({ type: 'atelier_habits', data: result });
+      return {
+        reply: result.already
+          ? `Cette habitude est déjà enregistrée.`
+          : `Habitude ajoutée${params.section ? ` (${params.section})` : ''} : ${String(rule).trim()}.`,
+        actions,
+      };
+    }
+
+    case 'add_project_material': {
+      const id = projectId || await resolveProjectId(params, msg, pageContext);
+      if (!id) {
+        return { reply: 'Sur quel projet ? Ouvrez la fiche projet ou précisez son nom.', actions };
+      }
+      const unitCost = params.unit_cost != null
+        ? Number(params.unit_cost)
+        : (Number(params.price) || extractAmount(msg) || 0);
+      const qtyMatch = msg.match(/(\d+(?:[.,]\d+)?)\s*(pi|pieds?|pmp|feuilles?|plaques?|planches?|morceaux?|unités?|unit[eé]s?|pi[eè]ces?|x)\b/i);
+      const quantity = params.quantity != null
+        ? Number(params.quantity)
+        : (qtyMatch ? Number(String(qtyMatch[1]).replace(',', '.')) : 1);
+      const unit = params.unit || (qtyMatch ? String(qtyMatch[2]).toLowerCase() : 'unité');
+      const description = String(
+        params.description
+        || extractQuotedText(msg)
+        || extractAfterKeyword(msg, ['matériau', 'materiau', 'matériel', 'materiel', 'utilisé', 'utilise', 'acheté', 'achete', 'reçu', 'recu', 'ajoute', 'ajouter'])
+        || msg.replace(/^(ajoute|ajouter|noter|prévoir|prevoir)\s+/i, '').trim()
+        || msg
+      ).slice(0, 300);
+      if (!description) return { reply: 'Précisez le matériau (ex. « ajoute 2 plaques MDF »).', actions };
+      const { rows } = await pool.query(
+        `INSERT INTO project_materials (project_id, inventory_item_id, description, quantity, unit, unit_cost, notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+        [id, params.inventory_item_id || null, description, quantity || 1, unit, unitCost, params.notes || null]
+      );
+      actions.push({ type: 'add_project_material', data: rows[0] });
+      const label = pageContext?.label ? ` sur « ${pageContext.label} »` : '';
+      return {
+        reply: `Matériau noté${label} : ${description} — ${quantity} ${unit}${unitCost ? ` · ${Number(unitCost).toFixed(2)} $/u` : ''}`,
+        actions,
+      };
     }
 
     default:

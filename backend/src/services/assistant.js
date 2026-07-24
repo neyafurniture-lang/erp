@@ -7,6 +7,7 @@ import {
   extractAfterKeyword,
   createProjectFromStandard,
   isDayPlanMessage,
+  isMultiIntentErpMessage,
   runSkillAction,
   wantsUnlinkFromProject,
 } from './skill-actions.js';
@@ -532,11 +533,26 @@ export async function processMessage(message, attachments = [], rawContext = nul
     if (isDayPlanMessage(msg)) {
       return runSkillAction('plan_day', msg, pageContext);
     }
+    // Multi-intent (client + devis + calendrier…) : ne pas coller en un seul plan_day / skill
+    if (isMultiIntentErpMessage(msg)) {
+      return {
+        reply: 'Cette demande contient plusieurs actions ERP distinctes (ex. tâches calendrier, devis, client). '
+          + 'Utilisez le micro → « Créer le plan » pour les séparer et confirmer, ou envoyez une action à la fois.',
+        actions: [],
+      };
+    }
     if (wantsUnlinkFromProject(msg)) {
       return runSkillAction('unlink_task', msg, pageContext);
     }
     const skill = await matchSkill(msg);
-    if (skill) return executeSkill(skill, msg, pageContext);
+    if (skill) {
+      // Ne jamais forcer plan_day via skill DB si le message n'est pas une vraie liste journée
+      if (skill.action_type === 'plan_day' && !isDayPlanMessage(msg)) {
+        /* fall through */
+      } else {
+        return executeSkill(skill, msg, pageContext);
+      }
+    }
     if (/cocher|marquer|termin|fait|complét/i.test(msg) && /tâche|étape|finition|débitage|assemblage|projet|sur /i.test(msg)) {
       return runSkillAction('complete_task', msg, pageContext);
     }
