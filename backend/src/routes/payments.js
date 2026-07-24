@@ -21,18 +21,22 @@ async function syncInvoicePaid(client, invoiceId) {
 
 async function updateInvoiceStatus(invoiceId, client = pool) {
   const { rows } = await client.query(
-    'SELECT total, amount_paid, due_date FROM invoices WHERE id = $1',
+    'SELECT total, amount_paid, due_date, status FROM invoices WHERE id = $1',
     [invoiceId]
   );
   if (!rows[0]) return;
+  const current = rows[0].status;
+  if (current === 'cancelled' || current === 'void') return;
   const total = round2(rows[0].total);
   const amount_paid = round2(rows[0].amount_paid);
+  if (amount_paid <= 0 && current === 'draft') {
+    await client.query('UPDATE invoices SET status = $1 WHERE id = $2', ['draft', invoiceId]);
+    return;
+  }
   let status = 'sent';
   if (amount_paid >= total && total > 0) status = 'paid';
   else if (amount_paid > 0) status = 'partially_paid';
-  if (rows[0].due_date && new Date(rows[0].due_date) < new Date() && status !== 'paid') {
-    status = 'overdue';
-  }
+  else if (rows[0].due_date && new Date(rows[0].due_date) < new Date()) status = 'overdue';
   await client.query('UPDATE invoices SET status = $1 WHERE id = $2', [status, invoiceId]);
 }
 

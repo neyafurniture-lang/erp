@@ -345,11 +345,49 @@ export default function ChatAssistant() {
   }
 
   async function handleConfirmPlan() {
-    const text = (voicePlan?.transcript || voiceTranscript || '').trim();
-    if (!text) return;
+    const plan = voicePlan;
+    const text = (plan?.transcript || voiceTranscript || '').trim();
+    if (!text && !plan?.steps?.length) return;
+
+    const actionable = (plan?.steps || []).filter(s => s?.action_type);
+    // Plan structuré → exécuter les steps ERP (évite plan_day qui découpe la prose en 30 min)
+    if (actionable.length > 0) {
+      setVoicePhase('executing');
+      setLoading(true);
+      try {
+        const ctx = buildAssistantContext(pickedElementRef.current);
+        const result = await api('/assistant/execute-plan', {
+          method: 'POST',
+          body: JSON.stringify({ plan, context: ctx }),
+        });
+        const reply = result.reply || 'Plan exécuté.';
+        setMessages(prev => [
+          ...prev,
+          { role: 'user', content: text || plan.summary || 'Exécuter le plan', attachments: [] },
+          { role: 'assistant', content: reply, attachments: [] },
+        ]);
+        setVoiceCard({ userText: text || plan.summary || '', reply, visible: true });
+        scheduleDismiss();
+        if (result.actions?.length) {
+          window.dispatchEvent(new CustomEvent('neya:assistant-action', { detail: result.actions }));
+        }
+        setVoicePhase(null);
+        setVoicePlan(null);
+      } catch (err) {
+        setVoicePhase('plan_ready');
+        setVoiceCard({
+          userText: text,
+          reply: `Exécution impossible (${err.message}). Réessayez ou envoyez via « Écrire ».`,
+          visible: true,
+        });
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     setVoicePhase(null);
     setVoicePlan(null);
-    // sendMessage gère le halo bleu pendant l'attente + popup à la fin
     await sendMessage(text);
   }
 

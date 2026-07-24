@@ -4,18 +4,20 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 
 export const ACTION_TYPES = [
-  'create_task', 'create_project', 'schedule_task', 'create_expense', 'list_today', 'create_client',
-  'complete_task', 'update_task', 'delete_task', 'list_project_tasks',
+  'create_task', 'create_project', 'create_project_from_quote_email', 'schedule_task', 'plan_day', 'create_expense', 'list_today', 'list_tomorrow', 'create_client',
+  'complete_task', 'update_task', 'delete_task', 'unlink_task', 'list_project_tasks',
   'update_project', 'update_client', 'list_projects', 'list_clients', 'list_expenses',
+  'search_projects', 'search_memory', 'get_project', 'add_project_material',
+  'list_emails', 'search_emails', 'get_email', 'import_email_attachment', 'scan_mail_invoice_todos', 'list_mail_threads',
+  'import_mail_dates_to_project',
+  'create_fabrication_plan',
   'list_skills', 'create_skill', 'update_skill',
   'create_quote', 'create_invoice', 'convert_quote', 'send_quote', 'send_invoice',
-  'list_quotes', 'list_invoices', 'delete_project', 'delete_client', 'delete_expense',
+  'list_quotes', 'list_invoices', 'update_quote', 'get_quote',
+  'delete_project', 'delete_client', 'delete_expense',
   'update_standard', 'sync_wordpress', 'sync_web_orders', 'list_web_orders', 'sync_web_photos',
   'ui_edit_mode', 'ui_add_todo_list', 'ui_move_section', 'ui_hide_section', 'ui_show_section', 'ui_reset_layout',
-  'erp_manual', 'search_projects', 'search_memory', 'get_project',
-  'list_emails', 'search_emails', 'get_email', 'list_mail_threads', 'import_mail_dates_to_project',
-  'create_fabrication_plan', 'update_quote', 'get_quote',
-  'demande_modification_erp', 'atelier_habits',
+  'erp_manual', 'atelier_habits',
 ];
 
 export default function SkillsManager({ compact = false }) {
@@ -41,55 +43,80 @@ export default function SkillsManager({ compact = false }) {
   useEffect(() => { load(); }, []);
 
   async function toggle(skill) {
-    await api(`/assistant/skills/${skill.id}`, {
-      method: 'PUT',
-      body: JSON.stringify({ ...skill, enabled: !skill.enabled }),
-    });
-    load();
+    setError('');
+    try {
+      await api(`/assistant/skills/${skill.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ ...skill, enabled: !skill.enabled }),
+      });
+      load();
+    } catch (e) {
+      setError(e.message || 'Mise à jour impossible');
+    }
   }
 
   async function saveEdit() {
-    const triggers = form.triggers.split(/[,;]/).map(s => s.trim()).filter(Boolean);
-    await api(`/assistant/skills/${editing}`, {
-      method: 'PUT',
-      body: JSON.stringify({
-        name: form.name,
-        description: form.description,
-        action_type: form.action_type,
-        trigger_patterns: triggers,
-      }),
-    });
-    setEditing(null);
-    load();
+    setError('');
+    try {
+      const triggers = form.triggers.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+      await api(`/assistant/skills/${editing}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          name: form.name,
+          description: form.description,
+          action_type: form.action_type,
+          trigger_patterns: triggers,
+        }),
+      });
+      setEditing(null);
+      load();
+    } catch (e) {
+      setError(e.message || 'Enregistrement impossible');
+    }
   }
 
   async function createNew() {
+    setError('');
     const triggers = form.triggers.split(/[,;]/).map(s => s.trim()).filter(Boolean);
     if (!form.name.trim()) return;
-    await api('/assistant/skills', {
-      method: 'POST',
-      body: JSON.stringify({
-        name: form.name.trim().replace(/\s+/g, '_').toLowerCase(),
-        description: form.description,
-        action_type: form.action_type,
-        trigger_patterns: triggers.length ? triggers : [form.name],
-      }),
-    });
-    setForm({ name: '', description: '', action_type: 'create_task', triggers: '' });
-    setMsg('Skill ajoutée');
-    load();
+    try {
+      await api('/assistant/skills', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: form.name.trim().replace(/\s+/g, '_').toLowerCase(),
+          description: form.description,
+          action_type: form.action_type,
+          trigger_patterns: triggers.length ? triggers : [form.name],
+        }),
+      });
+      setForm({ name: '', description: '', action_type: 'create_task', triggers: '' });
+      setMsg('Skill ajoutée');
+      load();
+    } catch (e) {
+      setError(e.message || 'Création impossible');
+    }
   }
 
   async function remove(id) {
     if (!confirm('Supprimer cette skill ?')) return;
-    await api(`/assistant/skills/${id}`, { method: 'DELETE' });
-    load();
+    setError('');
+    try {
+      await api(`/assistant/skills/${id}`, { method: 'DELETE' });
+      load();
+    } catch (e) {
+      setError(e.message || 'Suppression impossible');
+    }
   }
 
   async function seedDefaults() {
-    await api('/settings/seed-skills', { method: 'POST' });
-    setMsg('Skills par défaut rechargées');
-    load();
+    setError('');
+    try {
+      await api('/settings/seed-skills', { method: 'POST' });
+      setMsg('Skills par défaut rechargées');
+      load();
+    } catch (e) {
+      setError(e.message || 'Rechargement impossible');
+    }
   }
 
   function startEdit(skill) {
