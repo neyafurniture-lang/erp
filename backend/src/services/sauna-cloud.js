@@ -234,22 +234,89 @@ export function normalizeTracker(saved) {
   return { frames, stages: SAUNA_FRAME_STAGES, size_logs: normalizeSizeLogs(saved?.size_logs) };
 }
 
-/** Notes de tailles (côtés / traverses) — clés = "50.8 cm", valeurs = texte atelier. */
+/**
+ * Entrées tailles atelier — liste éditable { cm, qty, note }.
+ * Accepte aussi l’ancien format map { "50.8 cm": "note" }.
+ */
 export function normalizeSizeLogs(raw) {
-  const out = { sides: {}, traverses: {} };
+  const out = { sides: [], traverses: [] };
   if (!raw || typeof raw !== 'object') return out;
+
+  const parseCm = (rawKey) => {
+    const key = normalizeLengthKey(rawKey);
+    if (!key) return null;
+    const m = String(key).match(/^(\d+(?:\.\d+)?)\s*cm$/i);
+    return m ? Math.round(Number(m[1]) * 10) / 10 : null;
+  };
+
+  const pushEntry = (kind, cm, qty, note) => {
+    if (cm == null || !Number.isFinite(cm) || cm <= 0) return;
+    const rounded = Math.round(cm * 10) / 10;
+    out[kind].push({
+      cm: rounded,
+      length: `${Number.isInteger(rounded) ? rounded : rounded} cm`,
+      qty: clampInt(qty, 99999),
+      note: String(note ?? '').slice(0, 2000),
+    });
+  };
+
   for (const kind of ['sides', 'traverses']) {
     const src = raw[kind];
+    if (Array.isArray(src)) {
+      for (const row of src) {
+        if (!row || typeof row !== 'object') continue;
+        const cm = row.cm != null ? Number(row.cm) : parseCm(row.length);
+        pushEntry(kind, cm, row.qty, row.note);
+      }
+      continue;
+    }
     if (!src || typeof src !== 'object') continue;
+    // Legacy : { "50.8 cm": "texte" } ou { "50.8 cm": { qty, note } }
     for (const [k, v] of Object.entries(src)) {
-      const key = normalizeLengthKey(k);
-      if (!key) continue;
-      const text = String(v ?? '').slice(0, 2000);
-      // Fusionne legacy pouces → cm si les deux clés existent
-      out[kind][key] = out[kind][key] && !text ? out[kind][key] : text || out[kind][key] || '';
+      const cm = parseCm(k);
+      if (v && typeof v === 'object' && !Array.isArray(v)) {
+        pushEntry(kind, cm, v.qty, v.note ?? v.text ?? '');
+      } else {
+        pushEntry(kind, cm, 0, v);
+      }
     }
   }
+
+  // Déduplique par cm (garde la dernière qty/note non vide)
+  for (const kind of ['sides', 'traverses']) {
+    const byCm = new Map();
+    for (const row of out[kind]) {
+      const prev = byCm.get(row.cm);
+      if (!prev) {
+        byCm.set(row.cm, row);
+        continue;
+      }
+      byCm.set(row.cm, {
+        ...prev,
+        qty: row.qty > 0 ? row.qty : prev.qty,
+        note: row.note || prev.note,
+      });
+    }
+    out[kind] = [...byCm.values()].sort((a, b) => b.cm - a.cm);
+  }
   return out;
+}
+
+/** Préremplit les entrées depuis le BOM commande si aucune saisie atelier. */
+export function seedSizeLogsFromBom(frames = [], existing) {
+  const logs = normalizeSizeLogs(existing);
+  const seeded = { sides: [...logs.sides], traverses: [...logs.traverses] };
+  for (const kind of ['sides', 'traverses']) {
+    if (seeded[kind].length) continue;
+    const agg = aggregatePieceSizes(frames, kind);
+    seeded[kind] = agg.map((r) => ({
+      cm: r.cm,
+      length: r.length,
+      qty: r.qty,
+      note: '',
+    }));
+  }
+  return seeded;
 }
 
 /**
@@ -798,7 +865,7 @@ export async function resetFrameTracker(projectId) {
   await writeProjectMeta(projectId, {
     sauna_frame_tracker: {
       frames: defaultTrackerRows(),
-      size_logs: { sides: {}, traverses: {} },
+      size_logs: { sides: [], traverses: [] },
       updated_at: new Date().toISOString(),
     },
   });

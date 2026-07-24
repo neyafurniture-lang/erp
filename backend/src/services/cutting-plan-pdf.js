@@ -362,21 +362,21 @@ export async function generateCuttingPlanPdf(planInput, optimized = null) {
       { text: 'Qty', w: 40, align: 'right' },
       { text: 'Long', w: 50, align: 'right' },
       { text: 'Short', w: 50, align: 'right' },
-      { text: 'Traverse', w: 70, align: 'right' },
+      { text: 'Traverse', w: 100, align: 'right' },
     ], y, { bold: true, fill: '#e2e8f0' });
     for (const sku of result.skus || []) {
       y = tableRow(doc, [
         { text: sku.sku, w: 70 },
-        { text: sku.label || '', w: 140 },
+        { text: sku.label || '', w: 120 },
         { text: sku.qty, w: 40, align: 'right' },
         { text: sku.long_in || '—', w: 50, align: 'right' },
         { text: sku.short_in || '—', w: 50, align: 'right' },
         { text: (() => {
           if (Array.isArray(sku.traverses) && sku.traverses.length) {
-            return sku.traverses.map((t) => `${t.length_in}"×${t.count}`).join(' + ');
+            return sku.traverses.map((t) => `${t.length_in}"×${t.count}`).join('+');
           }
-          return sku.traverse_in ? `${sku.traverse_in}" ×${sku.traverse_count || 0}` : '—';
-        })(), w: 70, align: 'right' },
+          return sku.traverse_in ? `${sku.traverse_in}"×${sku.traverse_count || 0}` : '—';
+        })(), w: 100, align: 'right' },
       ], y);
     }
     drawFooter(doc, pageNum);

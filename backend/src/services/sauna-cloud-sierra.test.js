@@ -135,4 +135,20 @@ describe('Sierra cutting missing pieces', () => {
     assert.equal(sierra.cut.sides, 40);
     assert.equal(sierra.cut.traverses, 40);
   });
+
+  it('normalizeSizeLogs accepte saisie libre cm/qty/note', async () => {
+    const { normalizeSizeLogs } = await import('./sauna-cloud.js');
+    const logs = normalizeSizeLogs({
+      sides: [
+        { cm: 66, qty: 12, note: 'pin' },
+        { cm: 45.5, qty: 2, note: '' },
+      ],
+      traverses: { '20"': 'legacy note' },
+    });
+    assert.equal(logs.sides.length, 2);
+    assert.equal(logs.sides[0].cm, 66);
+    assert.equal(logs.sides[0].qty, 12);
+    assert.equal(logs.traverses[0].cm, 50.8);
+    assert.equal(logs.traverses[0].note, 'legacy note');
+  });
 });
