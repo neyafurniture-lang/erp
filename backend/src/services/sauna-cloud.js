@@ -141,8 +141,11 @@ async function loadProject(projectId = null) {
   }
   const { rows } = await pool.query(
     `SELECT * FROM projects
-     WHERE LOWER(TRIM(name)) IN ('sauna cloud', 'saunacloud', 'sonacloud')
-     ORDER BY id ASC
+     WHERE LOWER(REPLACE(TRIM(name), ' ', '')) IN ('saunacloud', 'sonacloud')
+        OR LOWER(TRIM(name)) LIKE '%sauna%cloud%'
+     ORDER BY
+       CASE WHEN LOWER(TRIM(name)) = 'sauna cloud' THEN 0 ELSE 1 END,
+       id ASC
      LIMIT 1`
   );
   return rows[0] || null;
