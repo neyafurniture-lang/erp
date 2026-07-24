@@ -16,7 +16,12 @@ export default function ProjectDetailPage() {
   const [quoteSource, setQuoteSource] = useState(null);
   const [purchases, setPurchases] = useState([]);
 
-  const load = async () => {
+  const load = async (maybeProject) => {
+    // Mise à jour locale après PATCH heures (évite un GET qui peut renvoyer un meta stale)
+    if (maybeProject && typeof maybeProject === 'object' && maybeProject.id != null) {
+      setProject(maybeProject);
+      return;
+    }
     const [p, c, m, pur] = await Promise.all([
       api(`/projects/${id}`),
       api(`/analytics/projects/${id}/costs`).catch(() => null),

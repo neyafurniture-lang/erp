@@ -192,16 +192,31 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
 
   // Recharge le carnet depuis le serveur uniquement si pas de saisie locale non sauvée
   useEffect(() => {
-    if (hoursDirtyRef.current) return;
+    if (hoursDirtyRef.current || hoursBusyRef.current) return;
     const log = parseHoursLogbook(project);
     const people = normalizeHoursPeople(log);
     const rows = normalizeHoursRows(log?.rows || [], people);
+    const incomingSnap = hoursSnapshot(people, rows);
+    const localSnap = hoursSnapshot(hoursPeopleRef.current, hoursRowsRef.current);
+    // Déjà aligné avec le parent — rien à faire
+    if (incomingSnap === localSnap) {
+      savedHoursSnapRef.current = incomingSnap;
+      return;
+    }
+    // Garde anti-wipe : ne pas remplacer un carnet local plus riche par un meta serveur vide/stale
+    const localCount = Array.isArray(hoursRowsRef.current) ? hoursRowsRef.current.length : 0;
+    const incomingCount = rows.length;
+    if (localCount > incomingCount) {
+      // Serveur en retard / course meta → garder la saisie locale
+      return;
+    }
     hoursPeopleRef.current = people;
     hoursRowsRef.current = rows;
     setHoursPeople(people);
     setHoursRows(rows);
-    savedHoursSnapRef.current = hoursSnapshot(people, rows);
+    savedHoursSnapRef.current = incomingSnap;
     setHoursDirty(false);
+    hoursDirtyRef.current = false;
   }, [project.id, project.meta]);
 
   useEffect(() => {
@@ -284,7 +299,7 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
     if (hoursAutosaveRef.current) clearTimeout(hoursAutosaveRef.current);
     hoursAutosaveRef.current = setTimeout(() => {
       saveHoursLogbook({ silent: true });
-    }, 1800);
+    }, 2200);
   }
 
   function changeTab(id) {
@@ -493,42 +508,34 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
   }
 
   function updateHourRow(idx, field, value) {
-    setHoursRows(rows => {
-      const next = rows.map((r, i) => (i === idx ? { ...r, [field]: value } : r));
-      hoursRowsRef.current = next;
-      queueMicrotask(() => markHoursDirty(hoursPeopleRef.current, next));
-      return next;
-    });
+    const next = hoursRowsRef.current.map((r, i) => (i === idx ? { ...r, [field]: value } : r));
+    hoursRowsRef.current = next;
+    setHoursRows(next);
+    markHoursDirty(hoursPeopleRef.current, next);
   }
 
   function updatePersonHours(idx, person, value) {
-    setHoursRows(rows => {
-      const next = rows.map((r, i) => {
-        if (i !== idx) return r;
-        return { ...r, hours: { ...r.hours, [person]: value } };
-      });
-      hoursRowsRef.current = next;
-      queueMicrotask(() => markHoursDirty(hoursPeopleRef.current, next));
-      return next;
+    const next = hoursRowsRef.current.map((r, i) => {
+      if (i !== idx) return r;
+      return { ...r, hours: { ...r.hours, [person]: value } };
     });
+    hoursRowsRef.current = next;
+    setHoursRows(next);
+    markHoursDirty(hoursPeopleRef.current, next);
   }
 
   function addHoursRow() {
-    setHoursRows(rows => {
-      const next = [...rows, emptyHoursRow(hoursPeopleRef.current)];
-      hoursRowsRef.current = next;
-      queueMicrotask(() => markHoursDirty(hoursPeopleRef.current, next));
-      return next;
-    });
+    const next = [...hoursRowsRef.current, emptyHoursRow(hoursPeopleRef.current)];
+    hoursRowsRef.current = next;
+    setHoursRows(next);
+    markHoursDirty(hoursPeopleRef.current, next);
   }
 
   function removeHoursRow(idx) {
-    setHoursRows(rows => {
-      const next = rows.filter((_, i) => i !== idx);
-      hoursRowsRef.current = next;
-      queueMicrotask(() => markHoursDirty(hoursPeopleRef.current, next));
-      return next;
-    });
+    const next = hoursRowsRef.current.filter((_, i) => i !== idx);
+    hoursRowsRef.current = next;
+    setHoursRows(next);
+    markHoursDirty(hoursPeopleRef.current, next);
   }
 
   async function saveHoursLogbook(opts = {}) {
@@ -556,19 +563,29 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
       };
       if (confirmClear) payload.confirm_clear = true;
 
-      await api(`/projects/${project.id}/hours-logbook`, {
+      const result = await api(`/projects/${project.id}/hours-logbook`, {
         method: 'PATCH',
         body: JSON.stringify({ hours_logbook: payload }),
       });
 
       const currentSnap = hoursSnapshot(hoursPeopleRef.current, hoursRowsRef.current);
       if (currentSnap === snapAtStart) {
-        savedHoursSnapRef.current = snapAtStart;
+        // Appliquer la réponse serveur localement — évite un GET stale.
+        const savedLog = result?.hours_logbook || payload;
+        const savedPeople = normalizeHoursPeople(savedLog);
+        const savedRows = normalizeHoursRows(savedLog.rows || [], savedPeople);
+        hoursPeopleRef.current = savedPeople;
+        hoursRowsRef.current = savedRows;
+        setHoursPeople(savedPeople);
+        setHoursRows(savedRows);
+        savedHoursSnapRef.current = hoursSnapshot(savedPeople, savedRows);
         setHoursDirty(false);
         hoursDirtyRef.current = false;
         setHoursSaveMsg(silent ? 'Enregistré automatiquement' : 'Enregistré');
         setTimeout(() => setHoursSaveMsg(''), 2000);
-        onReload();
+        // Preférer le projet renvoyé par le PATCH (meta à jour) plutôt qu’un GET
+        if (result?.project) onReload(result.project);
+        else if (!silent) onReload();
       } else {
         // Saisie pendant l’enregistrement — ne pas écraser, re-sauver
         setHoursSaveMsg('Enregistré — suite en cours…');

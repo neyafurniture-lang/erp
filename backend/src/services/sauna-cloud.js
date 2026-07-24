@@ -386,19 +386,22 @@ async function loadProject(projectId = null) {
   return rows[0] || null;
 }
 
-async function writeProjectMeta(projectId, meta) {
-  try {
-    await pool.query(
-      `UPDATE projects SET meta = COALESCE(meta, '{}'::jsonb) || $1::jsonb WHERE id = $2`,
-      [JSON.stringify(meta), projectId]
-    );
-  } catch (err) {
-    // Fallback si || jsonb échoue (meta texte / null)
-    await pool.query('UPDATE projects SET meta = $1::jsonb WHERE id = $2', [
-      JSON.stringify(meta),
-      projectId,
-    ]);
+/**
+ * Fusionne un patch partiel dans projects.meta (jsonb ||).
+ * Ne jamais y passer hours_logbook sauf intention explicite — sinon une
+ * lecture périmée (Sauna Cloud) écrase le carnet d’heures.
+ */
+async function writeProjectMeta(projectId, patch, { allowHours = false } = {}) {
+  const safe = { ...(patch || {}) };
+  if (!allowHours) {
+    delete safe.hours_logbook;
+    delete safe.hours_logbook_prev;
   }
+  if (!Object.keys(safe).length) return;
+  await pool.query(
+    `UPDATE projects SET meta = COALESCE(meta, '{}'::jsonb) || $1::jsonb WHERE id = $2`,
+    [JSON.stringify(safe), projectId]
+  );
 }
 
 async function ensureTrackerOnProject(project) {
@@ -407,12 +410,11 @@ async function ensureTrackerOnProject(project) {
     return normalizeTracker(meta.sauna_frame_tracker);
   }
   const tracker = normalizeTracker(defaultTrackerRows());
-  const nextMeta = {
-    ...meta,
-    sauna_frame_tracker: { frames: tracker.frames, updated_at: new Date().toISOString() },
-  };
   try {
-    await writeProjectMeta(project.id, nextMeta);
+    // Patch partiel uniquement — préserve hours_logbook / plans / etc.
+    await writeProjectMeta(project.id, {
+      sauna_frame_tracker: { frames: tracker.frames, updated_at: new Date().toISOString() },
+    });
   } catch (err) {
     console.warn('sauna-cloud tracker seed:', err.message);
   }
@@ -571,19 +573,21 @@ export async function updateFrameTracker(projectId, payload = {}) {
     updated_at: new Date().toISOString(),
   };
 
-  await writeProjectMeta(projectId, meta);
+  await writeProjectMeta(projectId, {
+    sauna_frame_tracker: meta.sauna_frame_tracker,
+  });
   return getSaunaCloudBoard(projectId);
 }
 
 export async function resetFrameTracker(projectId) {
   const { rows } = await pool.query('SELECT * FROM projects WHERE id = $1', [projectId]);
   if (!rows[0]) throw new Error('Projet Sauna Cloud introuvable');
-  const meta = parseMeta(rows[0].meta);
-  meta.sauna_frame_tracker = {
-    frames: defaultTrackerRows(),
-    updated_at: new Date().toISOString(),
-  };
-  await writeProjectMeta(projectId, meta);
+  await writeProjectMeta(projectId, {
+    sauna_frame_tracker: {
+      frames: defaultTrackerRows(),
+      updated_at: new Date().toISOString(),
+    },
+  });
   return getSaunaCloudBoard(projectId);
 }
 

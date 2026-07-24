@@ -476,9 +476,19 @@ router.patch('/:id/hours-logbook', async (req, res) => {
         });
       }
 
+      // Fusion jsonb ciblée : ne touche qu’aux clés heures (préserve sauna_frame_tracker, plans…)
+      const logbook = applied.meta.hours_logbook || null;
+      const prev = Object.prototype.hasOwnProperty.call(applied.meta, 'hours_logbook_prev')
+        ? applied.meta.hours_logbook_prev
+        : undefined;
+      const patch = { hours_logbook: logbook };
+      if (prev !== undefined) patch.hours_logbook_prev = prev;
+
       await client.query(
-        'UPDATE projects SET meta = $1::jsonb WHERE id = $2',
-        [JSON.stringify(applied.meta), id]
+        `UPDATE projects
+         SET meta = COALESCE(meta, '{}'::jsonb) || $1::jsonb
+         WHERE id = $2`,
+        [JSON.stringify(patch), id]
       );
       await client.query('COMMIT');
     } catch (err) {
@@ -520,9 +530,15 @@ router.post('/:id/hours-logbook/restore', async (req, res) => {
         await client.query('ROLLBACK');
         return res.status(404).json({ error: restored.error });
       }
+      const patch = {
+        hours_logbook: restored.meta.hours_logbook,
+        hours_logbook_prev: restored.meta.hours_logbook_prev ?? null,
+      };
       await client.query(
-        'UPDATE projects SET meta = $1::jsonb WHERE id = $2',
-        [JSON.stringify(restored.meta), id]
+        `UPDATE projects
+         SET meta = COALESCE(meta, '{}'::jsonb) || $1::jsonb
+         WHERE id = $2`,
+        [JSON.stringify(patch), id]
       );
       await client.query('COMMIT');
     } catch (err) {
