@@ -331,20 +331,32 @@ router.post('/from-standard/:standardId', async (req, res) => {
 });
 
 router.put('/:id', async (req, res) => {
+  const client = await pool.connect();
   try {
     const id = Number(req.params.id);
-    const { rows: existing } = await pool.query('SELECT * FROM projects WHERE id = $1', [id]);
-    if (!existing[0]) return res.status(404).json({ error: 'Projet introuvable' });
+    await client.query('BEGIN');
+    const { rows: existing } = await client.query(
+      'SELECT * FROM projects WHERE id = $1 FOR UPDATE',
+      [id]
+    );
+    if (!existing[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Projet introuvable' });
+    }
     const cur = existing[0];
     const b = req.body || {};
 
     const name = b.name !== undefined ? String(b.name).trim() : cur.name;
-    if (!name) return res.status(400).json({ error: 'Nom requis' });
+    if (!name) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Nom requis' });
+    }
 
     let clientId = cur.client_id;
     if (b.client_id !== undefined) {
       clientId = b.client_id === '' || b.client_id === null ? null : Number(b.client_id);
       if (clientId != null && Number.isNaN(clientId)) {
+        await client.query('ROLLBACK');
         return res.status(400).json({ error: 'client_id invalide' });
       }
     }
@@ -353,6 +365,7 @@ router.put('/:id', async (req, res) => {
     if (b.status !== undefined) {
       const nextStatus = normalizeProjectStatus(b.status);
       if (!nextStatus) {
+        await client.query('ROLLBACK');
         return res.status(400).json({ error: `Statut invalide. Valeurs: ${PROJECT_STATUSES.join(', ')}` });
       }
       status = nextStatus;
@@ -373,41 +386,60 @@ router.put('/:id', async (req, res) => {
     }
 
     let nextMeta = parseProjectMeta(cur.meta);
-    if (b.meta && typeof b.meta === 'object') {
-      const incomingMeta = { ...b.meta };
-      // Empêcher un meta partiel d’effacer le carnet d’heures
-      if (
-        incomingMeta.hours_logbook
-        && isClearingHoursLogbook(nextMeta.hours_logbook, incomingMeta.hours_logbook)
-      ) {
-        delete incomingMeta.hours_logbook;
+    const touchesMeta = (b.meta && typeof b.meta === 'object')
+      || (b.hours_logbook && typeof b.hours_logbook === 'object');
+
+    if (touchesMeta) {
+      if (b.meta && typeof b.meta === 'object') {
+        const incomingMeta = { ...b.meta };
+        // Empêcher un meta partiel d’effacer le carnet d’heures (null ou rows vides)
+        if (
+          Object.prototype.hasOwnProperty.call(incomingMeta, 'hours_logbook')
+          && (
+            incomingMeta.hours_logbook == null
+            || isClearingHoursLogbook(nextMeta.hours_logbook, incomingMeta.hours_logbook || { rows: [] })
+          )
+        ) {
+          delete incomingMeta.hours_logbook;
+        }
+        nextMeta = { ...nextMeta, ...incomingMeta };
       }
-      nextMeta = { ...nextMeta, ...incomingMeta };
-    }
-    if (b.hours_logbook && typeof b.hours_logbook === 'object') {
-      const applied = applyHoursLogbookToMeta(nextMeta, b.hours_logbook, {
-        allowClear: b.hours_logbook.confirm_clear === true,
-      });
-      if (applied.blocked) {
-        return res.status(409).json({
-          error: `Refus d’effacer le carnet d’heures (${applied.existing_count} ligne(s) déjà enregistrées). Rechargez la page ou restaurez la sauvegarde.`,
-          code: 'HOURS_CLEAR_BLOCKED',
-          existing_count: applied.existing_count,
+      if (b.hours_logbook && typeof b.hours_logbook === 'object') {
+        const applied = applyHoursLogbookToMeta(nextMeta, b.hours_logbook, {
+          allowClear: b.hours_logbook.confirm_clear === true,
         });
+        if (applied.blocked) {
+          await client.query('ROLLBACK');
+          return res.status(409).json({
+            error: `Refus d’effacer le carnet d’heures (${applied.existing_count} ligne(s) déjà enregistrées). Rechargez la page ou restaurez la sauvegarde.`,
+            code: 'HOURS_CLEAR_BLOCKED',
+            existing_count: applied.existing_count,
+          });
+        }
+        nextMeta = applied.meta;
       }
-      nextMeta = applied.meta;
     }
 
-    const { rows } = await pool.query(
-      `UPDATE projects SET name=$1, client_id=$2, status=$3, deadline=$4,
-       budget_estimated=$5, budget_real=$6, notes=$7, meta=$8::jsonb, priority=$9 WHERE id=$10 RETURNING *`,
-      [name, clientId, status, deadline, budgetEstimated, budgetReal, notes, JSON.stringify(nextMeta), priority, id]
+    // Ne pas réécrire meta si le body ne le touche pas (notes/statut/nom seuls)
+    const { rows } = await client.query(
+      touchesMeta
+        ? `UPDATE projects SET name=$1, client_id=$2, status=$3, deadline=$4,
+           budget_estimated=$5, budget_real=$6, notes=$7, meta=$8::jsonb, priority=$9 WHERE id=$10 RETURNING *`
+        : `UPDATE projects SET name=$1, client_id=$2, status=$3, deadline=$4,
+           budget_estimated=$5, budget_real=$6, notes=$7, priority=$8 WHERE id=$9 RETURNING *`,
+      touchesMeta
+        ? [name, clientId, status, deadline, budgetEstimated, budgetReal, notes, JSON.stringify(nextMeta), priority, id]
+        : [name, clientId, status, deadline, budgetEstimated, budgetReal, notes, priority, id]
     );
 
+    await client.query('COMMIT');
     const full = await loadProjectFull(id);
     res.json(full || rows[0]);
   } catch (err) {
+    try { await client.query('ROLLBACK'); } catch { /* */ }
     res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 
