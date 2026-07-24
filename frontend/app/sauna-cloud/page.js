@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { ExternalLink, FileText } from 'lucide-react';
 import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
 import { api } from '../../lib/api';
@@ -18,6 +19,15 @@ export const DEFAULT_FRAME_CATALOG = [
   { sku: 'FS750', label: 'Full-spectrum', qty: 10 },
 ];
 
+/** BOM Cutting Plan Sierra — pièces par frame (2 longs + 2 shorts + traverses). */
+export const SIERRA_BOM = {
+  H2013: { long_in: 13, short_in: 20, long_count: 2, short_count: 2, traverse_in: 20, traverse_count: 2 },
+  H2026: { long_in: 26, short_in: 20, long_count: 2, short_count: 2, traverse_in: 20, traverse_count: 4 },
+  H2226: { long_in: 26, short_in: 22, long_count: 2, short_count: 2, traverse_in: 22, traverse_count: 4 },
+  H3313: { long_in: 33, short_in: 13, long_count: 2, short_count: 2, traverse_in: 13, traverse_count: 2 },
+  H3726: { long_in: 37, short_in: 26, long_count: 2, short_count: 2, traverse_in: 26, traverse_count: 4 },
+};
+
 const STAGES = [
   { key: 'debited', label: 'Débité', hint: 'Bois débité' },
   { key: 'in_progress', label: 'En cours', hint: 'En assemblage' },
@@ -25,8 +35,41 @@ const STAGES = [
   { key: 'delivered', label: 'Livré', hint: 'Expédié / livré' },
 ];
 
+const SIERRA_PDF = '/docs/Cutting_Plan_Sierra_EN.pdf';
+
 function emptyCounts() {
   return { debited: 0, in_progress: 0, done: 0, delivered: 0 };
+}
+
+function piecesPerFrame(bom) {
+  if (!bom) return 0;
+  return (bom.long_count || 0) + (bom.short_count || 0) + (bom.traverse_count || 0);
+}
+
+function framesNotReached(row, stageKey) {
+  const qty = Number(row.qty) || 0;
+  const idx = STAGES.findIndex((s) => s.key === stageKey);
+  if (idx < 0) return qty;
+  const reached = STAGES.slice(idx).reduce((s, st) => s + (Number(row.counts?.[st.key]) || 0), 0);
+  return Math.max(0, qty - reached);
+}
+
+function expandLengths(sku, frameCount) {
+  const n = Math.max(0, Math.round(Number(frameCount) || 0));
+  const bom = SIERRA_BOM[sku];
+  const by = {};
+  if (!bom || !n) return { pieces: 0, structural: 0, traverses: 0, by_length: by };
+  const add = (inches, count) => {
+    if (!inches || !count) return;
+    const key = `${inches}"`;
+    by[key] = (by[key] || 0) + count;
+  };
+  add(bom.long_in, bom.long_count * n);
+  add(bom.short_in, bom.short_count * n);
+  add(bom.traverse_in, bom.traverse_count * n);
+  const structural = (bom.long_count + bom.short_count) * n;
+  const traverses = bom.traverse_count * n;
+  return { pieces: structural + traverses, structural, traverses, by_length: by };
 }
 
 function buildLocalFrames(apiFrames) {
@@ -39,13 +82,19 @@ function buildLocalFrames(apiFrames) {
     const counts = { ...emptyCounts(), ...(prev?.counts || {}) };
     const qty = Number(prev?.qty) > 0 ? Number(prev.qty) : cat.qty;
     const placed = STAGES.reduce((s, st) => s + (Number(counts[st.key]) || 0), 0);
+    const remaining = Math.max(0, qty - placed);
+    const bom = SIERRA_BOM[cat.sku] || null;
+    const ppf = piecesPerFrame(bom);
     return {
       sku: cat.sku,
       label: prev?.label || cat.label,
       qty,
       counts,
       placed,
-      remaining: Math.max(0, qty - placed),
+      remaining,
+      bom,
+      pieces_per_frame: ppf,
+      pieces_missing: remaining * ppf,
     };
   });
 }
@@ -57,6 +106,7 @@ function summarize(frames) {
   const in_progress = frames.reduce((s, f) => s + (f.counts?.in_progress || 0), 0);
   const debited = frames.reduce((s, f) => s + (f.counts?.debited || 0), 0);
   const remaining = frames.reduce((s, f) => s + (f.remaining || 0), 0);
+  const pieces_missing = frames.reduce((s, f) => s + (f.pieces_missing || 0), 0);
   const pct = qty ? Math.min(100, Math.round((delivered / qty) * 100)) : 0;
   return {
     qty,
@@ -65,8 +115,43 @@ function summarize(frames) {
     in_progress,
     done,
     delivered,
+    pieces_missing,
     pct,
     complete: qty > 0 && delivered >= qty,
+  };
+}
+
+function computeSierraLocal(frames) {
+  const by_stage = {};
+  for (const st of STAGES) {
+    by_stage[st.key] = { key: st.key, label: st.label, frames: 0, pieces: 0, structural: 0, traverses: 0, by_length: {} };
+  }
+  for (const row of frames) {
+    for (const st of STAGES) {
+      const n = framesNotReached(row, st.key);
+      const exp = expandLengths(row.sku, n);
+      const b = by_stage[st.key];
+      b.frames += n;
+      b.pieces += exp.pieces;
+      b.structural += exp.structural;
+      b.traverses += exp.traverses;
+      for (const [k, v] of Object.entries(exp.by_length)) {
+        b.by_length[k] = (b.by_length[k] || 0) + v;
+      }
+    }
+  }
+  const to_cut = by_stage.debited;
+  return {
+    by_stage,
+    to_cut: {
+      frames: to_cut.frames,
+      pieces: to_cut.pieces,
+      structural: to_cut.structural,
+      traverses: to_cut.traverses,
+      by_length: Object.entries(to_cut.by_length)
+        .map(([length, qty]) => ({ length, qty }))
+        .sort((a, b) => parseFloat(b.length) - parseFloat(a.length)),
+    },
   };
 }
 
@@ -105,11 +190,12 @@ function QtyInput({ value, onCommit, disabled }) {
   );
 }
 
-function SummaryCard({ label, value, accent }) {
+function SummaryCard({ label, value, accent, sub }) {
   return (
     <div className={`rounded-2xl border border-neya-border bg-white px-4 py-3 ${accent || ''}`}>
       <p className="text-[11px] uppercase tracking-wide text-neya-muted">{label}</p>
       <p className="text-2xl font-display font-semibold tabular-nums text-neya-ink">{value}</p>
+      {sub ? <p className="text-[11px] text-neya-muted mt-0.5">{sub}</p> : null}
     </div>
   );
 }
@@ -148,6 +234,12 @@ export default function SaunaCloudPage() {
     [board]
   );
   const totals = useMemo(() => summarize(frames), [frames]);
+  const sierra = useMemo(() => {
+    // Préférer le calcul API si présent, sinon local (optimistic)
+    if (board?.sierra?.to_cut && !savingSku) return board.sierra;
+    if (board?.tracker?.sierra?.to_cut && !savingSku) return board.tracker.sierra;
+    return computeSierraLocal(frames);
+  }, [board, frames, savingSku]);
 
   function scheduleProjectNotes(value) {
     setProjectNotes(value);
@@ -168,18 +260,25 @@ export default function SaunaCloudPage() {
   async function setCount(sku, stageKey, value) {
     setSavingSku(sku);
     setError('');
-    // Optimistic UI
     setBoard((prev) => {
       const base = buildLocalFrames(prev?.tracker?.frames);
       const nextFrames = base.map((row) => {
         if (row.sku !== sku) return row;
         const counts = { ...row.counts, [stageKey]: value };
         const placed = STAGES.reduce((s, st) => s + (Number(counts[st.key]) || 0), 0);
-        return { ...row, counts, placed, remaining: Math.max(0, row.qty - placed) };
+        const remaining = Math.max(0, row.qty - placed);
+        return {
+          ...row,
+          counts,
+          placed,
+          remaining,
+          pieces_missing: remaining * (row.pieces_per_frame || 0),
+        };
       });
       return {
         ...(prev || {}),
         tracker: { frames: nextFrames, stages: STAGES, totals: summarize(nextFrames) },
+        sierra: computeSierraLocal(nextFrames),
       };
     });
     try {
@@ -227,21 +326,38 @@ export default function SaunaCloudPage() {
     }
   }
 
+  const stageMissing = STAGES.map((s) => ({
+    ...s,
+    ...(sierra?.by_stage?.[s.key] || { frames: 0, pieces: 0 }),
+  }));
+
   return (
     <AuthGuard>
-      <AppShell title="Sauna Cloud" subtitle="Tableau de suivi des frames — 100 % = tout livré" wide>
+      <AppShell title="Sauna Cloud" subtitle="Tableau de suivi des frames — pièces manquantes (plan Sierra)" wide>
         <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
           <div>
             <p className="text-sm text-neya-muted max-w-xl">
-              Saisissez les quantités par étape. Le projet est à <strong className="font-medium text-neya-ink">100 %</strong> seulement
-              quand toutes les frames sont en colonne <strong className="font-medium text-neya-ink">Livré</strong>.
+              Saisissez les quantités par étape. Les <strong className="font-medium text-neya-ink">éléments manquants</strong> se
+              recalculent selon l’avancement (BOM Cutting Plan Sierra).
             </p>
-            {board?.project?.id && (
-              <Link href={`/projects/${board.project.id}`} className="text-xs text-neya-orange hover:underline">
-                Voir le projet ERP →
-                {board.project.status === 'done' ? ' (complété)' : ''}
-              </Link>
-            )}
+            <div className="flex flex-wrap items-center gap-3 mt-2">
+              {board?.project?.id && (
+                <Link href={`/projects/${board.project.id}`} className="text-xs text-neya-orange hover:underline">
+                  Voir le projet ERP →
+                  {board.project.status === 'done' ? ' (complété)' : ''}
+                </Link>
+              )}
+              <a
+                href={SIERRA_PDF}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-neya-ink hover:text-neya-orange"
+              >
+                <FileText className="h-3.5 w-3.5" />
+                Cutting Plan Sierra (PDF)
+                <ExternalLink className="h-3 w-3 opacity-60" />
+              </a>
+            </div>
             {loading && <p className="text-xs text-neya-muted mt-1">Synchronisation…</p>}
           </div>
           <div className="flex items-center gap-3">
@@ -268,23 +384,35 @@ export default function SaunaCloudPage() {
           <div className="h-full bg-neya-orange transition-all" style={{ width: `${totals.pct}%` }} />
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 mb-6">
           <SummaryCard label="Commande" value={totals.qty} />
           <SummaryCard label="À faire" value={totals.remaining} />
+          <SummaryCard
+            label="Éléments à couper"
+            value={totals.pieces_missing}
+            accent="border-neya-orange/40"
+            sub="pièces (Sierra)"
+          />
           <SummaryCard label="Débité" value={totals.debited} />
           <SummaryCard label="En cours" value={totals.in_progress} />
           <SummaryCard label="Terminé" value={totals.done} />
-          <SummaryCard label="Livré" value={totals.delivered} accent="border-neya-orange/40" />
+          <SummaryCard label="Livré" value={totals.delivered} />
         </div>
 
-        <div className="rounded-2xl border border-neya-border bg-white overflow-x-auto mb-8 shadow-sm">
-          <table className="w-full text-sm min-w-[720px]">
+        <div className="rounded-2xl border border-neya-border bg-white overflow-x-auto mb-6 shadow-sm">
+          <table className="w-full text-sm min-w-[860px]">
             <thead>
               <tr className="border-b border-neya-border bg-neya-cream/40">
                 <th className="px-4 py-3 text-left font-medium">SKU</th>
                 <th className="px-4 py-3 text-left font-medium">Frame</th>
                 <th className="px-3 py-3 text-center font-medium" title="Quantité commandée">Qty</th>
-                <th className="px-3 py-3 text-center font-medium" title="Reste à produire">À faire</th>
+                <th className="px-3 py-3 text-center font-medium" title="Frames pas encore placées">À faire</th>
+                <th
+                  className="px-3 py-3 text-center font-medium"
+                  title="Pièces bois encore à débiter (BOM Sierra × à faire)"
+                >
+                  Éléments
+                </th>
                 {STAGES.map((s) => (
                   <th key={s.key} className="px-3 py-3 text-center font-medium" title={s.hint}>
                     {s.label}
@@ -296,6 +424,9 @@ export default function SaunaCloudPage() {
               {frames.map((row) => {
                 const busy = savingSku === row.sku;
                 const over = row.placed > row.qty;
+                const bomHint = row.bom
+                  ? `${row.pieces_per_frame} pcs/frame · L${row.bom.long_in}"×${row.bom.long_count} + S${row.bom.short_in}"×${row.bom.short_count} + T${row.bom.traverse_in}"×${row.bom.traverse_count}`
+                  : 'Hors plan Sierra';
                 return (
                   <tr key={row.sku} className={`border-b border-neya-border/60 ${over ? 'bg-red-50/60' : 'hover:bg-neya-surface/40'}`}>
                     <td className="px-4 py-3 font-mono text-xs font-semibold text-neya-ink">{row.sku}</td>
@@ -311,6 +442,20 @@ export default function SaunaCloudPage() {
                       >
                         {row.remaining}
                       </span>
+                    </td>
+                    <td className="px-3 py-3 text-center bg-neya-orange/[0.06]" title={bomHint}>
+                      <span
+                        className={`inline-block min-w-[2.5rem] font-display font-semibold tabular-nums ${
+                          row.pieces_missing === 0 ? 'text-neya-muted' : 'text-neya-orange'
+                        }`}
+                      >
+                        {row.bom ? row.pieces_missing : '—'}
+                      </span>
+                      {row.bom && row.pieces_per_frame > 0 ? (
+                        <span className="block text-[10px] text-neya-muted tabular-nums">
+                          {row.pieces_per_frame}/f
+                        </span>
+                      ) : null}
                     </td>
                     {STAGES.map((s) => (
                       <td key={s.key} className="px-3 py-2 text-center">
@@ -333,6 +478,9 @@ export default function SaunaCloudPage() {
                 </td>
                 <td className="px-3 py-3 text-center tabular-nums">{totals.qty}</td>
                 <td className="px-3 py-3 text-center tabular-nums bg-neya-cream/20">{totals.remaining}</td>
+                <td className="px-3 py-3 text-center tabular-nums bg-neya-orange/[0.06] text-neya-orange">
+                  {totals.pieces_missing}
+                </td>
                 <td className="px-3 py-3 text-center tabular-nums">{totals.debited}</td>
                 <td className="px-3 py-3 text-center tabular-nums">{totals.in_progress}</td>
                 <td className="px-3 py-3 text-center tabular-nums">{totals.done}</td>
@@ -348,6 +496,68 @@ export default function SaunaCloudPage() {
           </p>
         )}
 
+        {/* Plan Sierra — manquants par étape + longueurs */}
+        <section className="mb-8 rounded-2xl border border-neya-border bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+            <div>
+              <h2 className="font-display font-semibold text-base text-neya-ink">
+                Plan Sierra — éléments manquants
+              </h2>
+              <p className="text-xs text-neya-muted mt-1 max-w-2xl">
+                Selon l’étape atteinte : combien de frames (et pièces bois) restent avant d’y arriver.
+                « Avant Débité » = encore à couper.
+              </p>
+            </div>
+            <a href={SIERRA_PDF} target="_blank" rel="noreferrer" className="btn-secondary text-xs inline-flex items-center gap-1.5">
+              <FileText className="h-3.5 w-3.5" />
+              Ouvrir le PDF
+            </a>
+          </div>
+
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+            {stageMissing.map((s) => (
+              <div key={s.key} className="rounded-xl border border-neya-border bg-neya-surface/40 px-3 py-3">
+                <p className="text-[11px] uppercase tracking-wide text-neya-muted">Avant {s.label}</p>
+                <p className="text-xl font-display font-semibold tabular-nums text-neya-ink">
+                  {s.pieces}
+                  <span className="text-sm font-normal text-neya-muted"> pcs</span>
+                </p>
+                <p className="text-[11px] text-neya-muted mt-0.5">
+                  {s.frames} frame{s.frames !== 1 ? 's' : ''}
+                  {s.structural != null ? ` · ${s.structural} struct. · ${s.traverses || 0} trav.` : ''}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-neya-muted mb-2">
+              Longueurs encore à débiter (frames « À faire »)
+            </p>
+            {(sierra?.to_cut?.by_length || []).length === 0 ? (
+              <p className="text-sm text-neya-muted">Rien à couper — toutes les frames Sierra sont placées.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {(sierra.to_cut.by_length || []).map((item) => (
+                  <span
+                    key={item.length}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-neya-border bg-white px-3 py-1.5 text-sm"
+                  >
+                    <span className="font-mono font-semibold text-neya-ink">{item.length}</span>
+                    <span className="text-neya-muted">×</span>
+                    <span className="font-display font-semibold tabular-nums text-neya-orange">{item.qty}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+            <p className="text-[11px] text-neya-muted mt-3">
+              Total à couper : <strong className="text-neya-ink">{sierra?.to_cut?.pieces || 0}</strong> pièces
+              ({sierra?.to_cut?.structural || 0} structurelles + {sierra?.to_cut?.traverses || 0} traverses)
+              pour {sierra?.to_cut?.frames || 0} frame(s).
+            </p>
+          </div>
+        </section>
+
         <div className="grid lg:grid-cols-2 gap-4">
           <div className="card rounded-2xl">
             <h2 className="font-display font-semibold text-base mb-2">Notes projet</h2>
@@ -361,10 +571,13 @@ export default function SaunaCloudPage() {
           <div className="rounded-2xl border border-neya-border bg-neya-surface p-4 text-sm text-neya-muted space-y-2">
             <p className="font-medium text-neya-ink">Comment remplir</p>
             <p>Chaque frame ne compte que dans <em>une</em> colonne à la fois.</p>
-            <p>1. Débit → <span className="text-neya-ink">Débité</span></p>
+            <p>1. Débit → <span className="text-neya-ink">Débité</span> (les éléments manquants baissent)</p>
             <p>2. Assemblage → <span className="text-neya-ink">En cours</span></p>
             <p>3. Prête → <span className="text-neya-ink">Terminé</span></p>
             <p>4. Expédiée → <span className="text-neya-ink">Livré</span> (fait monter le %)</p>
+            <p className="pt-1 border-t border-neya-border/60">
+              BOM Sierra : H2013, H2026, H2226, H3313, H3726. FS750 / autres = hors plan coupe (1×6).
+            </p>
           </div>
         </div>
       </AppShell>
