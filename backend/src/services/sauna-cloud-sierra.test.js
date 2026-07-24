@@ -82,4 +82,30 @@ describe('Sierra cutting missing pieces', () => {
     const trav20 = trav.find((r) => r.length === '20"');
     assert.equal(trav20.qty, 20 * 2 + 10 * 4); // 80
   });
+
+  it('expose côtés/traverses débités (colonne) et déjà coupés', () => {
+    const row = enrichTrackerRow({
+      sku: 'H2013',
+      qty: 20,
+      counts: { debited: 5, in_progress: 3, done: 0, delivered: 0 },
+    });
+    // 5 en colonne Débité × 4 côtés / 2 trav.
+    assert.equal(row.sides_debited, 20);
+    assert.equal(row.traverses_debited, 10);
+    // 8 placées (≥ débité) × 4 / 2
+    assert.equal(row.sides_cut, 32);
+    assert.equal(row.traverses_cut, 16);
+  });
+
+  it('computeSierraMissing.cut = commande − à couper', () => {
+    const sierra = computeSierraMissing([
+      { sku: 'H2013', label: '20×13', qty: 20, counts: { debited: 10, in_progress: 0, done: 0, delivered: 0 } },
+    ]);
+    assert.equal(sierra.to_cut.frames, 10);
+    assert.equal(sierra.to_cut.sides, 40); // 10×4
+    assert.equal(sierra.to_cut.traverses, 20); // 10×2
+    assert.equal(sierra.cut.frames, 10);
+    assert.equal(sierra.cut.sides, 40);
+    assert.equal(sierra.cut.traverses, 20);
+  });
 });

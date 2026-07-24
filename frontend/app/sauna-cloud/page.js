@@ -158,6 +158,7 @@ function buildLocalFrames(apiFrames) {
     const ppf = piecesPerFrame(bom);
     const spf = sidesPerFrame(bom);
     const tpf = traversesPerFrame(bom);
+    const debitedCount = Number(counts.debited) || 0;
     return {
       sku: cat.sku,
       label: prev?.label || cat.label,
@@ -175,6 +176,10 @@ function buildLocalFrames(apiFrames) {
       pieces_missing: remaining * ppf,
       sides_missing: remaining * spf,
       traverses_missing: remaining * tpf,
+      sides_cut: placed * spf,
+      traverses_cut: placed * tpf,
+      sides_debited: debitedCount * spf,
+      traverses_debited: debitedCount * tpf,
     };
   });
 }
@@ -192,6 +197,10 @@ function summarize(frames) {
   const pieces_total = frames.reduce((s, f) => s + (f.pieces_total || 0), 0);
   const sides_total = frames.reduce((s, f) => s + (f.sides_total || 0), 0);
   const traverses_total = frames.reduce((s, f) => s + (f.traverses_total || 0), 0);
+  const sides_debited = frames.reduce((s, f) => s + (f.sides_debited || 0), 0);
+  const traverses_debited = frames.reduce((s, f) => s + (f.traverses_debited || 0), 0);
+  const sides_cut = frames.reduce((s, f) => s + (f.sides_cut || 0), 0);
+  const traverses_cut = frames.reduce((s, f) => s + (f.traverses_cut || 0), 0);
   const pct = qty ? Math.min(100, Math.round((delivered / qty) * 100)) : 0;
   return {
     qty,
@@ -206,6 +215,10 @@ function summarize(frames) {
     pieces_total,
     sides_total,
     traverses_total,
+    sides_debited,
+    traverses_debited,
+    sides_cut,
+    traverses_cut,
     pct,
     complete: qty > 0 && delivered >= qty,
   };
@@ -231,8 +244,17 @@ function computeSierraLocal(frames) {
     }
   }
   const to_cut = by_stage.debited;
+  const orderSides = frames.reduce((s, f) => s + (f.sides_total || 0), 0);
+  const orderTrav = frames.reduce((s, f) => s + (f.traverses_total || 0), 0);
+  const orderFrames = frames.reduce((s, f) => s + (f.qty || 0), 0);
   return {
     by_stage,
+    cut: {
+      frames: Math.max(0, orderFrames - (to_cut.frames || 0)),
+      sides: Math.max(0, orderSides - (to_cut.structural || 0)),
+      traverses: Math.max(0, orderTrav - (to_cut.traverses || 0)),
+      pieces: Math.max(0, orderSides + orderTrav - (to_cut.pieces || 0)),
+    },
     to_cut: {
       frames: to_cut.frames,
       pieces: to_cut.pieces,
@@ -476,6 +498,10 @@ export default function SaunaCloudPage() {
           pieces_missing: remaining * (row.pieces_per_frame || 0),
           sides_missing: remaining * (row.sides_per_frame || 0),
           traverses_missing: remaining * (row.traverses_per_frame || 0),
+          sides_cut: placed * (row.sides_per_frame || 0),
+          traverses_cut: placed * (row.traverses_per_frame || 0),
+          sides_debited: (Number(counts.debited) || 0) * (row.sides_per_frame || 0),
+          traverses_debited: (Number(counts.debited) || 0) * (row.traverses_per_frame || 0),
         };
       });
       return {
@@ -629,6 +655,54 @@ export default function SaunaCloudPage() {
           </button>
         </div>
 
+        {/* Bois déjà débité vs encore à couper */}
+        <div className="grid sm:grid-cols-2 gap-3 mb-4">
+          <div className={`rounded-2xl border px-5 py-4 ${STAGE_STYLE.debited.card}`}>
+            <p className="text-[12px] font-semibold uppercase tracking-wide text-amber-900">
+              Déjà débités
+            </p>
+            <div className="mt-2 grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-3xl font-display font-semibold tabular-nums text-neya-ink">
+                  {totals.sides_cut}
+                </p>
+                <p className="text-sm text-amber-900/80">côtés</p>
+              </div>
+              <div>
+                <p className="text-3xl font-display font-semibold tabular-nums text-neya-ink">
+                  {totals.traverses_cut}
+                </p>
+                <p className="text-sm text-amber-900/80">traverses</p>
+              </div>
+            </div>
+            <p className="mt-2 text-[11px] text-neya-muted">
+              Frames placées (≥ Débité) · colonne Débité seule : {totals.sides_debited} côtés · {totals.traverses_debited} trav.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-neya-border bg-neya-cream/30 px-5 py-4">
+            <p className="text-[12px] font-semibold uppercase tracking-wide text-neya-muted">
+              Encore à débiter
+            </p>
+            <div className="mt-2 grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-3xl font-display font-semibold tabular-nums text-neya-ink">
+                  {totals.sides_missing}
+                </p>
+                <p className="text-sm text-neya-muted">côtés</p>
+              </div>
+              <div>
+                <p className="text-3xl font-display font-semibold tabular-nums text-neya-ink">
+                  {totals.traverses_missing}
+                </p>
+                <p className="text-sm text-neya-muted">traverses</p>
+              </div>
+            </div>
+            <p className="mt-2 text-[11px] text-neya-muted">
+              Frames encore « À faire » · {totals.remaining} frame{totals.remaining !== 1 ? 's' : ''}
+            </p>
+          </div>
+        </div>
+
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 mb-6">
           <SummaryCard label="Commande" value={totals.qty} />
           <SummaryCard label="À faire" value={totals.remaining} />
@@ -637,7 +711,12 @@ export default function SaunaCloudPage() {
             value={totals.pieces_missing}
             sub={`${totals.pieces_total} au total`}
           />
-          <SummaryCard label="Débité" value={totals.debited} accent={STAGE_STYLE.debited.card} />
+          <SummaryCard
+            label="Débité"
+            value={totals.debited}
+            accent={STAGE_STYLE.debited.card}
+            sub={`${totals.sides_debited} côtés · ${totals.traverses_debited} trav.`}
+          />
           <SummaryCard label="En cours" value={totals.in_progress} accent={STAGE_STYLE.in_progress.card} />
           <SummaryCard label="Terminé" value={totals.done} accent={STAGE_STYLE.done.card} />
           <SummaryCard label="Livré" value={totals.delivered} accent={STAGE_STYLE.delivered.card} />
@@ -677,7 +756,12 @@ export default function SaunaCloudPage() {
                     className={`px-3 py-3 text-center font-semibold border-b ${STAGE_STYLE[s.key].th}`}
                     title={s.hint}
                   >
-                    {s.label}
+                    <span className="block">{s.label}</span>
+                    {s.key === 'debited' ? (
+                      <span className="block text-[10px] font-medium tabular-nums opacity-80 mt-0.5">
+                        {totals.sides_debited} côt. · {totals.traverses_debited} trav.
+                      </span>
+                    ) : null}
                   </th>
                 ))}
               </tr>
@@ -765,6 +849,11 @@ export default function SaunaCloudPage() {
                           className={STAGE_STYLE[s.key].input}
                           onCommit={(n) => setCount(row.sku, s.key, n)}
                         />
+                        {s.key === 'debited' && row.bom && (row.counts?.debited || 0) > 0 ? (
+                          <span className="block text-[10px] text-amber-900/80 tabular-nums mt-0.5">
+                            {row.sides_debited} côt. · {row.traverses_debited} trav.
+                          </span>
+                        ) : null}
                       </td>
                     ))}
                   </tr>
@@ -789,7 +878,12 @@ export default function SaunaCloudPage() {
                   </button>
                 </td>
                 <td className="px-3 py-3 text-center tabular-nums bg-neya-cream/20">{totals.remaining}</td>
-                <td className={`px-3 py-3 text-center tabular-nums ${STAGE_STYLE.debited.cell}`}>{totals.debited}</td>
+                <td className={`px-3 py-3 text-center tabular-nums ${STAGE_STYLE.debited.cell}`}>
+                  <span className="block">{totals.debited}</span>
+                  <span className="block text-[10px] font-normal text-amber-900/80">
+                    {totals.sides_debited} côt. · {totals.traverses_debited} trav.
+                  </span>
+                </td>
                 <td className={`px-3 py-3 text-center tabular-nums ${STAGE_STYLE.in_progress.cell}`}>{totals.in_progress}</td>
                 <td className={`px-3 py-3 text-center tabular-nums font-semibold text-emerald-800 ${STAGE_STYLE.done.cell}`}>{totals.done}</td>
                 <td className={`px-3 py-3 text-center tabular-nums font-semibold text-green-900 ${STAGE_STYLE.delivered.cell}`}>{totals.delivered}</td>
@@ -823,6 +917,23 @@ export default function SaunaCloudPage() {
           </div>
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+            <div className={`rounded-xl border px-3 py-3 sm:col-span-2 ${STAGE_STYLE.debited.card}`}>
+              <p className="text-[11px] uppercase tracking-wide text-amber-900/80">Déjà débités (Sierra)</p>
+              <div className="mt-1 flex flex-wrap gap-6">
+                <p className="text-xl font-display font-semibold tabular-nums text-neya-ink">
+                  {sierra?.cut?.sides ?? totals.sides_cut}
+                  <span className="text-sm font-normal text-neya-muted"> côtés</span>
+                </p>
+                <p className="text-xl font-display font-semibold tabular-nums text-neya-ink">
+                  {sierra?.cut?.traverses ?? totals.traverses_cut}
+                  <span className="text-sm font-normal text-neya-muted"> traverses</span>
+                </p>
+              </div>
+              <p className="text-[11px] text-neya-muted mt-1">
+                {sierra?.cut?.frames ?? totals.qty - totals.remaining} frame(s) · encore à couper :{' '}
+                {sierra?.to_cut?.sides ?? totals.sides_missing} côt. / {sierra?.to_cut?.traverses ?? totals.traverses_missing} trav.
+              </p>
+            </div>
             {stageMissing.map((s) => (
               <div
                 key={s.key}

@@ -370,11 +370,32 @@ export function computeSierraMissing(frames = []) {
     .map(([length, qty]) => ({ length, qty }))
     .sort((a, b) => parseFloat(b.length) - parseFloat(a.length));
 
+  // Bois déjà débité = commande − encore à couper
+  let orderSides = 0;
+  let orderTrav = 0;
+  let orderFrames = 0;
+  for (const row of frames) {
+    const sku = String(row.sku || '').toUpperCase();
+    const bom = SIERRA_CUTTING_BOM[sku];
+    const qty = Math.max(0, Math.round(Number(row.qty) || 0));
+    orderFrames += qty;
+    if (!bom) continue;
+    orderSides += sidesPerFrame(bom) * qty;
+    orderTrav += traversesPerFrame(bom) * qty;
+  }
+  const cut = {
+    frames: Math.max(0, orderFrames - (to_cut.frames || 0)),
+    sides: Math.max(0, orderSides - (to_cut.structural || 0)),
+    traverses: Math.max(0, orderTrav - (to_cut.traverses || 0)),
+    pieces: Math.max(0, orderSides + orderTrav - (to_cut.pieces || 0)),
+  };
+
   return {
     plan: SIERRA_PLAN_META,
     bom: SIERRA_CUTTING_BOM,
     by_sku,
     by_stage,
+    cut,
     to_cut: {
       frames: to_cut.frames,
       pieces: to_cut.pieces,
@@ -397,6 +418,14 @@ export function enrichTrackerRow(row) {
   const pieces_missing = remaining * pieces_per_frame;
   const sides_missing = remaining * sides_per_frame;
   const traverses_missing = remaining * traverses_per_frame;
+  const qty = Number(row.qty) || 0;
+  const debitedCount = Number(row.counts?.debited) || 0;
+  // Bois déjà coupé = frames placées (≥ débité, pipeline exclusif)
+  const sides_cut = placed * sides_per_frame;
+  const traverses_cut = placed * traverses_per_frame;
+  // Bois compté dans la seule colonne « Débité »
+  const sides_debited = debitedCount * sides_per_frame;
+  const traverses_debited = debitedCount * traverses_per_frame;
   return {
     ...row,
     remaining,
@@ -405,12 +434,16 @@ export function enrichTrackerRow(row) {
     pieces_per_frame,
     sides_per_frame,
     traverses_per_frame,
-    pieces_total: (Number(row.qty) || 0) * pieces_per_frame,
-    sides_total: (Number(row.qty) || 0) * sides_per_frame,
-    traverses_total: (Number(row.qty) || 0) * traverses_per_frame,
+    pieces_total: qty * pieces_per_frame,
+    sides_total: qty * sides_per_frame,
+    traverses_total: qty * traverses_per_frame,
     pieces_missing,
     sides_missing,
     traverses_missing,
+    sides_cut,
+    traverses_cut,
+    sides_debited,
+    traverses_debited,
   };
 }
 
@@ -452,6 +485,12 @@ export function summarizeTracker(tracker) {
       pieces_total: frames.reduce((s, f) => s + (f.pieces_total || 0), 0),
       sides_total: frames.reduce((s, f) => s + (f.sides_total || 0), 0),
       traverses_total: frames.reduce((s, f) => s + (f.traverses_total || 0), 0),
+      // Colonne « Débité » uniquement
+      sides_debited: frames.reduce((s, f) => s + (f.sides_debited || 0), 0),
+      traverses_debited: frames.reduce((s, f) => s + (f.traverses_debited || 0), 0),
+      // Bois déjà coupé (débité + en cours + terminé + livré)
+      sides_cut: frames.reduce((s, f) => s + (f.sides_cut || 0), 0),
+      traverses_cut: frames.reduce((s, f) => s + (f.traverses_cut || 0), 0),
     },
     sierra: computeSierraMissing(frames),
   };
