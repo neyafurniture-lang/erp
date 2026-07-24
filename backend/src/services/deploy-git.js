@@ -266,25 +266,58 @@ export async function saveGitDeployConfig({ repoUrl }) {
   return getGitDeployConfig();
 }
 
-function runLocalDeploy({ force = false, path } = {}) {
-  const repoPath = path || resolveRepoPath();
+function writeProgressFile(repoPath, payload) {
+  const dir = join(repoPath, 'deploy');
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, '.deploy-progress.json');
+  writeFileSync(file, JSON.stringify({
+    ...payload,
+    updated_at: new Date().toISOString(),
+  }, null, 2));
+  return file;
+}
+
+/**
+ * Déploiement local en arrière-plan (même logique que SSH) :
+ * le rebuild Docker ne doit pas tuer la requête HTTP / le backend.
+ */
+function runLocalDeploy({ force = false, path: repoPathArg } = {}) {
+  const repoPath = repoPathArg || resolveRepoPath();
   const script = join(repoPath, 'deploy', 'deploy.sh');
   if (!existsSync(script)) {
     throw new Error(`Script introuvable : ${script}`);
   }
-  const env = { ...process.env, FORCE: force ? '1' : '0' };
-  return new Promise((resolve, reject) => {
-    const child = spawn('bash', [script], { cwd: repoPath, env });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', d => { stdout += d.toString(); });
-    child.stderr.on('data', d => { stderr += d.toString(); });
-    child.on('error', reject);
-    child.on('close', code => {
-      if (code === 0) resolve({ ok: true, mode: 'local', stdout, stderr, host: 'localhost', path: repoPath });
-      else reject(new Error((stderr || stdout || `deploy.sh exit ${code}`).trim().slice(-2000)));
-    });
+  const logDir = join(repoPath, 'deploy', 'logs');
+  mkdirSync(logDir, { recursive: true });
+  const logFile = join(logDir, 'one-click-latest.log');
+  const startedAt = new Date().toISOString();
+  writeProgressFile(repoPath, {
+    percent: 3,
+    stage: 'queued',
+    label: 'Mise à jour lancée…',
+    status: 'running',
+    started_at: startedAt,
+    log_file: logFile,
   });
+  writeFileSync(logFile, `[one-click] start force=${force ? '1' : '0'} at ${startedAt}\n`);
+
+  const child = spawn('bash', ['-c', `nohup env FORCE=${force ? '1' : '0'} /bin/bash "${script}" >>"${logFile}" 2>&1 </dev/null & echo $!`], {
+    cwd: repoPath,
+    env: { ...process.env, FORCE: force ? '1' : '0' },
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  child.unref();
+
+  return {
+    ok: true,
+    mode: 'local-async',
+    started: true,
+    host: 'localhost',
+    path: repoPath,
+    logFile,
+    message: 'Mise à jour en cours…',
+  };
 }
 
 function runSsh(args, { password = null } = {}) {
@@ -344,10 +377,23 @@ export async function triggerVpsGitDeploy({ force = false, host: hostOverride = 
   // Lancer en arrière-plan sur l'hôte : sinon le rebuild Docker tue le backend
   // au milieu de la requête HTTP (502).
   const logFile = `${path}/deploy/logs/one-click-latest.log`;
+  const progressFile = `${path}/deploy/.deploy-progress.json`;
+  const startedAt = new Date().toISOString();
   // Script encodé en base64 pour éviter les pièges de quoting SSH/bash
   const remoteScript = [
     `mkdir -p ${path}/deploy/logs`,
     `echo "[one-click] start force=${force ? '1' : '0'}" > ${logFile}`,
+    `cat > ${progressFile} <<'PROG'`,
+    `{`,
+    `  "percent": 3,`,
+    `  "stage": "queued",`,
+    `  "label": "Mise à jour lancée…",`,
+    `  "status": "running",`,
+    `  "started_at": "${startedAt}",`,
+    `  "updated_at": "${startedAt}",`,
+    `  "log_file": "${logFile}"`,
+    `}`,
+    `PROG`,
     `nohup env FORCE=${force ? '1' : '0'} /bin/bash ${path}/deploy/deploy.sh >>${logFile} 2>&1 </dev/null &`,
     `echo DEPLOY_STARTED pid=$! log=${logFile}`,
   ].join('\n');
@@ -373,7 +419,7 @@ export async function triggerVpsGitDeploy({ force = false, host: hostOverride = 
       host,
       path,
       logFile,
-      message: 'Mise à jour lancée sur le VPS (1–3 min). Rechargez la page après.',
+      message: 'Mise à jour en cours…',
     };
   } catch (err) {
     const detail = String(err.message || err).trim();
@@ -384,6 +430,97 @@ export async function triggerVpsGitDeploy({ force = false, host: hostOverride = 
         : '';
     throw new Error(`${detail}${hint}`);
   }
+}
+
+const LOG_STAGE_HINTS = [
+  { re: /=== Déploiement terminé ===/i, percent: 100, stage: 'done', label: 'Déploiement terminé', status: 'done' },
+  { re: /Healthcheck échoué|ERREUR:/i, percent: 100, stage: 'error', label: 'Échec du déploiement', status: 'error' },
+  { re: /Déjà à jour/i, percent: 100, stage: 'skipped', label: 'Déjà à jour', status: 'skipped' },
+  { re: /Attente healthcheck|Health:/i, percent: 88, stage: 'health', label: 'Vérification healthcheck…' },
+  { re: /Redémarrage des services/i, percent: 72, stage: 'restart', label: 'Redémarrage des services…' },
+  { re: /Build images Docker/i, percent: 50, stage: 'build', label: 'Build des images Docker…' },
+  { re: /Sauvegarde Postgres/i, percent: 35, stage: 'backup', label: 'Sauvegarde Postgres…' },
+  { re: /Mise à jour Git|Rebuild forcé|git fetch/i, percent: 20, stage: 'git-pull', label: 'Mise à jour Git…' },
+  { re: /\[one-click\] start|=== Déploiement NEYA/i, percent: 8, stage: 'start', label: 'Démarrage…' },
+];
+
+function inferProgressFromLog(logText) {
+  if (!logText) return null;
+  for (const hint of LOG_STAGE_HINTS) {
+    if (hint.re.test(logText)) {
+      return {
+        percent: hint.percent,
+        stage: hint.stage,
+        label: hint.label,
+        status: hint.status || 'running',
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Progression du dernier déploiement one-click (fichier JSON + log de secours).
+ */
+export function getDeployProgress() {
+  const root = resolveGitRepoRoot();
+  const progressPath = join(root, 'deploy', '.deploy-progress.json');
+  const logPath = join(root, 'deploy', 'logs', 'one-click-latest.log');
+  const state = readDeployState(root);
+
+  let progress = null;
+  if (existsSync(progressPath)) {
+    try {
+      progress = JSON.parse(readFileSync(progressPath, 'utf8'));
+    } catch { /* ignore */ }
+  }
+
+  let logTail = '';
+  if (existsSync(logPath)) {
+    try {
+      const full = readFileSync(logPath, 'utf8');
+      logTail = full.slice(-2500);
+      if (!progress || progress.status === 'running') {
+        const inferred = inferProgressFromLog(full);
+        if (inferred) {
+          progress = {
+            ...(progress || {}),
+            ...inferred,
+            percent: Math.max(Number(progress?.percent) || 0, inferred.percent),
+            log_file: logPath,
+          };
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  if (!progress) {
+    return {
+      active: false,
+      percent: 0,
+      stage: 'idle',
+      label: 'Aucun déploiement en cours',
+      status: 'idle',
+      deployedAt: state?.deployed_at || null,
+      deployedCommit: state?.commit || null,
+      logTail: logTail || null,
+    };
+  }
+
+  const status = progress.status || 'running';
+  const active = status === 'running';
+  return {
+    active,
+    percent: Math.min(100, Math.max(0, Number(progress.percent) || 0)),
+    stage: progress.stage || 'running',
+    label: progress.label || (active ? 'Mise à jour en cours…' : 'Terminé'),
+    status,
+    startedAt: progress.started_at || null,
+    updatedAt: progress.updated_at || null,
+    deployedAt: state?.deployed_at || null,
+    deployedCommit: state?.commit || null,
+    logTail: logTail || null,
+  };
 }
 
 /**
