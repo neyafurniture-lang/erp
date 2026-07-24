@@ -112,6 +112,14 @@ describe('clientNameAppearsInText', () => {
   it('match saunacloud ↔ Sauna Cloud', () => {
     assert.equal(clientNameAppearsInText('saunacloud', 'Devis Sauna Cloud — frames'), true);
     assert.equal(clientNameAppearsInText('Sauna Cloud', 'from:info@saunacloud.ca'), true);
+    assert.equal(clientNameAppearsInText('saunacloud', 'Martijn Steinrucken <martijn@saunacloud.com>'), true);
     assert.equal(clientNameAppearsInText('saunacloud', 'Olive Richardson facture'), false);
+  });
+
+  it('ne match PAS le slug GitHub sauna-cloud', () => {
+    assert.equal(
+      clientNameAppearsInText('saunacloud', 'Re: [neyafurniture-lang/erp] fix(sauna-cloud): totaux'),
+      false
+    );
   });
 });

@@ -74,6 +74,9 @@ export function collapseClientName(s) {
 /**
  * Match un nom client dans un texte (limites de mot, ignore stop-words).
  * Exporte pour tests.
+ *
+ * « saunacloud » matche « Sauna Cloud » et martijn@saunacloud.com,
+ * mais PAS le slug GitHub « sauna-cloud » (faux positifs PR).
  */
 export function clientNameAppearsInText(clientName, haystack) {
   const n = String(clientName || '').trim().toLowerCase();
@@ -81,19 +84,22 @@ export function clientNameAppearsInText(clientName, haystack) {
   if (!n || !hay || CLIENT_NAME_STOP.has(n)) return false;
 
   const parts = n.split(/\s+/).filter(Boolean);
-  // Un seul mot : exige longueur ≥ 6 et pas un stop-word
+  const collapsedName = collapseClientName(n);
+
+  // Domaine / local-part email exact (martijn@saunacloud.com)
+  if (collapsedName.length >= MIN_SINGLE_NAME_LEN) {
+    if (new RegExp(`@${collapsedName}\\.`, 'i').test(hay)) return true;
+    if (new RegExp(`(?:^|[^a-z0-9])${collapsedName}@`, 'i').test(hay)) return true;
+  }
+
+  // Un seul mot : limite de mot stricte
   if (parts.length === 1) {
     if (n.length < MIN_SINGLE_NAME_LEN) return false;
     const escaped = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const whole = new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped}(?:[^\\p{L}\\p{N}]|$)`, 'iu');
     if (whole.test(hay)) return true;
-    // « saunacloud » dans « Sauna Cloud » / saunacloud@… (forme compacte)
-    const collapsedName = collapseClientName(n);
-    const collapsedHay = collapseClientName(hay);
-    if (collapsedName.length >= MIN_SINGLE_NAME_LEN && collapsedHay.includes(collapsedName)) {
-      return true;
-    }
-    return false;
+    // « Sauna Cloud » → mots adjacents dont la concat = saunacloud (pas via tiret seul)
+    return spacedWordsCollapseTo(hay, collapsedName);
   }
 
   if (n.length < 4) return false;
@@ -111,11 +117,41 @@ export function clientNameAppearsInText(clientName, haystack) {
     if (allParts) return true;
   }
 
-  // « Sauna Cloud » ↔ « saunacloud » / saunacloud@domaine.com
-  const collapsedName = collapseClientName(n);
-  const collapsedHay = collapseClientName(hay);
-  if (collapsedName.length >= MIN_SINGLE_NAME_LEN && collapsedHay.includes(collapsedName)) {
-    return true;
+  // Forme compacte en mot entier (pas kebab-case github)
+  if (collapsedName.length >= MIN_SINGLE_NAME_LEN) {
+    const compactWhole = new RegExp(`(?:^|[^a-z0-9])${collapsedName}(?:[^a-z0-9]|$)`, 'i');
+    if (compactWhole.test(hay)) return true;
+    if (spacedWordsCollapseTo(hay, collapsedName)) return true;
+  }
+  return false;
+}
+
+/**
+ * True si 2–3 mots adjacents séparés par espaces (pas tirets) concaténés = cible.
+ * « Sauna Cloud » → saunacloud ; « sauna-cloud » (kebab) → false.
+ */
+function spacedWordsCollapseTo(haystack, collapsedTarget) {
+  if (!collapsedTarget || collapsedTarget.length < MIN_SINGLE_NAME_LEN) return false;
+  // Tokens séparés uniquement par espaces / ponctuation légère — les tirets cassent le token
+  const words = String(haystack || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  // Si le hay d'origine contient kebab "sauna-cloud", split donne ["sauna","cloud"] aussi —
+  // on exige donc que la forme espacée existe littéralement dans le texte.
+  const spaced = String(haystack || '').toLowerCase();
+  for (let i = 0; i < words.length - 1; i++) {
+    for (let len = 2; len <= 3 && i + len <= words.length; len++) {
+      const slice = words.slice(i, i + len);
+      if (collapseClientName(slice.join('')) !== collapsedTarget) continue;
+      // Vérifie présence littérale « mot mot » (espaces), pas seulement tiret
+      const lit = slice.join('\\s+');
+      if (new RegExp(`(?:^|[^a-z0-9])${lit}(?:[^a-z0-9]|$)`, 'i').test(spaced)) {
+        return true;
+      }
+    }
   }
   return false;
 }

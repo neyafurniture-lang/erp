@@ -116,9 +116,9 @@ describe('filterHintsForClient anti faux client', () => {
 });
 
 describe('buildClientGmailQueries', () => {
-  it('ajoute Sauna Cloud pour saunacloud', () => {
+  it('priorise le domaine saunacloud.com et exclut github', () => {
     const qs = buildClientGmailQueries('saunacloud');
-    assert.ok(qs.some(q => /sauna cloud/i.test(q)));
-    assert.ok(qs.some(q => /saunacloud/i.test(q)));
+    assert.ok(qs.some(q => /saunacloud\.com/i.test(q)));
+    assert.ok(qs.every(q => /github/i.test(q))); // exclusion dans la query
   });
 });

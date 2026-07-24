@@ -204,6 +204,7 @@ export function extractContactHints({
   fromRaw = null,
   participantEmails = [],
   ownEmails = new Set(),
+  clientName = null,
 } = {}) {
   const blob = [text, fromRaw, ...(participantEmails || [])].filter(Boolean).join('\n');
   const phones = extractPhonesFromText(blob);
@@ -218,13 +219,26 @@ export function extractContactHints({
     ...(participantEmails || []).map(e => String(e || '').toLowerCase()),
   ].filter(Boolean);
 
-  for (const e of candidates) {
+  // Priorité : domaine aligné sur le nom client (martijn@saunacloud.com)
+  const ranked = [...candidates].sort((a, b) => {
+    const aMatch = clientName && emailDomainMatchesClient(a, clientName) ? 0 : 1;
+    const bMatch = clientName && emailDomainMatchesClient(b, clientName) ? 0 : 1;
+    return aMatch - bMatch;
+  });
+
+  for (const e of ranked) {
     const low = String(e).toLowerCase().trim();
     if (!low.includes('@')) continue;
-    if (ownEmails.has(low)) continue;
+    if (isOwnEmailAddress(low, ownEmails)) continue;
     if (isNoiseEmail(low, { fromRaw: fromRaw || low }) || isPromotion(low, '', '')) continue;
     email = low;
     break;
+  }
+
+  // Contact : si From est le client (domaine match), utiliser le display name
+  let contactOut = contact;
+  if (clientName && fromRaw && emailDomainMatchesClient(fromEmail || email, clientName)) {
+    contactOut = extractContactName(fromRaw, '') || contact;
   }
 
   return {
@@ -232,7 +246,7 @@ export function extractContactHints({
     phone: phones[0] || null,
     address,
     city,
-    contact,
+    contact: contactOut,
   };
 }
 
@@ -314,10 +328,78 @@ async function getOwnEmailSet() {
     const { getCompanyConfig } = await import('./company-config.js');
     const company = await getCompanyConfig();
     if (company?.email) set.add(String(company.email).toLowerCase());
+    if (company?.payment?.interac?.email) set.add(String(company.payment.interac.email).toLowerCase());
   } catch { /* */ }
-  set.add('neyafurniture@gmail.com');
-  set.add('facturation@neyafurniture.ca');
+  for (const e of [
+    'neyafurniture@gmail.com',
+    'facturation@neyafurniture.ca',
+    'contact@neyafurniture.ca',
+    'info@neyafurniture.ca',
+    'mehdi@neyafurniture.ca',
+  ]) set.add(e);
+  // Domaine atelier entier
+  set.add('*@neyafurniture.ca');
   return set;
+}
+
+function isOwnEmailAddress(email, ownEmails = new Set()) {
+  const low = String(email || '').toLowerCase().trim();
+  if (!low.includes('@')) return true;
+  if (ownEmails.has(low)) return true;
+  const domain = low.split('@')[1];
+  if (domain && ownEmails.has(`*@${domain}`)) return true;
+  if (domain && /neyafurniture\.ca$/i.test(domain)) return true;
+  return false;
+}
+
+/** Tél. / adresse atelier NEYA — ne jamais coller sur un client. */
+async function getOwnContactFingerprints() {
+  const phones = new Set();
+  const addressBits = [];
+  try {
+    const { getCompanyConfig } = await import('./company-config.js');
+    const company = await getCompanyConfig();
+    if (company?.phone) {
+      const d = String(company.phone).replace(/\D/g, '');
+      if (d.length >= 10) phones.add(d.slice(-10));
+    }
+    const line1 = company?.address?.line1 || company?.address || '';
+    if (line1) addressBits.push(normToken(typeof line1 === 'string' ? line1 : line1.line1 || ''));
+    if (company?.address?.line2) addressBits.push(normToken(company.address.line2));
+  } catch { /* */ }
+  // Ancienne / atelier connus
+  phones.add('5149104874');
+  addressBits.push(normToken('9995 boul Pie-IX'));
+  addressBits.push(normToken('4842 Rue Fabre'));
+  return { phones, addressBits: addressBits.filter(Boolean) };
+}
+
+function looksLikeOwnPhone(phone, fingerprints) {
+  const d = String(phone || '').replace(/\D/g, '');
+  if (d.length < 10) return false;
+  return fingerprints.phones.has(d.slice(-10));
+}
+
+function looksLikeOwnAddress(address, fingerprints) {
+  const a = normToken(address);
+  if (!a || a.length < 8) return false;
+  return fingerprints.addressBits.some(bit => bit && (a.includes(bit) || bit.includes(a.slice(0, 20))));
+}
+
+/** Domaine email qui « ressemble » au nom client (saunacloud.com). */
+function emailDomainMatchesClient(email, clientName) {
+  const dom = emailDomain(email);
+  const collapsed = collapseClientName(clientName);
+  if (!dom || collapsed.length < 4) return false;
+  const domCollapsed = collapseClientName(dom.split('.')[0] || '');
+  return domCollapsed === collapsed || domCollapsed.includes(collapsed) || collapsed.includes(domCollapsed);
+}
+
+function isNoiseMailSender(fromRaw = '', subject = '') {
+  const raw = `${fromRaw} ${subject}`.toLowerCase();
+  if (/notifications@github\.com|noreply@github\.com|cursor\[bot\]|github\.com/.test(raw)) return true;
+  if (/no-?reply@|mailer-daemon|notifications@/.test(raw)) return true;
+  return false;
 }
 
 /**
@@ -400,45 +482,47 @@ export async function scrubForeignCompanyFields(clientId) {
   const c = rows[0];
   if (!c) return { client: null, cleared: {} };
 
-  if (!looksLikeForeignCompanyContact(c.name, {
-    address: c.address,
-    email: c.email,
-    contact: c.contact,
-  })) {
-    return { client: c, cleared: {} };
+  const ownEmails = await getOwnEmailSet();
+  const fingerprints = await getOwnContactFingerprints();
+  const cleared = {};
+  const sets = [];
+
+  const clearCol = (col) => {
+    if (blank(c[col]) || cleared[col] !== undefined) return;
+    sets.push(`${col} = NULL`);
+    cleared[col] = c[col];
+  };
+
+  // Coordonnées NEYA collées par erreur sur le client
+  if (!blank(c.email) && isOwnEmailAddress(c.email, ownEmails)) clearCol('email');
+  if (!blank(c.phone) && looksLikeOwnPhone(c.phone, fingerprints)) clearCol('phone');
+  if (!blank(c.address) && looksLikeOwnAddress(c.address, fingerprints)) {
+    clearCol('address');
+    if (!blank(c.city)) clearCol('city');
   }
 
-  const cleared = {};
-  // On efface adresse / ville / téléphone / email générique info@ — garde le nom
-  const sets = [];
-  const params = [];
-  let i = 1;
-  for (const col of ['address', 'city', 'phone']) {
-    if (!blank(c[col])) {
-      sets.push(`${col} = NULL`);
-      cleared[col] = c[col];
+  const foreign = looksLikeForeignCompanyContact(c.name, {
+    address: cleared.address !== undefined ? null : c.address,
+    email: cleared.email !== undefined ? null : c.email,
+    contact: c.contact,
+  });
+  if (foreign) {
+    for (const col of ['address', 'city', 'phone']) clearCol(col);
+    if (!blank(c.email) && /^info@|contact@|sales@|admin@/i.test(c.email)) clearCol('email');
+    if (!blank(c.contact)) {
+      const cn = normToken(c.contact);
+      const nn = normToken(c.name);
+      if (cn !== nn && !clientIdentityTokens(c.name).some(t => cn.includes(t))) {
+        clearCol('contact');
+      }
     }
   }
-  // Email type info@domaine-entreprise sans lien avec le nom
-  if (!blank(c.email) && /^info@|contact@|sales@|admin@/i.test(c.email)) {
-    sets.push(`email = NULL`);
-    cleared.email = c.email;
-  }
-  if (!blank(c.contact) && looksLikeForeignCompanyContact(c.name, { contact: c.contact, address: c.address, email: c.email })) {
-    // contact = "Anne" est ok ; "Atlas Tools" non
-    const cn = normToken(c.contact);
-    const nn = normToken(c.name);
-    if (cn !== nn && !clientIdentityTokens(c.name).some(t => cn.includes(t))) {
-      sets.push(`contact = NULL`);
-      cleared.contact = c.contact;
-    }
-  }
+
   if (!sets.length) return { client: c, cleared: {} };
 
-  params.push(clientId);
   const { rows: updated } = await pool.query(
-    `UPDATE clients SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`,
-    params
+    `UPDATE clients SET ${sets.join(', ')} WHERE id = $1 RETURNING *`,
+    [clientId]
   );
   return { client: updated[0], cleared };
 }
@@ -470,10 +554,7 @@ function clientIdentityTokens(clientName) {
 /** True si le nom client apparaît dans le texte (y compris saunacloud ↔ Sauna Cloud). */
 function nameMatchesCorpus(clientName, text) {
   if (!clientName || !text) return false;
-  if (clientNameAppearsInText(clientName, text)) return true;
-  const collapsedName = collapseClientName(clientName);
-  const collapsedText = collapseClientName(text);
-  return collapsedName.length >= 6 && collapsedText.includes(collapsedName);
+  return clientNameAppearsInText(clientName, text);
 }
 
 /**
@@ -535,6 +616,7 @@ export function filterHintsForClient(client, hints = {}, corpus = {}) {
   if (hints.email && !foreignCompany) {
     const hintDom = emailDomain(hints.email);
     if (clientDom && hintDom === clientDom) out.email = hints.email;
+    else if (emailDomainMatchesClient(hints.email, name)) out.email = hints.email;
     else if (!clientDom && (nameInCorpus || (contactMatchesClient && domainTrusted))) out.email = hints.email;
     else if (domainTrusted && hintDom === fromDom && nameInCorpus) out.email = hints.email;
   }
@@ -723,23 +805,22 @@ async function gatherMailCorpus(clientId, client = null) {
 export function buildClientGmailQueries(clientName) {
   const raw = String(clientName || '').trim();
   if (raw.length < 3) return [];
-  const queries = new Set();
-  queries.add(`"${raw}"`);
-  const spaced = raw.replace(/([a-z])([A-Z])/g, '$1 $2');
-  // saunacloud → "sauna cloud" si on détecte un motif fréquent
   const collapsed = collapseClientName(raw);
-  if (/^saunacloud$/i.test(collapsed) || /^sonacloud$/i.test(collapsed)) {
-    queries.add('"sauna cloud"');
-    queries.add('saunacloud');
-    queries.add('sauna cloud');
-  } else if (!/\s/.test(raw) && raw.length >= 8) {
-    // Essai soft : garder aussi la forme compacte
-    queries.add(collapsed);
-  } else if (/\s/.test(raw)) {
-    queries.add(collapsed);
-    queries.add(`"${raw}"`);
+  const noise = '-from:notifications@github.com -from:noreply@github.com -subject:neyafurniture-lang/erp';
+  const queries = new Set();
+
+  // Priorité : domaine email client probable
+  if (collapsed.length >= 4) {
+    queries.add(`(from:${collapsed}.com OR to:${collapsed}.com OR from:${collapsed}.ca OR to:${collapsed}.ca) ${noise}`);
   }
-  // Limite 4 requêtes
+  if (/^saunacloud$/i.test(collapsed) || /^sonacloud$/i.test(collapsed)) {
+    queries.add(`(from:saunacloud.com OR to:saunacloud.com OR "Sauna Cloud") ${noise}`);
+    queries.add(`("Sauna Cloud" OR saunacloud) -github.com ${noise}`);
+  } else if (/\s/.test(raw)) {
+    queries.add(`("${raw}") ${noise}`);
+  } else {
+    queries.add(`("${raw}") ${noise}`);
+  }
   return [...queries].slice(0, 4);
 }
 
@@ -764,14 +845,19 @@ async function searchGmailCorpusForClient(client) {
 
   for (const q of queries) {
     try {
-      const { messages: found } = await gmail.searchMessages(q, 8);
+      const { messages: found } = await gmail.searchMessages(q, 10);
       searched += 1;
       for (const m of found || []) {
         if (!m?.id || seenIds.has(m.id)) continue;
         seenIds.add(m.id);
-        // Re-filtre local : le sujet / from doit vraiment coller au client
+        if (isNoiseMailSender(m.from || '', m.subject || '')) continue;
         const hay = `${m.subject || ''} ${m.from || ''} ${m.snippet || ''}`;
-        if (!nameMatchesCorpus(name, hay)) continue;
+        // Exige un vrai signal client (domaine @saunacloud. ou « Sauna Cloud »), pas un slug PR
+        const strong = emailDomainMatchesClient(
+          (String(m.from || '').match(/[\w.+-]+@[\w.-]+\.\w+/) || [])[0],
+          name
+        ) || clientNameAppearsInText(name, hay);
+        if (!strong) continue;
         messages.push(m);
       }
     } catch {
@@ -780,9 +866,19 @@ async function searchGmailCorpusForClient(client) {
     if (messages.length >= 6) break;
   }
 
+  // Préférer les mails FROM domaine client
+  messages.sort((a, b) => {
+    const ae = (String(a.from || '').match(/[\w.+-]+@[\w.-]+\.\w+/) || [])[0];
+    const be = (String(b.from || '').match(/[\w.+-]+@[\w.-]+\.\w+/) || [])[0];
+    const as = emailDomainMatchesClient(ae, name) ? 0 : 1;
+    const bs = emailDomainMatchesClient(be, name) ? 0 : 1;
+    return as - bs;
+  });
+
   if (!messages.length) return { searched };
 
-  // Lier les fils au client (processGmailMessage) pour les prochaines fois
+  const ownEmails = await getOwnEmailSet();
+  // Lier les fils au client pour les prochaines fois
   const threadRows = [];
   const directParts = [];
   const participants = [];
@@ -796,16 +892,21 @@ async function searchGmailCorpusForClient(client) {
       const subject = String(full.subject || preview.subject || '');
       const snippet = String(full.snippet || preview.snippet || '');
       const body = String(full.body || '').slice(0, 4000);
-      const hay = `${subject} ${from} ${snippet} ${body}`;
-      if (!nameMatchesCorpus(name, hay)) continue;
-
       const emailMatch = from.match(/[\w.+-]+@[\w.-]+\.\w+/);
       const fe = emailMatch ? emailMatch[0].toLowerCase() : null;
-      if (fe && !fromEmail) {
+      const hay = `${subject} ${from} ${snippet} ${body}`;
+      if (isNoiseMailSender(from, subject)) continue;
+      if (!clientNameAppearsInText(name, hay) && !emailDomainMatchesClient(fe, name)) continue;
+
+      // Préférer From client (pas un mail sortant NEYA)
+      if (fe && emailDomainMatchesClient(fe, name)) {
+        fromEmail = fe;
+        fromRaw = from;
+      } else if (fe && !isOwnEmailAddress(fe, ownEmails) && !fromEmail) {
         fromEmail = fe;
         fromRaw = from;
       }
-      if (fe) participants.push(fe);
+      if (fe && !isOwnEmailAddress(fe, ownEmails)) participants.push(fe);
       if (subject) directParts.push(subject);
       if (snippet) directParts.push(snippet);
       if (body) directParts.push(body);
@@ -901,13 +1002,23 @@ export async function enrichClientFromMail(clientId, { useAi = false } = {}) {
   }
 
   const ownEmails = await getOwnEmailSet();
+  const fingerprints = await getOwnContactFingerprints();
   let hints = extractContactHints({
     text: corpus.text,
     fromEmail: corpus.fromEmail,
     fromRaw: corpus.fromRaw,
     participantEmails: corpus.participantEmails,
     ownEmails,
+    clientName: client.name,
   });
+
+  // Jamais coller tél./adresse atelier
+  if (hints.phone && looksLikeOwnPhone(hints.phone, fingerprints)) hints.phone = null;
+  if (hints.address && looksLikeOwnAddress(hints.address, fingerprints)) {
+    hints.address = null;
+    hints.city = null;
+  }
+  if (hints.email && isOwnEmailAddress(hints.email, ownEmails)) hints.email = null;
 
   // LLM optionnel si encore des trous et assez de texte
   if (useAi && corpus.text.length > 80) {
@@ -915,12 +1026,15 @@ export async function enrichClientFromMail(clientId, { useAi = false } = {}) {
     if (stillNeed.length) {
       try {
         const aiHints = await extractContactWithAi(corpus.text, client.name, stillNeed);
+        const aiEmail = aiHints.email && !isOwnEmailAddress(aiHints.email, ownEmails) ? aiHints.email : null;
+        const aiPhone = aiHints.phone && !looksLikeOwnPhone(aiHints.phone, fingerprints) ? aiHints.phone : null;
+        const aiAddress = aiHints.address && !looksLikeOwnAddress(aiHints.address, fingerprints) ? aiHints.address : null;
         hints = {
-          email: hints.email || aiHints.email,
-          phone: hints.phone || aiHints.phone,
+          email: hints.email || aiEmail,
+          phone: hints.phone || aiPhone,
           contact: hints.contact || aiHints.contact,
-          address: hints.address || aiHints.address,
-          city: hints.city || aiHints.city,
+          address: hints.address || aiAddress,
+          city: hints.city || (aiAddress ? aiHints.city : null),
         };
       } catch { /* IA optionnelle */ }
     }
