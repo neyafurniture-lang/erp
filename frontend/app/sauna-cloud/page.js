@@ -109,6 +109,9 @@ function buildLocalFrames(apiFrames) {
       pieces_per_frame: ppf,
       sides_per_frame: spf,
       traverses_per_frame: tpf,
+      pieces_total: qty * ppf,
+      sides_total: qty * spf,
+      traverses_total: qty * tpf,
       pieces_missing: remaining * ppf,
       sides_missing: remaining * spf,
       traverses_missing: remaining * tpf,
@@ -126,6 +129,9 @@ function summarize(frames) {
   const pieces_missing = frames.reduce((s, f) => s + (f.pieces_missing || 0), 0);
   const sides_missing = frames.reduce((s, f) => s + (f.sides_missing || 0), 0);
   const traverses_missing = frames.reduce((s, f) => s + (f.traverses_missing || 0), 0);
+  const pieces_total = frames.reduce((s, f) => s + (f.pieces_total || 0), 0);
+  const sides_total = frames.reduce((s, f) => s + (f.sides_total || 0), 0);
+  const traverses_total = frames.reduce((s, f) => s + (f.traverses_total || 0), 0);
   const pct = qty ? Math.min(100, Math.round((delivered / qty) * 100)) : 0;
   return {
     qty,
@@ -137,6 +143,9 @@ function summarize(frames) {
     pieces_missing,
     sides_missing,
     traverses_missing,
+    pieces_total,
+    sides_total,
+    traverses_total,
     pct,
     complete: qty > 0 && delivered >= qty,
   };
@@ -294,6 +303,9 @@ export default function SaunaCloudPage() {
           counts,
           placed,
           remaining,
+          pieces_total: row.qty * (row.pieces_per_frame || 0),
+          sides_total: row.qty * (row.sides_per_frame || 0),
+          traverses_total: row.qty * (row.traverses_per_frame || 0),
           pieces_missing: remaining * (row.pieces_per_frame || 0),
           sides_missing: remaining * (row.sides_per_frame || 0),
           traverses_missing: remaining * (row.traverses_per_frame || 0),
@@ -408,58 +420,75 @@ export default function SaunaCloudPage() {
           <div className="h-full bg-neya-orange transition-all" style={{ width: `${totals.pct}%` }} />
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9 gap-3 mb-6">
+        {/* Totaux commande — toujours visibles (ne tombent pas à 0 après débit) */}
+        <div className="grid sm:grid-cols-2 gap-3 mb-4">
+          <div className="rounded-2xl border-2 border-neya-orange/50 bg-neya-orange/[0.07] px-5 py-4">
+            <p className="text-[12px] font-semibold uppercase tracking-wide text-neya-orange">
+              Côtés de cadre
+            </p>
+            <p className="mt-1 text-4xl font-display font-semibold tabular-nums text-neya-ink">
+              {totals.sides_total}
+            </p>
+            <p className="mt-1 text-sm text-neya-muted">
+              commande Sierra (longs + shorts)
+              {totals.sides_missing > 0
+                ? ` · ${totals.sides_missing} encore à couper`
+                : totals.sides_total > 0
+                  ? ' · tout débité / placé'
+                  : ''}
+            </p>
+          </div>
+          <div className="rounded-2xl border-2 border-neya-orange/50 bg-neya-orange/[0.07] px-5 py-4">
+            <p className="text-[12px] font-semibold uppercase tracking-wide text-neya-orange">
+              Traverses
+            </p>
+            <p className="mt-1 text-4xl font-display font-semibold tabular-nums text-neya-ink">
+              {totals.traverses_total}
+            </p>
+            <p className="mt-1 text-sm text-neya-muted">
+              commande Sierra
+              {totals.traverses_missing > 0
+                ? ` · ${totals.traverses_missing} encore à couper`
+                : totals.traverses_total > 0
+                  ? ' · tout débité / placé'
+                  : ''}
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
           <SummaryCard label="Commande" value={totals.qty} />
           <SummaryCard label="À faire" value={totals.remaining} />
           <SummaryCard
-            label="Côtés de cadre"
-            value={totals.sides_missing}
-            accent="border-neya-orange/40"
-            sub="à couper (longs + shorts)"
-          />
-          <SummaryCard
-            label="Traverses"
-            value={totals.traverses_missing}
-            accent="border-neya-orange/40"
-            sub="à couper"
-          />
-          <SummaryCard
-            label="Éléments à couper"
+            label="Pièces à couper"
             value={totals.pieces_missing}
-            sub="total pièces Sierra"
+            sub={`${totals.pieces_total} au total`}
           />
           <SummaryCard label="Débité" value={totals.debited} />
           <SummaryCard label="En cours" value={totals.in_progress} />
-          <SummaryCard label="Terminé" value={totals.done} />
-          <SummaryCard label="Livré" value={totals.delivered} />
+          <SummaryCard label="Livré" value={totals.delivered} sub={`${totals.done} terminé(s)`} />
         </div>
 
         <div className="rounded-2xl border border-neya-border bg-white overflow-x-auto mb-6 shadow-sm">
-          <table className="w-full text-sm min-w-[980px]">
+          <table className="w-full text-sm min-w-[1020px]">
             <thead>
               <tr className="border-b border-neya-border bg-neya-cream/40">
                 <th className="px-4 py-3 text-left font-medium">SKU</th>
                 <th className="px-4 py-3 text-left font-medium">Frame</th>
                 <th className="px-3 py-3 text-center font-medium" title="Quantité commandée">Qty</th>
-                <th className="px-3 py-3 text-center font-medium" title="Frames pas encore placées">À faire</th>
                 <th
                   className="px-3 py-3 text-center font-medium"
-                  title="Côtés de cadre encore à débiter (longs + shorts × à faire)"
+                  title="Côtés de cadre pour toute la commande (qty × longs+shorts)"
                 >
                   Côtés
                 </th>
                 <th
                   className="px-3 py-3 text-center font-medium"
-                  title="Traverses encore à débiter (BOM Sierra × à faire)"
+                  title="Traverses pour toute la commande (qty × traverse_count)"
                 >
                   Traverses
                 </th>
-                <th
-                  className="px-3 py-3 text-center font-medium"
-                  title="Pièces bois encore à débiter (BOM Sierra × à faire)"
-                >
-                  Total
-                </th>
+                <th className="px-3 py-3 text-center font-medium" title="Frames pas encore placées">À faire</th>
                 {STAGES.map((s) => (
                   <th key={s.key} className="px-3 py-3 text-center font-medium" title={s.hint}>
                     {s.label}
@@ -477,9 +506,52 @@ export default function SaunaCloudPage() {
                 return (
                   <tr key={row.sku} className={`border-b border-neya-border/60 ${over ? 'bg-red-50/60' : 'hover:bg-neya-surface/40'}`}>
                     <td className="px-4 py-3 font-mono text-xs font-semibold text-neya-ink">{row.sku}</td>
-                    <td className="px-4 py-3 text-neya-ink">{row.label}</td>
+                    <td className="px-4 py-3 text-neya-ink">
+                      <span>{row.label}</span>
+                      {row.bom ? (
+                        <span className="block text-[11px] text-neya-muted tabular-nums mt-0.5">
+                          {row.sides_per_frame} côtés · {row.traverses_per_frame} trav. / frame
+                        </span>
+                      ) : (
+                        <span className="block text-[11px] text-neya-muted mt-0.5">Hors plan Sierra</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-center">
                       <QtyInput value={row.qty} disabled={busy} onCommit={(n) => setQty(row.sku, n)} />
+                    </td>
+                    <td className="px-3 py-3 text-center bg-neya-orange/[0.07]" title={bomHint}>
+                      <span
+                        className={`inline-block min-w-[2.5rem] font-display text-lg font-semibold tabular-nums ${
+                          !row.bom ? 'text-neya-muted' : 'text-neya-ink'
+                        }`}
+                      >
+                        {row.bom ? row.sides_total : '—'}
+                      </span>
+                      {row.bom ? (
+                        <span className="block text-[10px] text-neya-muted tabular-nums">
+                          {row.sides_per_frame}/f
+                          {row.sides_missing !== row.sides_total
+                            ? ` · ${row.sides_missing} à couper`
+                            : ''}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-3 text-center bg-neya-orange/[0.07]" title={bomHint}>
+                      <span
+                        className={`inline-block min-w-[2.5rem] font-display text-lg font-semibold tabular-nums ${
+                          !row.bom ? 'text-neya-muted' : 'text-neya-ink'
+                        }`}
+                      >
+                        {row.bom ? row.traverses_total : '—'}
+                      </span>
+                      {row.bom ? (
+                        <span className="block text-[10px] text-neya-muted tabular-nums">
+                          {row.traverses_per_frame}/f
+                          {row.traverses_missing !== row.traverses_total
+                            ? ` · ${row.traverses_missing} à couper`
+                            : ''}
+                        </span>
+                      ) : null}
                     </td>
                     <td className="px-3 py-3 text-center bg-neya-cream/20">
                       <span
@@ -488,43 +560,6 @@ export default function SaunaCloudPage() {
                         }`}
                       >
                         {row.remaining}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3 text-center bg-neya-orange/[0.06]" title={bomHint}>
-                      <span
-                        className={`inline-block min-w-[2.5rem] font-display font-semibold tabular-nums ${
-                          !row.bom || row.sides_missing === 0 ? 'text-neya-muted' : 'text-neya-orange'
-                        }`}
-                      >
-                        {row.bom ? row.sides_missing : '—'}
-                      </span>
-                      {row.bom && row.sides_per_frame > 0 ? (
-                        <span className="block text-[10px] text-neya-muted tabular-nums">
-                          {row.sides_per_frame}/f
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-3 text-center bg-neya-orange/[0.06]" title={bomHint}>
-                      <span
-                        className={`inline-block min-w-[2.5rem] font-display font-semibold tabular-nums ${
-                          !row.bom || row.traverses_missing === 0 ? 'text-neya-muted' : 'text-neya-orange'
-                        }`}
-                      >
-                        {row.bom ? row.traverses_missing : '—'}
-                      </span>
-                      {row.bom && row.traverses_per_frame > 0 ? (
-                        <span className="block text-[10px] text-neya-muted tabular-nums">
-                          {row.traverses_per_frame}/f
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-3 text-center" title={bomHint}>
-                      <span
-                        className={`inline-block min-w-[2.5rem] font-display font-semibold tabular-nums ${
-                          !row.bom || row.pieces_missing === 0 ? 'text-neya-muted' : 'text-neya-ink'
-                        }`}
-                      >
-                        {row.bom ? row.pieces_missing : '—'}
                       </span>
                     </td>
                     {STAGES.map((s) => (
@@ -543,18 +578,17 @@ export default function SaunaCloudPage() {
             <tfoot>
               <tr className="bg-neya-surface/50 font-medium">
                 <td className="px-4 py-3" colSpan={2}>
-                  Total
+                  Total commande
                   {savingSku ? <span className="ml-2 text-[10px] text-neya-muted font-normal">Enregistrement…</span> : null}
                 </td>
                 <td className="px-3 py-3 text-center tabular-nums">{totals.qty}</td>
+                <td className="px-3 py-3 text-center tabular-nums bg-neya-orange/[0.07] text-neya-orange text-base">
+                  {totals.sides_total}
+                </td>
+                <td className="px-3 py-3 text-center tabular-nums bg-neya-orange/[0.07] text-neya-orange text-base">
+                  {totals.traverses_total}
+                </td>
                 <td className="px-3 py-3 text-center tabular-nums bg-neya-cream/20">{totals.remaining}</td>
-                <td className="px-3 py-3 text-center tabular-nums bg-neya-orange/[0.06] text-neya-orange">
-                  {totals.sides_missing}
-                </td>
-                <td className="px-3 py-3 text-center tabular-nums bg-neya-orange/[0.06] text-neya-orange">
-                  {totals.traverses_missing}
-                </td>
-                <td className="px-3 py-3 text-center tabular-nums">{totals.pieces_missing}</td>
                 <td className="px-3 py-3 text-center tabular-nums">{totals.debited}</td>
                 <td className="px-3 py-3 text-center tabular-nums">{totals.in_progress}</td>
                 <td className="px-3 py-3 text-center tabular-nums">{totals.done}</td>
