@@ -46,6 +46,17 @@ function piecesPerFrame(bom) {
   return (bom.long_count || 0) + (bom.short_count || 0) + (bom.traverse_count || 0);
 }
 
+/** Côtés de cadre = longs + shorts (périmètre du cadre). */
+function sidesPerFrame(bom) {
+  if (!bom) return 0;
+  return (bom.long_count || 0) + (bom.short_count || 0);
+}
+
+function traversesPerFrame(bom) {
+  if (!bom) return 0;
+  return bom.traverse_count || 0;
+}
+
 function framesNotReached(row, stageKey) {
   const qty = Number(row.qty) || 0;
   const idx = STAGES.findIndex((s) => s.key === stageKey);
@@ -85,6 +96,8 @@ function buildLocalFrames(apiFrames) {
     const remaining = Math.max(0, qty - placed);
     const bom = SIERRA_BOM[cat.sku] || null;
     const ppf = piecesPerFrame(bom);
+    const spf = sidesPerFrame(bom);
+    const tpf = traversesPerFrame(bom);
     return {
       sku: cat.sku,
       label: prev?.label || cat.label,
@@ -94,7 +107,11 @@ function buildLocalFrames(apiFrames) {
       remaining,
       bom,
       pieces_per_frame: ppf,
+      sides_per_frame: spf,
+      traverses_per_frame: tpf,
       pieces_missing: remaining * ppf,
+      sides_missing: remaining * spf,
+      traverses_missing: remaining * tpf,
     };
   });
 }
@@ -107,6 +124,8 @@ function summarize(frames) {
   const debited = frames.reduce((s, f) => s + (f.counts?.debited || 0), 0);
   const remaining = frames.reduce((s, f) => s + (f.remaining || 0), 0);
   const pieces_missing = frames.reduce((s, f) => s + (f.pieces_missing || 0), 0);
+  const sides_missing = frames.reduce((s, f) => s + (f.sides_missing || 0), 0);
+  const traverses_missing = frames.reduce((s, f) => s + (f.traverses_missing || 0), 0);
   const pct = qty ? Math.min(100, Math.round((delivered / qty) * 100)) : 0;
   return {
     qty,
@@ -116,6 +135,8 @@ function summarize(frames) {
     done,
     delivered,
     pieces_missing,
+    sides_missing,
+    traverses_missing,
     pct,
     complete: qty > 0 && delivered >= qty,
   };
@@ -147,6 +168,7 @@ function computeSierraLocal(frames) {
       frames: to_cut.frames,
       pieces: to_cut.pieces,
       structural: to_cut.structural,
+      sides: to_cut.structural,
       traverses: to_cut.traverses,
       by_length: Object.entries(to_cut.by_length)
         .map(([length, qty]) => ({ length, qty }))
@@ -273,6 +295,8 @@ export default function SaunaCloudPage() {
           placed,
           remaining,
           pieces_missing: remaining * (row.pieces_per_frame || 0),
+          sides_missing: remaining * (row.sides_per_frame || 0),
+          traverses_missing: remaining * (row.traverses_per_frame || 0),
         };
       });
       return {
@@ -384,14 +408,25 @@ export default function SaunaCloudPage() {
           <div className="h-full bg-neya-orange transition-all" style={{ width: `${totals.pct}%` }} />
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9 gap-3 mb-6">
           <SummaryCard label="Commande" value={totals.qty} />
           <SummaryCard label="À faire" value={totals.remaining} />
           <SummaryCard
+            label="Côtés de cadre"
+            value={totals.sides_missing}
+            accent="border-neya-orange/40"
+            sub="à couper (longs + shorts)"
+          />
+          <SummaryCard
+            label="Traverses"
+            value={totals.traverses_missing}
+            accent="border-neya-orange/40"
+            sub="à couper"
+          />
+          <SummaryCard
             label="Éléments à couper"
             value={totals.pieces_missing}
-            accent="border-neya-orange/40"
-            sub="pièces (Sierra)"
+            sub="total pièces Sierra"
           />
           <SummaryCard label="Débité" value={totals.debited} />
           <SummaryCard label="En cours" value={totals.in_progress} />
@@ -400,7 +435,7 @@ export default function SaunaCloudPage() {
         </div>
 
         <div className="rounded-2xl border border-neya-border bg-white overflow-x-auto mb-6 shadow-sm">
-          <table className="w-full text-sm min-w-[860px]">
+          <table className="w-full text-sm min-w-[980px]">
             <thead>
               <tr className="border-b border-neya-border bg-neya-cream/40">
                 <th className="px-4 py-3 text-left font-medium">SKU</th>
@@ -409,9 +444,21 @@ export default function SaunaCloudPage() {
                 <th className="px-3 py-3 text-center font-medium" title="Frames pas encore placées">À faire</th>
                 <th
                   className="px-3 py-3 text-center font-medium"
+                  title="Côtés de cadre encore à débiter (longs + shorts × à faire)"
+                >
+                  Côtés
+                </th>
+                <th
+                  className="px-3 py-3 text-center font-medium"
+                  title="Traverses encore à débiter (BOM Sierra × à faire)"
+                >
+                  Traverses
+                </th>
+                <th
+                  className="px-3 py-3 text-center font-medium"
                   title="Pièces bois encore à débiter (BOM Sierra × à faire)"
                 >
-                  Éléments
+                  Total
                 </th>
                 {STAGES.map((s) => (
                   <th key={s.key} className="px-3 py-3 text-center font-medium" title={s.hint}>
@@ -425,7 +472,7 @@ export default function SaunaCloudPage() {
                 const busy = savingSku === row.sku;
                 const over = row.placed > row.qty;
                 const bomHint = row.bom
-                  ? `${row.pieces_per_frame} pcs/frame · L${row.bom.long_in}"×${row.bom.long_count} + S${row.bom.short_in}"×${row.bom.short_count} + T${row.bom.traverse_in}"×${row.bom.traverse_count}`
+                  ? `${row.sides_per_frame} côtés/frame + ${row.traverses_per_frame} trav./frame · L${row.bom.long_in}"×${row.bom.long_count} + S${row.bom.short_in}"×${row.bom.short_count} + T${row.bom.traverse_in}"×${row.bom.traverse_count}`
                   : 'Hors plan Sierra';
                 return (
                   <tr key={row.sku} className={`border-b border-neya-border/60 ${over ? 'bg-red-50/60' : 'hover:bg-neya-surface/40'}`}>
@@ -446,16 +493,39 @@ export default function SaunaCloudPage() {
                     <td className="px-3 py-3 text-center bg-neya-orange/[0.06]" title={bomHint}>
                       <span
                         className={`inline-block min-w-[2.5rem] font-display font-semibold tabular-nums ${
-                          row.pieces_missing === 0 ? 'text-neya-muted' : 'text-neya-orange'
+                          !row.bom || row.sides_missing === 0 ? 'text-neya-muted' : 'text-neya-orange'
+                        }`}
+                      >
+                        {row.bom ? row.sides_missing : '—'}
+                      </span>
+                      {row.bom && row.sides_per_frame > 0 ? (
+                        <span className="block text-[10px] text-neya-muted tabular-nums">
+                          {row.sides_per_frame}/f
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-3 text-center bg-neya-orange/[0.06]" title={bomHint}>
+                      <span
+                        className={`inline-block min-w-[2.5rem] font-display font-semibold tabular-nums ${
+                          !row.bom || row.traverses_missing === 0 ? 'text-neya-muted' : 'text-neya-orange'
+                        }`}
+                      >
+                        {row.bom ? row.traverses_missing : '—'}
+                      </span>
+                      {row.bom && row.traverses_per_frame > 0 ? (
+                        <span className="block text-[10px] text-neya-muted tabular-nums">
+                          {row.traverses_per_frame}/f
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-3 text-center" title={bomHint}>
+                      <span
+                        className={`inline-block min-w-[2.5rem] font-display font-semibold tabular-nums ${
+                          !row.bom || row.pieces_missing === 0 ? 'text-neya-muted' : 'text-neya-ink'
                         }`}
                       >
                         {row.bom ? row.pieces_missing : '—'}
                       </span>
-                      {row.bom && row.pieces_per_frame > 0 ? (
-                        <span className="block text-[10px] text-neya-muted tabular-nums">
-                          {row.pieces_per_frame}/f
-                        </span>
-                      ) : null}
                     </td>
                     {STAGES.map((s) => (
                       <td key={s.key} className="px-3 py-2 text-center">
@@ -479,8 +549,12 @@ export default function SaunaCloudPage() {
                 <td className="px-3 py-3 text-center tabular-nums">{totals.qty}</td>
                 <td className="px-3 py-3 text-center tabular-nums bg-neya-cream/20">{totals.remaining}</td>
                 <td className="px-3 py-3 text-center tabular-nums bg-neya-orange/[0.06] text-neya-orange">
-                  {totals.pieces_missing}
+                  {totals.sides_missing}
                 </td>
+                <td className="px-3 py-3 text-center tabular-nums bg-neya-orange/[0.06] text-neya-orange">
+                  {totals.traverses_missing}
+                </td>
+                <td className="px-3 py-3 text-center tabular-nums">{totals.pieces_missing}</td>
                 <td className="px-3 py-3 text-center tabular-nums">{totals.debited}</td>
                 <td className="px-3 py-3 text-center tabular-nums">{totals.in_progress}</td>
                 <td className="px-3 py-3 text-center tabular-nums">{totals.done}</td>
@@ -524,7 +598,9 @@ export default function SaunaCloudPage() {
                 </p>
                 <p className="text-[11px] text-neya-muted mt-0.5">
                   {s.frames} frame{s.frames !== 1 ? 's' : ''}
-                  {s.structural != null ? ` · ${s.structural} struct. · ${s.traverses || 0} trav.` : ''}
+                  {s.structural != null
+                    ? ` · ${s.structural} côtés · ${s.traverses || 0} trav.`
+                    : ''}
                 </p>
               </div>
             ))}
@@ -552,7 +628,8 @@ export default function SaunaCloudPage() {
             )}
             <p className="text-[11px] text-neya-muted mt-3">
               Total à couper : <strong className="text-neya-ink">{sierra?.to_cut?.pieces || 0}</strong> pièces
-              ({sierra?.to_cut?.structural || 0} structurelles + {sierra?.to_cut?.traverses || 0} traverses)
+              — <strong className="text-neya-ink">{(sierra?.to_cut?.sides ?? sierra?.to_cut?.structural) || 0}</strong> côtés de cadre
+              + <strong className="text-neya-ink">{sierra?.to_cut?.traverses || 0}</strong> traverses
               pour {sierra?.to_cut?.frames || 0} frame(s).
             </p>
           </div>
