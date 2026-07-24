@@ -7,9 +7,11 @@ import AuthGuard from '../../components/AuthGuard';
 import {
   deleteSavedMeeting,
   getMeetingState,
+  hydrateMeetingFromStorage,
   listSavedMeetings,
   startMeetingRecording,
   subscribeMeeting,
+  syncMeetingsFromServer,
 } from '../../lib/meeting-recorder';
 import { openMeetingWindow } from '../../lib/meeting-window';
 
@@ -32,15 +34,26 @@ export default function ReunionsPage() {
   const [history, setHistory] = useState([]);
   const [listening, setListening] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
+  const [syncMsg, setSyncMsg] = useState('');
 
-  const refresh = useCallback(() => {
-    setHistory(listSavedMeetings());
+  const refresh = useCallback(async () => {
+    hydrateMeetingFromStorage();
     setListening(Boolean(getMeetingState().listening));
+    setHistory(listSavedMeetings());
+    try {
+      const merged = await syncMeetingsFromServer();
+      setHistory(merged);
+    } catch {
+      setHistory(listSavedMeetings());
+    }
   }, []);
 
   useEffect(() => {
     refresh();
-    return subscribeMeeting(() => setListening(Boolean(getMeetingState().listening)));
+    return subscribeMeeting(() => {
+      setListening(Boolean(getMeetingState().listening));
+      setHistory(listSavedMeetings());
+    });
   }, [refresh]);
 
   useEffect(() => {
@@ -61,7 +74,7 @@ export default function ReunionsPage() {
     <AuthGuard>
       <AppShell
         title="Réunions"
-        subtitle="Synthèse speak-to-text — fenêtre indépendante, enregistrement continu"
+        subtitle="Synthèse speak-to-text — sauvegarde serveur + fenêtre indépendante"
       >
         <div className="space-y-6">
           <section className="cf-panel overflow-hidden">
@@ -76,8 +89,8 @@ export default function ReunionsPage() {
                   </h2>
                   <p className="mt-2 text-[14px] text-neya-muted leading-relaxed">
                     Une seule fenêtre flottante. Changez de page dans l’ERP : l’enregistrement
-                    continue. Transcription navigateur (dictée Safari / Chrome), sauvée au fil de
-                    l’eau — plus une piste audio de secours sur Safari.
+                    continue. Transcription navigateur, sauvegardée automatiquement sur le serveur
+                    (plus seulement dans le navigateur).
                   </p>
                 </div>
                 <div className="flex flex-col gap-2 shrink-0">
@@ -109,7 +122,7 @@ export default function ReunionsPage() {
             <div className="grid sm:grid-cols-3 gap-px bg-neya-border border-t border-neya-border">
               {[
                 { t: 'Speak-to-text', d: 'Safari / Chrome · fr-CA · dictée système' },
-                { t: 'Anti-perte', d: 'Texte écrit tout de suite + audio secours' },
+                { t: 'Anti-perte', d: 'Sauvegarde auto locale + serveur toutes les 12 s' },
                 { t: 'Fenêtre fixe', d: 'Réduire ou naviguer sans couper le micro' },
               ].map((item) => (
                 <div key={item.t} className="bg-white px-4 py-3.5">
@@ -125,8 +138,17 @@ export default function ReunionsPage() {
               <h3 className="font-display text-[16px] font-semibold text-neya-ink">
                 Réunions sauvées
               </h3>
-              <button type="button" className="btn-ghost text-[12px]" onClick={refresh}>
-                Actualiser
+              <button
+                type="button"
+                className="btn-ghost text-[12px]"
+                onClick={async () => {
+                  setSyncMsg('Sync…');
+                  await refresh();
+                  setSyncMsg('À jour');
+                  setTimeout(() => setSyncMsg(''), 1500);
+                }}
+              >
+                {syncMsg || 'Actualiser'}
               </button>
             </div>
 
@@ -134,7 +156,7 @@ export default function ReunionsPage() {
               <div className="rounded-xl border border-dashed border-neya-border bg-neya-surface/40 px-5 py-10 text-center">
                 <Mic className="mx-auto h-8 w-8 text-neya-muted/50 mb-2" />
                 <p className="text-[14px] text-neya-muted">
-                  Aucune synthèse pour l’instant. Lancez une réunion, puis « Sauver ».
+                  Aucune synthèse pour l’instant. Lancez une réunion — elle se sauve automatiquement.
                 </p>
               </div>
             ) : (

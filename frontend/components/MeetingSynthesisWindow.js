@@ -225,11 +225,11 @@ export default function MeetingSynthesisWindow() {
             {readOnly
               ? viewing?.title || 'Lecture'
               : session.listening
-                ? `Live · ${duration}${safari ? ' · mode Safari' : ''} · sauvé au fil de l’eau`
+                ? `Live · ${duration}${safari ? ' · mode Safari' : ''} · sync auto serveur`
                 : supported
                   ? safari
                     ? 'Safari · dictée Apple + secours audio'
-                    : 'Speak-to-text navigateur · sans IA'
+                    : 'Speak-to-text navigateur · sync serveur'
                   : 'Navigateur non supporté'}
           </p>
         </div>

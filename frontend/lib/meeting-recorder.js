@@ -7,11 +7,14 @@
  * - sessions courtes enchaînées (continuous=false)
  * - interim promu en final à chaque fin de session
  * - piste audio MediaRecorder en secours (téléchargeable)
+ * - historique local + sync serveur (/api/meetings) pour ne plus perdre les synthèses
  */
+
+import { api, getToken } from './api';
 
 const DRAFT_KEY = 'neya_meeting_draft';
 const HISTORY_KEY = 'neya_meetings';
-const MAX_HISTORY = 40;
+const MAX_HISTORY = 80;
 
 function getSpeechRecognition() {
   if (typeof window === 'undefined') return null;
@@ -70,6 +73,63 @@ function saveHistory(list) {
   }
 }
 
+function mergeMeetingLists(primary = [], secondary = []) {
+  const map = new Map();
+  for (const item of [...secondary, ...primary]) {
+    if (!item?.id) continue;
+    const prev = map.get(item.id);
+    if (!prev) {
+      map.set(item.id, item);
+      continue;
+    }
+    const prevLen = String(prev.transcript || '').length;
+    const nextLen = String(item.transcript || '').length;
+    const prevSaved = Date.parse(prev.savedAt || prev.startedAt || 0) || 0;
+    const nextSaved = Date.parse(item.savedAt || item.startedAt || 0) || 0;
+    if (nextLen > prevLen || (nextLen === prevLen && nextSaved >= prevSaved)) {
+      map.set(item.id, { ...prev, ...item });
+    } else {
+      map.set(item.id, { ...item, ...prev });
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => {
+    const ta = Date.parse(a.savedAt || a.startedAt || 0) || 0;
+    const tb = Date.parse(b.savedAt || b.startedAt || 0) || 0;
+    return tb - ta;
+  });
+}
+
+async function persistMeetingToServer(entry) {
+  if (!entry?.id || typeof window === 'undefined') return null;
+  if (!getToken()) return null;
+  try {
+    return await api(`/meetings/${encodeURIComponent(entry.id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        id: entry.id,
+        title: entry.title,
+        transcript: entry.transcript,
+        startedAt: entry.startedAt,
+        savedAt: entry.savedAt,
+        hasAudio: entry.hasAudio,
+      }),
+    });
+  } catch (err) {
+    console.warn('Meeting server save:', err?.message || err);
+    return null;
+  }
+}
+
+async function deleteMeetingOnServer(id) {
+  if (!id || typeof window === 'undefined') return;
+  if (!getToken()) return;
+  try {
+    await api(`/meetings/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  } catch {
+    /* ignore */
+  }
+}
+
 /** @typedef {{ id: string, title: string, transcript: string, interim: string, startedAt: string, updatedAt: string, listening: boolean, error: string|null, safari: boolean, hasAudio: boolean }} MeetingDraft */
 
 /** @type {MeetingDraft} */
@@ -104,7 +164,9 @@ let audioChunks = [];
 let audioBlob = null;
 let restartTimer = null;
 let watchdogTimer = null;
+let autosaveTimer = null;
 let lastResultAt = 0;
+let lastAutosaveSnap = '';
 
 function emit() {
   listeners.forEach((fn) => fn());
@@ -154,6 +216,10 @@ function clearTimers() {
     clearInterval(watchdogTimer);
     watchdogTimer = null;
   }
+  if (autosaveTimer) {
+    clearInterval(autosaveTimer);
+    autosaveTimer = null;
+  }
 }
 
 function pickRecorderMime() {
@@ -194,12 +260,10 @@ function startAudioBackup() {
     mediaRecorder.ondataavailable = (e) => {
       if (e.data && e.data.size > 0) {
         audioChunks.push(e.data);
-        // Garder un blob cumulatif pour téléchargement mid-session
         audioBlob = new Blob(audioChunks, { type: mediaRecorder?.mimeType || 'audio/webm' });
         syncState({ hasAudio: true });
       }
     };
-    // chunks fréquents = moins de perte si crash
     mediaRecorder.start(4000);
   } catch (err) {
     console.warn('Audio backup:', err);
@@ -243,7 +307,6 @@ function releaseMic() {
 function scheduleRestart() {
   if (!wantListen) return;
   if (restartTimer) clearTimeout(restartTimer);
-  // Safari : petit délai ; trop court = InvalidStateError
   const delay = isAppleSafari() ? 280 : 120;
   restartTimer = setTimeout(() => {
     restartTimer = null;
@@ -251,7 +314,6 @@ function scheduleRestart() {
     try {
       startRecognitionInstance();
     } catch {
-      // retry once
       restartTimer = setTimeout(() => {
         if (!wantListen) return;
         try {
@@ -268,7 +330,6 @@ function scheduleRestart() {
 function startWatchdog() {
   if (watchdogTimer) clearInterval(watchdogTimer);
   lastResultAt = Date.now();
-  // Safari peut rester « listening » sans onend : forcer un cycle
   watchdogTimer = setInterval(() => {
     if (!wantListen) return;
     const idle = Date.now() - lastResultAt;
@@ -284,11 +345,24 @@ function startWatchdog() {
   }, 4000);
 }
 
+function startHistoryAutosave() {
+  if (autosaveTimer) clearInterval(autosaveTimer);
+  lastAutosaveSnap = '';
+  autosaveTimer = setInterval(() => {
+    if (!state.id) return;
+    const text = getFullMeetingText();
+    if (!text) return;
+    const snap = `${state.id}|${state.title}|${text}`;
+    if (snap === lastAutosaveSnap) return;
+    lastAutosaveSnap = snap;
+    saveMeetingToHistory({ silent: true });
+  }, 12000);
+}
+
 function startRecognitionInstance() {
   const SpeechRecognition = getSpeechRecognition();
   if (!SpeechRecognition || !wantListen) return;
 
-  // Une seule instance à la fois
   if (recognition) {
     try {
       recognition.onend = null;
@@ -302,7 +376,6 @@ function startRecognitionInstance() {
   const rec = new SpeechRecognition();
   rec.lang = activeLang;
   const safari = isAppleSafari();
-  // Safari : continuous=true est instable → sessions courtes + relance
   rec.continuous = !safari;
   rec.interimResults = true;
   rec.maxAlternatives = 1;
@@ -331,7 +404,6 @@ function startRecognitionInstance() {
 
   rec.onerror = (event) => {
     if (event.error === 'aborted') return;
-    // no-speech / audio-capture soft : relancer sur Safari
     if ((event.error === 'no-speech' || event.error === 'audio-capture') && wantListen) {
       if (safari) {
         commitInterim();
@@ -346,7 +418,6 @@ function startRecognitionInstance() {
       'service-not-allowed': 'Dictée Safari bloquée. Activez Dictée dans Réglages système.',
     };
     if (event.error === 'network' && safari && wantListen) {
-      // Souvent transitoire sur Safari — relancer plutôt que tuer
       commitInterim();
       syncState({ error: 'Dictée Safari instable — relance auto…' });
       return;
@@ -361,7 +432,6 @@ function startRecognitionInstance() {
 
   rec.onend = () => {
     recognition = null;
-    // Safari finalise rarement : garder l’interim dans le texte
     commitInterim();
     syncState({ listening: wantListen });
     if (wantListen) scheduleRestart();
@@ -413,6 +483,11 @@ export function hydrateMeetingFromStorage() {
     safari: isAppleSafari(),
     hasAudio: false,
   };
+  // Brouillon avec texte hors historique → le sauver (local + serveur)
+  if (draft.transcript?.trim()) {
+    const exists = loadHistory().some((m) => m.id === draft.id);
+    if (!exists) saveMeetingToHistory({ silent: true });
+  }
   emit();
 }
 
@@ -432,6 +507,10 @@ export async function startMeetingRecording({ title = '', clear = true, lang = '
   activeLang = lang || 'fr-CA';
 
   if (clear || !state.id) {
+    const prevText = getFullMeetingText() || state.transcript;
+    if (prevText?.trim() && state.id) {
+      saveMeetingToHistory({ silent: true });
+    }
     finals = [];
     interimText = '';
     audioChunks = [];
@@ -439,7 +518,7 @@ export async function startMeetingRecording({ title = '', clear = true, lang = '
     const now = new Date().toISOString();
     state = {
       id: uid(),
-      title: (title || state.title || '').trim() || defaultTitle(),
+      title: (title || '').trim() || defaultTitle(),
       transcript: '',
       interim: '',
       startedAt: now,
@@ -477,6 +556,7 @@ export async function startMeetingRecording({ title = '', clear = true, lang = '
   }
 
   startWatchdog();
+  startHistoryAutosave();
   startRecognitionInstance();
   return true;
 }
@@ -493,9 +573,11 @@ export async function stopMeetingRecording() {
 
   commitInterim();
   await stopAudioBackup();
-  // Garder le stream pendant une courte reprise possible ; liberer après stop explicite
   releaseMic();
   syncState({ listening: false });
+  if (getFullMeetingText().trim()) {
+    saveMeetingToHistory({ silent: true });
+  }
   return getFullMeetingText();
 }
 
@@ -557,6 +639,10 @@ export function setMeetingTitle(title) {
 }
 
 export async function clearMeetingDraft() {
+  const text = getFullMeetingText() || state.transcript;
+  if (text?.trim() && state.id) {
+    saveMeetingToHistory({ silent: true });
+  }
   wantListen = false;
   clearTimers();
   try {
@@ -587,25 +673,53 @@ export async function clearMeetingDraft() {
   emit();
 }
 
-export function saveMeetingToHistory() {
+export function saveMeetingToHistory(opts = {}) {
   const text = getFullMeetingText();
-  if (!text && !state.id) return null;
+  if (!text?.trim() && !state.id) return null;
+  if (!text?.trim() && !opts.allowEmpty) return null;
   const entry = {
     id: state.id || uid(),
     title: state.title || defaultTitle(),
-    transcript: text,
+    transcript: text || state.transcript || '',
     startedAt: state.startedAt || new Date().toISOString(),
     savedAt: new Date().toISOString(),
     hasAudio: Boolean(getMeetingAudioBlob()?.size),
   };
+  if (!entry.transcript.trim() && !opts.allowEmpty) return null;
   const list = loadHistory().filter((m) => m.id !== entry.id);
   list.unshift(entry);
   saveHistory(list);
+  void persistMeetingToServer(entry);
+  emit();
   return entry;
 }
 
 export function listSavedMeetings() {
   return loadHistory();
+}
+
+/** Charge serveur + fusionne avec le cache navigateur. */
+export async function syncMeetingsFromServer() {
+  const local = loadHistory();
+  if (!getToken()) return local;
+  try {
+    if (local.length) {
+      const synced = await api('/meetings/sync', {
+        method: 'POST',
+        body: JSON.stringify({ meetings: local }),
+      });
+      const merged = mergeMeetingLists(synced?.meetings || [], local);
+      saveHistory(merged);
+      return merged;
+    }
+    const remote = await api('/meetings');
+    const merged = mergeMeetingLists(Array.isArray(remote) ? remote : [], local);
+    saveHistory(merged);
+    return merged;
+  } catch (err) {
+    console.warn('Meeting sync:', err?.message || err);
+    return local;
+  }
 }
 
 export function getSavedMeeting(id) {
@@ -614,6 +728,8 @@ export function getSavedMeeting(id) {
 
 export function deleteSavedMeeting(id) {
   saveHistory(loadHistory().filter((m) => m.id !== id));
+  void deleteMeetingOnServer(id);
+  emit();
 }
 
 export function clearMeetingError() {

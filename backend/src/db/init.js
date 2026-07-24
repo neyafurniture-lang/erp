@@ -426,6 +426,23 @@ export async function initDb() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_social_posts_status ON social_posts(status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_social_posts_scheduled ON social_posts(scheduled_at)`);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS meetings (
+      id SERIAL PRIMARY KEY,
+      client_key TEXT UNIQUE NOT NULL,
+      user_id INT REFERENCES users(id) ON DELETE SET NULL,
+      title TEXT NOT NULL DEFAULT '',
+      transcript TEXT NOT NULL DEFAULT '',
+      started_at TIMESTAMPTZ,
+      saved_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      has_audio BOOLEAN NOT NULL DEFAULT false,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_meetings_saved ON meetings(saved_at DESC)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_meetings_user ON meetings(user_id)`);
+
   await pool.query(`ALTER TABLE admin_tasks ADD COLUMN IF NOT EXISTS priority_tier TEXT NOT NULL DEFAULT 'p2'`);
   await pool.query(`ALTER TABLE assistant_memories ADD COLUMN IF NOT EXISTS client_id INT REFERENCES clients(id) ON DELETE CASCADE`);
   await pool.query(`ALTER TABLE assistant_memories ADD COLUMN IF NOT EXISTS quote_id INT REFERENCES quotes(id) ON DELETE CASCADE`);

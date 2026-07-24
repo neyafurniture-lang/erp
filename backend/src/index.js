@@ -52,6 +52,7 @@ import publicSketchupRoutes from './routes/public-sketchup.js';
 import marketplaceRoutes from './routes/marketplace.js';
 import socialRoutes from './routes/social.js';
 import payrollRoutes from './routes/payroll.js';
+import meetingsRoutes from './routes/meetings.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -169,6 +170,7 @@ protectedRouter.use('/cutting-plans', cuttingPlansRoutes);
 protectedRouter.use('/marketplace', marketplaceRoutes);
 protectedRouter.use('/social', socialRoutes);
 protectedRouter.use('/payroll', payrollRoutes);
+protectedRouter.use('/meetings', meetingsRoutes);
 
 app.use('/api/public', publicSketchupRoutes);
 app.use('/api', protectedRouter);

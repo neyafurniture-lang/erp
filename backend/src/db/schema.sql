@@ -668,6 +668,22 @@ CREATE TABLE IF NOT EXISTS payroll_todos (
 );
 CREATE INDEX IF NOT EXISTS idx_payroll_todos_period ON payroll_todos(period_id);
 
+-- Synthèses de réunions (speak-to-text) — persistées serveur (pas seulement localStorage)
+CREATE TABLE IF NOT EXISTS meetings (
+  id SERIAL PRIMARY KEY,
+  client_key TEXT UNIQUE NOT NULL,
+  user_id INT REFERENCES users(id) ON DELETE SET NULL,
+  title TEXT NOT NULL DEFAULT '',
+  transcript TEXT NOT NULL DEFAULT '',
+  started_at TIMESTAMPTZ,
+  saved_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  has_audio BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_meetings_saved ON meetings(saved_at DESC);
+CREATE INDEX IF NOT EXISTS idx_meetings_user ON meetings(user_id);
+
 CREATE INDEX IF NOT EXISTS idx_inventory_category ON inventory_items(category);
 CREATE INDEX IF NOT EXISTS idx_shifts_employee ON shifts(employee_id, start_at);
 CREATE INDEX IF NOT EXISTS idx_memories_project ON assistant_memories(project_id);
