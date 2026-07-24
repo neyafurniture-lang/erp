@@ -9,8 +9,9 @@ import {
   isDayPlanMessage,
   torontoWallTime,
 } from './day-plan-classify.js';
+import { buildClientCreateFields } from './client-contact-enrich.js';
 
-export { splitPlanItems, isMultiIntentErpMessage, isDayPlanMessage };
+export { splitPlanItems, isMultiIntentErpMessage, isDayPlanMessage, buildClientCreateFields };
 
 const DAY_MAP = {
   lundi: 1, mardi: 2, mercredi: 3, jeudi: 4, vendredi: 5, samedi: 6, dimanche: 0,
@@ -938,10 +939,47 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
     }
 
     case 'create_client': {
-      const name = extractQuotedText(message) || extractAfterKeyword(message, ['client']) || 'Nouveau client';
-      const { rows } = await pool.query('INSERT INTO clients (name) VALUES ($1) RETURNING *', [name.slice(0, 200)]);
+      const fields = buildClientCreateFields(params, msg || message);
+      if (fields.email) {
+        const { rows: existing } = await pool.query(
+          `SELECT * FROM clients WHERE LOWER(TRIM(email)) = $1 LIMIT 1`,
+          [fields.email]
+        );
+        if (existing[0]) {
+          actions.push({ type: 'create_client', data: existing[0], skipped: 'already_exists' });
+          return {
+            reply: `Client déjà existant : « ${existing[0].name} »${existing[0].email ? ` <${existing[0].email}>` : ''} (#${existing[0].id}).`,
+            actions,
+          };
+        }
+      }
+      const { rows } = await pool.query(
+        `INSERT INTO clients (name, contact, email, phone, address, city, notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+        [
+          fields.name,
+          fields.contact || fields.name,
+          fields.email,
+          fields.phone,
+          fields.address,
+          fields.city,
+          fields.notes || (fields.email ? `Créé depuis courriel (${new Date().toISOString().slice(0, 10)})` : null),
+        ]
+      );
+      try {
+        const { tryEnsureClientFolder } = await import('./drive-folders.js');
+        await tryEnsureClientFolder(rows[0].id);
+      } catch { /* Drive optionnel */ }
       actions.push({ type: 'create_client', data: rows[0] });
-      return { reply: `Client ajouté : « ${rows[0].name} »`, actions };
+      const detail = [
+        rows[0].email && `<${rows[0].email}>`,
+        rows[0].phone,
+        rows[0].city,
+      ].filter(Boolean).join(' · ');
+      return {
+        reply: `Client ajouté : « ${rows[0].name} »${detail ? ` — ${detail}` : ''}`,
+        actions,
+      };
     }
 
     case 'complete_task':
@@ -1218,6 +1256,10 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
           }
         } catch { /* optional */ }
 
+        const contactHints = buildClientCreateFields(
+          { from: full.from, email: parseEmail(full.from) },
+          `${full.subject || ''}\n${body}`
+        );
         actions.push({
           type: 'get_email',
           data: {
@@ -1228,13 +1270,24 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
             date: full.date,
             snippet: full.snippet,
             attachments: full.attachments || [],
+            contact_hints: {
+              name: contactHints.name,
+              contact: contactHints.contact,
+              email: contactHints.email,
+              phone: contactHints.phone,
+              address: contactHints.address,
+              city: contactHints.city,
+            },
           },
         });
         const attNote = full.attachments?.length
           ? `\nPièces jointes (${full.attachments.length}) : ${full.attachments.map(a => a.filename).join(', ')}\n→ Dites « rentre cette facture du mail » pour importer automatiquement.`
           : '';
+        const contactNote = contactHints.email
+          ? `\nContact suggéré : ${contactHints.name || contactHints.contact || '—'} <${contactHints.email}>`
+          : '';
         return {
-          reply: `De : ${full.from}\nObjet : ${full.subject}\nDate : ${full.date || '—'}${erpHint}${attNote}\n\n${body || '(corps vide)'}`,
+          reply: `De : ${full.from}\nObjet : ${full.subject}\nDate : ${full.date || '—'}${erpHint}${attNote}${contactNote}\n\n${body || '(corps vide)'}`,
           actions,
         };
       } catch (err) {

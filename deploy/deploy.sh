@@ -36,7 +36,31 @@ REMOTE="manual"
 PREVIOUS_COMMIT="manual"
 
 if git rev-parse --git-dir >/dev/null 2>&1; then
-  git fetch origin "$BRANCH"
+  # Si Docker/sudo a laissé des objets root dans .git, fetch échoue silencieusement
+  # côté UI (rebuild de l’ancien commit). Réparer l’ownership avant fetch.
+  if [[ -d .git/objects ]] && ! [[ -w .git/objects ]]; then
+    log "AVERTISSEMENT: .git/objects non inscriptible — tentative chown"
+    if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+      sudo chown -R "$(id -u):$(id -g)" .git || true
+    fi
+  fi
+  # Fichiers root isolés (index, packed-refs, objets) après un deploy en root
+  if find .git -user root -print -quit 2>/dev/null | grep -q .; then
+    log "AVERTISSEMENT: fichiers .git appartenant à root — tentative chown"
+    if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+      sudo chown -R "$(id -u):$(id -g)" .git || true
+    else
+      log "ERREUR: impossible de corriger .git (sudo requis). Exécutez: sudo chown -R \$USER:\$USER /opt/neya-erp/.git"
+      exit 1
+    fi
+  fi
+
+  if ! git fetch origin "$BRANCH"; then
+    log "ERREUR: git fetch origin $BRANCH a échoué (permissions .git ? remote ?)"
+    log "Astuce VPS: sudo chown -R ubuntu:ubuntu /opt/neya-erp/.git && git fetch origin $BRANCH"
+    exit 1
+  fi
+
   LOCAL_BEFORE=$(git rev-parse HEAD)
   REMOTE=$(git rev-parse "origin/$BRANCH")
 

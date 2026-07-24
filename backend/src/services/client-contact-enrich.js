@@ -116,12 +116,11 @@ export function extractAddressBlock(text) {
           city = clean(next, 80);
         }
       }
-      // Code postal sur la ligne suivante déjà collé, ou ville seule sur ligne suivante type "Montréal, QC H2X 1Y4"
       if (!city && next) {
-        const cityPc = next.match(/^([A-Za-zÀ-ÿ' -]{2,40})\s*,?\s*(?:QC|Québec|Quebec)?\s*([A-Z]\d[A-Z]\s?\d[A-Z]\d)?/i);
+        const cityPc = next.match(/^([A-Za-zÀ-ÿ' -]{2,40}?)\s*,?\s*(?:QC|Québec|Quebec)?\s*([A-Z]\d[A-Z]\s?\d[A-Z]\d)?$/i);
         if (cityPc?.[1] && looksLikeCity(cityPc[1])) city = clean(cityPc[1], 80);
         if (cityPc?.[2] && address && !postalRe.test(address)) {
-          const pcParts = cityPc[2].match(postalRe);
+          const pcParts = String(cityPc[2]).match(postalRe);
           if (pcParts) {
             address = clean(`${address}, ${pcParts[1].toUpperCase()} ${pcParts[2].toUpperCase()}`, 240);
           }
@@ -233,6 +232,73 @@ export function extractContactHints({
     address,
     city,
     contact,
+  };
+}
+
+function parseEmailLoose(message) {
+  const m = String(message || '').match(/[\w.+-]+@[\w.-]+\.\w+/);
+  return m ? m[0].toLowerCase() : null;
+}
+
+function parsePhoneLoose(message) {
+  const m = String(message || '').match(/(\+?1?\s?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/);
+  return m ? m[0].replace(/\s/g, ' ') : null;
+}
+
+/**
+ * Résout les champs client pour create_client (params LLM + message + From mail).
+ * Ex. From: Olive Richardson <olive_richardson@yahoo.com> — même si le PDF est illisible.
+ */
+export function buildClientCreateFields(params = {}, message = '') {
+  const fromRaw = String(params.from || params.from_raw || params.sender || '').trim();
+  const hints = extractContactHints({
+    text: message,
+    fromRaw: fromRaw || message,
+    fromEmail: params.email || null,
+  });
+
+  const quoted = String(message || '').match(/[«"]([^»"]+)[»"]/);
+  const stop = /^(grâce|grace|avec|depuis|via|pour|dans|sur|à|a|de|du|des|le|la|les|un|une|et|ou|par|aux?)$/i;
+  const afterClient = String(message || '').match(
+    /(?:nouveau\s+)?(?:client|contact)\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ' -]{1,80})/i
+  );
+  let nameFromMsg = '';
+  if (afterClient) {
+    const candidate = afterClient[1].trim().split(/\s+/).filter(w => !stop.test(w)).slice(0, 4).join(' ');
+    if (candidate && !stop.test(candidate) && /[A-Za-zÀ-ÿ]{2,}/.test(candidate)) {
+      nameFromMsg = candidate;
+    }
+  }
+
+  const name = String(
+    params.name
+    || params.contact
+    || hints.contact
+    || (quoted ? quoted[1] : '')
+    || nameFromMsg
+    || ''
+  ).trim().replace(/\s+/g, ' ');
+
+  const emailRaw = String(params.email || hints.email || parseEmailLoose(fromRaw) || parseEmailLoose(message) || '')
+    .trim()
+    .toLowerCase();
+  const email = emailRaw.includes('@') ? emailRaw.slice(0, 200) : null;
+
+  const phone = String(params.phone || hints.phone || parsePhoneLoose(message) || '').trim() || null;
+  const address = String(params.address || hints.address || '').trim() || null;
+  const city = String(params.city || hints.city || '').trim() || null;
+  const contact = String(params.contact || hints.contact || name || '').trim() || null;
+  const notes = String(params.notes || '').trim() || null;
+
+  return {
+    name: (name || (email ? email.split('@')[0].replace(/[._-]+/g, ' ') : '') || 'Nouveau client')
+      .slice(0, 200),
+    contact: contact ? contact.slice(0, 200) : null,
+    email,
+    phone: phone ? phone.slice(0, 40) : null,
+    address: address ? address.slice(0, 300) : null,
+    city: city ? city.slice(0, 120) : null,
+    notes: notes ? notes.slice(0, 2000) : null,
   };
 }
 

@@ -146,8 +146,24 @@ router.post('/', async (req, res) => {
          VALUES ($1,$2,'active',$3,0,$4,$5,$6) RETURNING *`,
         [name.trim(), client_id || null, deadline || null, Math.max(1, Number(quantity) || 1), priority, notes || null]
       );
-      await client.query('COMMIT');
       const project = rows[0];
+      // Checklist atelier par défaut (sinon « Étape suivante » échoue silencieusement)
+      const defaultSteps = [
+        { title: 'Débitage', type: 'debitage', minutes: 120 },
+        { title: 'Usinage', type: 'usinage', minutes: 120 },
+        { title: 'Assemblage', type: 'assemblage', minutes: 180 },
+        { title: 'Finition', type: 'finition', minutes: 120 },
+        { title: 'Contrôle / livraison', type: 'atelier', minutes: 60 },
+      ];
+      for (let i = 0; i < defaultSteps.length; i++) {
+        const step = defaultSteps[i];
+        await client.query(
+          `INSERT INTO tasks (project_id, title, description, type, status, estimated_minutes, sort_order)
+           VALUES ($1,$2,$3,$4,'todo',$5,$6)`,
+          [project.id, step.title, notes || null, step.type, step.minutes, i]
+        );
+      }
+      await client.query('COMMIT');
       const { tryEnsureProjectFolder } = await import('../services/drive-folders.js');
       const driveFolder = await tryEnsureProjectFolder(project.id);
       if (driveFolder?.folder_id) project.drive_folder_id = driveFolder.folder_id;
@@ -189,6 +205,54 @@ router.patch('/:id', async (req, res) => {
     res.json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+/** Génère la checklist atelier par défaut si le projet n’a aucune tâche */
+router.post('/:id/seed-steps', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const projectId = Number(req.params.id);
+    const { rows: projects } = await client.query('SELECT * FROM projects WHERE id = $1', [projectId]);
+    if (!projects[0]) return res.status(404).json({ error: 'Production introuvable' });
+
+    const { rows: existing } = await client.query(
+      'SELECT id FROM tasks WHERE project_id = $1 LIMIT 1',
+      [projectId]
+    );
+    if (existing.length) {
+      return res.status(400).json({ error: 'Ce projet a déjà des étapes' });
+    }
+
+    const defaultSteps = [
+      { title: 'Débitage', type: 'debitage', minutes: 120 },
+      { title: 'Usinage', type: 'usinage', minutes: 120 },
+      { title: 'Assemblage', type: 'assemblage', minutes: 180 },
+      { title: 'Finition', type: 'finition', minutes: 120 },
+      { title: 'Contrôle / livraison', type: 'atelier', minutes: 60 },
+    ];
+
+    await client.query('BEGIN');
+    for (let i = 0; i < defaultSteps.length; i++) {
+      const step = defaultSteps[i];
+      await client.query(
+        `INSERT INTO tasks (project_id, title, description, type, status, estimated_minutes, sort_order)
+         VALUES ($1,$2,NULL,$3,'todo',$4,$5)`,
+        [projectId, step.title, step.type, step.minutes, i]
+      );
+    }
+    await client.query('COMMIT');
+
+    const { rows: tasks } = await pool.query(
+      'SELECT * FROM tasks WHERE project_id = $1 ORDER BY sort_order ASC, id ASC',
+      [projectId]
+    );
+    res.status(201).json({ tasks, stage: computeStage(tasks) });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 

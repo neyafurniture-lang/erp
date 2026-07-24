@@ -22,7 +22,7 @@ export const ACTION_CATALOG = [
   { type: 'search_projects', usage: 'Chercher projets', params: { query: 'string', status: 'active|done?' } },
   { type: 'get_project', usage: 'Détail projet + tâches', params: { project_id: 'number?', query: 'string?' } },
   { type: 'list_projects', usage: 'Liste projets', params: { status: 'string?' } },
-  { type: 'create_client', usage: 'Créer client', params: { name: 'string', email: 'string?', phone: 'string?', address: 'string?', city: 'string?' } },
+  { type: 'create_client', usage: 'Créer client (name + email/phone/address/city ; From mail OK si PDF illisible)', params: { name: 'string', email: 'string?', phone: 'string?', address: 'string?', city: 'string?', from: 'string?', contact: 'string?', notes: 'string?' } },
   { type: 'update_client', usage: 'Maj client', params: { client_name: 'string?', client_id: 'number?', email: 'string?', phone: 'string?', address: 'string?' } },
   { type: 'list_clients', usage: 'Liste clients', params: {} },
   { type: 'list_emails', usage: 'Lister Gmail / sections', params: { max: 'number?', category: 'clients|fournisseurs|a_repondre|projets?' } },
