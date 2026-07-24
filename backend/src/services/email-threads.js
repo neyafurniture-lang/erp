@@ -353,18 +353,25 @@ export async function processGmailMessage(messageId, { synthesize = true } = {})
     if (cleared) thread = await getThreadDetail(thread.id);
   }
 
-  if (synthesize && !thread.latest_synthesis) {
-    try {
-      const result = await synthesizeThread(thread.id);
-      return {
-        ...result.thread,
-        synthesis: result.synthesis,
-        suggested_client_name: result.thread.suggested_client_name || null,
-      };
-    } catch (err) {
-      // Conserver latest_synthesis éventuelle + messages déjà chargés
-      const kept = await getThreadDetail(thread.id);
-      return { ...(kept || thread), synthesis_error: err.message };
+  if (synthesize) {
+    const latest = thread.latest_synthesis;
+    const summaryOk = latest && String(latest.summary || '').trim();
+    const msgCount = Number(thread.message_count) || (thread.messages?.length || 0);
+    const stale = summaryOk
+      && msgCount > (Number(latest.message_count_at_synthesis) || 0);
+    if (!summaryOk || stale) {
+      try {
+        const result = await synthesizeThread(thread.id);
+        return {
+          ...result.thread,
+          synthesis: result.synthesis,
+          suggested_client_name: result.thread.suggested_client_name || null,
+        };
+      } catch (err) {
+        // Conserver latest_synthesis éventuelle + messages déjà chargés
+        const kept = await getThreadDetail(thread.id);
+        return { ...(kept || thread), synthesis_error: err.message };
+      }
     }
   }
   return thread;
@@ -485,7 +492,7 @@ export async function linkThread(threadId, { client_id, project_id, link_source 
   return getThreadDetail(threadId);
 }
 
-/** Retire un lien auto faible (ex. faux positif « Son ») sans toucher aux liens manuels. */
+/** Retire un lien auto faible (ex. faux positif « Son ») sans toucher aux liens manuels / bons liens synth. */
 export async function clearWeakAutoLink(threadId) {
   const { rows } = await pool.query(
     `UPDATE email_threads SET
@@ -495,10 +502,14 @@ export async function clearWeakAutoLink(threadId) {
        link_confidence = NULL,
        updated_at = NOW()
      WHERE id = $1
+       AND COALESCE(link_source, '') IS DISTINCT FROM 'manual'
        AND (
          link_source ILIKE 'client_name%'
-         OR link_source IN ('synth_relink', 'synth_client_suggest', 'project_name', 'sync')
-         OR (link_confidence IS NOT NULL AND link_confidence < 0.9)
+         OR link_source IN ('synth_relink', 'project_name', 'sync')
+         OR (
+           link_confidence IS NOT NULL AND link_confidence < 0.9
+           AND COALESCE(link_source, '') NOT IN ('synth_client_suggest', 'client_email', 'client_email_auto', 'mail_import')
+         )
        )
      RETURNING *`,
     [threadId]
@@ -787,12 +798,25 @@ Réponds avec un objet JSON compact:
           client_id: hit[0].id,
           project_id: fresh.project_id,
           link_source: 'synth_client_suggest',
-          link_confidence: 0.85,
+          link_confidence: 0.92,
           updateClientEmail: false,
         });
       }
     }
   }
+
+  const summary = String(parsed.summary || '').trim();
+  if (!summary) {
+    const prior = await getThreadDetail(threadId);
+    if (prior?.latest_synthesis && String(prior.latest_synthesis.summary || '').trim()) {
+      return { thread: prior, synthesis: prior.latest_synthesis, kept_previous: true };
+    }
+    throw new Error('Synthèse vide — réessayez dans un instant');
+  }
+
+  const suggestName = (!fresh.client_id && !looksPromo && parsed.suggested_client_name)
+    ? String(parsed.suggested_client_name).trim().slice(0, 200)
+    : null;
 
   const { rows } = await pool.query(
     `INSERT INTO email_thread_syntheses (
@@ -801,7 +825,7 @@ Réponds avec un objet JSON compact:
     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
     [
       threadId,
-      parsed.summary || '',
+      summary,
       JSON.stringify(parsed.key_points || []),
       JSON.stringify(parsed.action_items || []),
       parsed.sentiment || 'neutre',
@@ -813,7 +837,17 @@ Réponds avec un objet JSON compact:
     ]
   );
 
-  await pool.query('UPDATE email_threads SET updated_at = NOW() WHERE id = $1', [threadId]);
+  await pool.query(
+    `UPDATE email_threads SET
+       updated_at = NOW(),
+       suggested_client_name = CASE
+         WHEN client_id IS NOT NULL THEN NULL
+         WHEN $2::text IS NOT NULL THEN $2
+         ELSE suggested_client_name
+       END
+     WHERE id = $1`,
+    [threadId, suggestName]
+  );
 
   try {
     const { classifyAndStoreThread } = await import('./mail-sort.js');
@@ -821,8 +855,8 @@ Réponds avec un objet JSON compact:
   } catch { /* optional */ }
 
   const threadOut = await getThreadDetail(threadId);
-  if (!threadOut.client_id && parsed.suggested_client_name && !looksPromo) {
-    threadOut.suggested_client_name = parsed.suggested_client_name;
+  if (!threadOut.client_id && (suggestName || threadOut.suggested_client_name) && !looksPromo) {
+    threadOut.suggested_client_name = suggestName || threadOut.suggested_client_name;
   }
   return { thread: threadOut, synthesis: rows[0] };
 }

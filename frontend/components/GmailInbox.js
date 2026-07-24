@@ -854,17 +854,21 @@ export default function GmailInbox({
         body: JSON.stringify({ message_id: id }),
       });
       setThread(prev => {
-        // Ne jamais écraser une synthèse déjà en mémoire/DB par un échec IA
-        if (processed?.synthesis_error && prev?.latest_synthesis && !processed.latest_synthesis) {
+        const next = processed || {};
+        const prevSum = String(prev?.latest_synthesis?.summary || '').trim();
+        const nextSum = String(next?.latest_synthesis?.summary || '').trim();
+        // Ne jamais écraser une bonne synthèse par un échec ou un résumé vide
+        if (prevSum && (!nextSum || next.synthesis_error)) {
           return {
-            ...processed,
+            ...next,
             latest_synthesis: prev.latest_synthesis,
-            syntheses: prev.syntheses || processed.syntheses,
-            client_id: processed.client_id ?? prev.client_id,
-            client_name: processed.client_name ?? prev.client_name,
+            syntheses: prev.syntheses || next.syntheses,
+            client_id: next.client_id ?? prev.client_id,
+            client_name: next.client_name ?? prev.client_name,
+            suggested_client_name: next.suggested_client_name || prev.suggested_client_name,
           };
         }
-        return processed;
+        return next;
       });
       setLinkClientId(processed.client_id ? String(processed.client_id) : '');
       setLinkProjId(processed.project_id ? String(processed.project_id) : (linkProjectId || projectId ? String(linkProjectId || projectId) : ''));
@@ -941,7 +945,23 @@ export default function GmailInbox({
     setThreadWarn('');
     try {
       const result = await threadApi(`/${thread.id}/synthesize`, { method: 'POST' });
-      setThread(result.thread);
+      setThread(prev => {
+        const next = result.thread || {};
+        const prevSum = String(prev?.latest_synthesis?.summary || '').trim();
+        const nextSum = String(next?.latest_synthesis?.summary || result.synthesis?.summary || '').trim();
+        if (prevSum && !nextSum) {
+          return {
+            ...next,
+            latest_synthesis: prev.latest_synthesis,
+            syntheses: prev.syntheses || next.syntheses,
+            suggested_client_name: next.suggested_client_name || prev.suggested_client_name,
+          };
+        }
+        if (result.synthesis && !next.latest_synthesis) {
+          return { ...next, latest_synthesis: result.synthesis };
+        }
+        return next;
+      });
       setLinkClientId(result.thread?.client_id ? String(result.thread.client_id) : '');
       setLinkProjId(result.thread?.project_id ? String(result.thread.project_id) : '');
       if (result.synthesis?.suggested_reply) {
@@ -955,6 +975,9 @@ export default function GmailInbox({
       }
       if (result.thread?.client_name) {
         setThreadWarn('');
+      }
+      if (result.kept_previous) {
+        setThreadWarn('Nouvelle synthèse vide — l’ancienne a été conservée.');
       }
     } catch (e) {
       setErr(e.message);
