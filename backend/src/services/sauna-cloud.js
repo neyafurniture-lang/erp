@@ -166,7 +166,55 @@ export function normalizeTracker(saved) {
     });
   }
 
-  return { frames, stages: SAUNA_FRAME_STAGES };
+  return { frames, stages: SAUNA_FRAME_STAGES, size_logs: normalizeSizeLogs(saved?.size_logs) };
+}
+
+/** Notes de tailles (côtés / traverses) — clés = "20\"", valeurs = texte atelier. */
+export function normalizeSizeLogs(raw) {
+  const out = { sides: {}, traverses: {} };
+  if (!raw || typeof raw !== 'object') return out;
+  for (const kind of ['sides', 'traverses']) {
+    const src = raw[kind];
+    if (!src || typeof src !== 'object') continue;
+    for (const [k, v] of Object.entries(src)) {
+      const key = String(k || '').trim();
+      if (!key) continue;
+      out[kind][key] = String(v ?? '').slice(0, 2000);
+    }
+  }
+  return out;
+}
+
+/**
+ * Agrège les longueurs BOM pour la commande (qty × counts).
+ * kind = 'sides' → longs + shorts ; 'traverses' → traverses.
+ */
+export function aggregatePieceSizes(frames = [], kind = 'sides') {
+  const by = new Map();
+  for (const row of frames) {
+    const sku = String(row.sku || '').toUpperCase();
+    const bom = SIERRA_CUTTING_BOM[sku];
+    if (!bom) continue;
+    const qty = Math.max(0, Math.round(Number(row.qty) || 0));
+    if (!qty) continue;
+    const add = (inches, count, role) => {
+      if (!inches || !count) return;
+      const length = `${inches}"`;
+      const prev = by.get(length) || { length, inches: Number(inches), qty: 0, roles: {}, skus: [] };
+      const pieceQty = count * qty;
+      prev.qty += pieceQty;
+      prev.roles[role] = (prev.roles[role] || 0) + pieceQty;
+      if (!prev.skus.includes(sku)) prev.skus.push(sku);
+      by.set(length, prev);
+    };
+    if (kind === 'traverses') {
+      add(bom.traverse_in, bom.traverse_count, 'traverse');
+    } else {
+      add(bom.long_in, bom.long_count, 'long');
+      add(bom.short_in, bom.short_count, 'short');
+    }
+  }
+  return [...by.values()].sort((a, b) => b.inches - a.inches);
 }
 
 function piecesPerFrame(bom) {
@@ -367,7 +415,11 @@ export function enrichTrackerRow(row) {
 }
 
 export function summarizeTracker(tracker) {
-  const frames = (tracker.frames || []).map(enrichTrackerRow);
+  const normalized = Array.isArray(tracker?.frames) || tracker?.size_logs
+    ? tracker
+    : { frames: tracker?.frames || tracker || [], size_logs: tracker?.size_logs };
+  const frames = (normalized.frames || []).map(enrichTrackerRow);
+  const size_logs = normalizeSizeLogs(normalized.size_logs);
   const qty = frames.reduce((s, f) => s + (f.qty || 0), 0);
   const delivered = frames.reduce((s, f) => s + (f.counts?.delivered || 0), 0);
   const done = frames.reduce((s, f) => s + (f.counts?.done || 0), 0);
@@ -380,6 +432,11 @@ export function summarizeTracker(tracker) {
   return {
     frames,
     stages: SAUNA_FRAME_STAGES,
+    size_logs,
+    size_breakdown: {
+      sides: aggregatePieceSizes(frames, 'sides'),
+      traverses: aggregatePieceSizes(frames, 'traverses'),
+    },
     totals: {
       qty,
       remaining,
@@ -560,9 +617,14 @@ export async function updateFrameTracker(projectId, payload = {}) {
   const current = normalizeTracker(meta.sauna_frame_tracker || defaultTrackerRows());
 
   let nextFrames = current.frames;
+  let sizeLogs = normalizeSizeLogs(current.size_logs || meta.sauna_frame_tracker?.size_logs);
+
+  if (payload.size_logs !== undefined) {
+    sizeLogs = normalizeSizeLogs(payload.size_logs);
+  }
 
   if (Array.isArray(payload.frames)) {
-    nextFrames = normalizeTracker({ frames: payload.frames }).frames;
+    nextFrames = normalizeTracker({ frames: payload.frames, size_logs: sizeLogs }).frames;
   } else if (payload.sku) {
     const sku = String(payload.sku).trim().toUpperCase();
     nextFrames = current.frames.map((row) => {
@@ -595,12 +657,13 @@ export async function updateFrameTracker(projectId, payload = {}) {
         counts,
       });
     }
-  } else {
-    throw new Error('Indiquez frames[] ou sku + compteurs');
+  } else if (payload.size_logs === undefined) {
+    throw new Error('Indiquez frames[], sku + compteurs, ou size_logs');
   }
 
   meta.sauna_frame_tracker = {
     frames: nextFrames,
+    size_logs: sizeLogs,
     updated_at: new Date().toISOString(),
   };
 
@@ -616,6 +679,7 @@ export async function resetFrameTracker(projectId) {
   await writeProjectMeta(projectId, {
     sauna_frame_tracker: {
       frames: defaultTrackerRows(),
+      size_logs: { sides: {}, traverses: {} },
       updated_at: new Date().toISOString(),
     },
   });

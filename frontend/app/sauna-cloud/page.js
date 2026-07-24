@@ -29,16 +29,48 @@ export const SIERRA_BOM = {
 };
 
 const STAGES = [
-  { key: 'debited', label: 'Débité', hint: 'Bois débité' },
-  { key: 'in_progress', label: 'En cours', hint: 'En assemblage' },
-  { key: 'done', label: 'Terminé', hint: 'Fabriqué / prêt' },
-  { key: 'delivered', label: 'Livré', hint: 'Expédié / livré' },
+  { key: 'debited', label: 'Débité', hint: 'Bois débité', color: 'amber' },
+  { key: 'in_progress', label: 'En cours', hint: 'En assemblage', color: 'sky' },
+  { key: 'done', label: 'Terminé', hint: 'Fabriqué / prêt', color: 'emerald' },
+  { key: 'delivered', label: 'Livré', hint: 'Expédié / livré', color: 'green' },
 ];
+
+/** Couleurs par étape — vert = fini (terminé / livré). */
+const STAGE_STYLE = {
+  debited: {
+    th: 'bg-amber-100 text-amber-950 border-amber-200/80',
+    cell: 'bg-amber-50/80',
+    input: 'border-amber-200 focus:border-amber-400 focus:ring-amber-200/50',
+    card: 'border-amber-200 bg-amber-50',
+  },
+  in_progress: {
+    th: 'bg-sky-100 text-sky-950 border-sky-200/80',
+    cell: 'bg-sky-50/80',
+    input: 'border-sky-200 focus:border-sky-400 focus:ring-sky-200/50',
+    card: 'border-sky-200 bg-sky-50',
+  },
+  done: {
+    th: 'bg-emerald-200 text-emerald-950 border-emerald-300/80',
+    cell: 'bg-emerald-50',
+    input: 'border-emerald-300 focus:border-emerald-500 focus:ring-emerald-200/50',
+    card: 'border-emerald-300 bg-emerald-50',
+  },
+  delivered: {
+    th: 'bg-green-300 text-green-950 border-green-400/70',
+    cell: 'bg-green-50',
+    input: 'border-green-300 focus:border-green-500 focus:ring-green-200/50',
+    card: 'border-green-300 bg-green-50',
+  },
+};
 
 const SIERRA_PDF = '/docs/Cutting_Plan_Sierra_EN.pdf';
 
 function emptyCounts() {
   return { debited: 0, in_progress: 0, done: 0, delivered: 0 };
+}
+
+function emptySizeLogs() {
+  return { sides: {}, traverses: {} };
 }
 
 function piecesPerFrame(bom) {
@@ -81,6 +113,34 @@ function expandLengths(sku, frameCount) {
   const structural = (bom.long_count + bom.short_count) * n;
   const traverses = bom.traverse_count * n;
   return { pieces: structural + traverses, structural, traverses, by_length: by };
+}
+
+/** Agrège tailles BOM pour côtés (longs+shorts) ou traverses. */
+export function aggregatePieceSizes(frames = [], kind = 'sides') {
+  const by = new Map();
+  for (const row of frames) {
+    const bom = SIERRA_BOM[row.sku];
+    if (!bom) continue;
+    const qty = Math.max(0, Math.round(Number(row.qty) || 0));
+    if (!qty) continue;
+    const add = (inches, count, role) => {
+      if (!inches || !count) return;
+      const length = `${inches}"`;
+      const prev = by.get(length) || { length, inches: Number(inches), qty: 0, roles: {}, skus: [] };
+      const pieceQty = count * qty;
+      prev.qty += pieceQty;
+      prev.roles[role] = (prev.roles[role] || 0) + pieceQty;
+      if (!prev.skus.includes(row.sku)) prev.skus.push(row.sku);
+      by.set(length, prev);
+    };
+    if (kind === 'traverses') {
+      add(bom.traverse_in, bom.traverse_count, 'traverse');
+    } else {
+      add(bom.long_in, bom.long_count, 'long');
+      add(bom.short_in, bom.short_count, 'short');
+    }
+  }
+  return [...by.values()].sort((a, b) => b.inches - a.inches);
 }
 
 function buildLocalFrames(apiFrames) {
@@ -186,7 +246,7 @@ function computeSierraLocal(frames) {
   };
 }
 
-function QtyInput({ value, onCommit, disabled }) {
+function QtyInput({ value, onCommit, disabled, className = '' }) {
   const [local, setLocal] = useState(String(value ?? 0));
   const [focused, setFocused] = useState(false);
 
@@ -206,7 +266,7 @@ function QtyInput({ value, onCommit, disabled }) {
       min="0"
       inputMode="numeric"
       disabled={disabled}
-      className="w-16 mx-auto text-center input py-1.5 text-sm tabular-nums disabled:bg-neya-surface/50 disabled:text-neya-muted"
+      className={`w-16 mx-auto text-center input py-1.5 text-sm tabular-nums disabled:bg-neya-surface/50 disabled:text-neya-muted ${className}`}
       value={local}
       onChange={(e) => setLocal(e.target.value)}
       onFocus={() => setFocused(true)}
@@ -231,13 +291,71 @@ function SummaryCard({ label, value, accent, sub }) {
   );
 }
 
+/** Panneau : cliquer un total → noter les tailles (par longueur). */
+function SizeNotesPanel({ kind, title, sizes, notes, onChangeNote, onClose, saving }) {
+  const total = sizes.reduce((s, r) => s + (r.qty || 0), 0);
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <button type="button" className="absolute inset-0 bg-black/40" aria-label="Fermer" onClick={onClose} />
+      <div className="relative w-full sm:max-w-lg max-h-[88vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl border border-neya-border bg-white shadow-xl">
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-neya-border bg-white px-5 py-4">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-neya-orange">{title}</p>
+            <p className="font-display text-2xl font-semibold tabular-nums text-neya-ink">{total}</p>
+            <p className="text-xs text-neya-muted mt-0.5">
+              Clique une ligne pour noter la taille / le bois utilisé
+              {saving ? ' · Enregistrement…' : ''}
+            </p>
+          </div>
+          <button type="button" className="btn-secondary text-xs shrink-0" onClick={onClose}>
+            Fermer
+          </button>
+        </div>
+        <div className="p-4 space-y-3">
+          {sizes.length === 0 ? (
+            <p className="text-sm text-neya-muted px-1">Aucune taille Sierra pour cette sélection.</p>
+          ) : (
+            sizes.map((row) => {
+              const roleHint = Object.entries(row.roles || {})
+                .map(([role, n]) => `${n} ${role === 'long' ? 'longs' : role === 'short' ? 'shorts' : 'trav.'}`)
+                .join(' · ');
+              return (
+                <div key={row.length} className="rounded-xl border border-neya-border bg-neya-surface/30 p-3">
+                  <div className="flex items-baseline justify-between gap-3 mb-2">
+                    <p className="font-mono text-lg font-semibold text-neya-ink">{row.length}</p>
+                    <p className="font-display text-xl font-semibold tabular-nums text-neya-orange">× {row.qty}</p>
+                  </div>
+                  <p className="text-[11px] text-neya-muted mb-2">
+                    {roleHint}
+                    {row.skus?.length ? ` · ${row.skus.join(', ')}` : ''}
+                  </p>
+                  <textarea
+                    className="input text-sm min-h-[64px] resize-y w-full"
+                    placeholder={`Notes taille ${row.length} — essence, refente, défauts…`}
+                    value={notes?.[row.length] || ''}
+                    onChange={(e) => onChangeNote(kind, row.length, e.target.value)}
+                  />
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SaunaCloudPage() {
   const [board, setBoard] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [savingSku, setSavingSku] = useState('');
   const [projectNotes, setProjectNotes] = useState('');
+  const [sizePanel, setSizePanel] = useState(null); // 'sides' | 'traverses' | null
+  const [sizeLogs, setSizeLogs] = useState(emptySizeLogs());
+  const [savingSizes, setSavingSizes] = useState(false);
   const notesTimer = useRef(null);
+  const sizeTimer = useRef(null);
 
   async function load() {
     setLoading(true);
@@ -245,6 +363,10 @@ export default function SaunaCloudPage() {
       const data = await api('/sauna-cloud');
       setBoard(data);
       setProjectNotes(data.project?.notes || '');
+      setSizeLogs({
+        sides: { ...(data.tracker?.size_logs?.sides || {}) },
+        traverses: { ...(data.tracker?.size_logs?.traverses || {}) },
+      });
       setError('');
     } catch (e) {
       setError(e.message || 'Chargement impossible');
@@ -257,6 +379,7 @@ export default function SaunaCloudPage() {
     load();
     return () => {
       if (notesTimer.current) clearTimeout(notesTimer.current);
+      if (sizeTimer.current) clearTimeout(sizeTimer.current);
     };
   }, []);
 
@@ -272,6 +395,15 @@ export default function SaunaCloudPage() {
     return computeSierraLocal(frames);
   }, [board, frames, savingSku]);
 
+  const sizeBreakdown = useMemo(() => ({
+    sides: board?.tracker?.size_breakdown?.sides?.length
+      ? board.tracker.size_breakdown.sides
+      : aggregatePieceSizes(frames, 'sides'),
+    traverses: board?.tracker?.size_breakdown?.traverses?.length
+      ? board.tracker.size_breakdown.traverses
+      : aggregatePieceSizes(frames, 'traverses'),
+  }), [board, frames]);
+
   function scheduleProjectNotes(value) {
     setProjectNotes(value);
     if (notesTimer.current) clearTimeout(notesTimer.current);
@@ -286,6 +418,41 @@ export default function SaunaCloudPage() {
         setError(e.message);
       }
     }, 600);
+  }
+
+  function scheduleSizeLogs(nextLogs) {
+    setSizeLogs(nextLogs);
+    if (sizeTimer.current) clearTimeout(sizeTimer.current);
+    sizeTimer.current = setTimeout(async () => {
+      setSavingSizes(true);
+      try {
+        const res = await api('/sauna-cloud/tracker', {
+          method: 'PATCH',
+          body: JSON.stringify({ size_logs: nextLogs }),
+        });
+        setBoard(res);
+        setSizeLogs({
+          sides: { ...(res.tracker?.size_logs?.sides || {}) },
+          traverses: { ...(res.tracker?.size_logs?.traverses || {}) },
+        });
+      } catch (e) {
+        setError(e.message || 'Notes tailles non enregistrées');
+      } finally {
+        setSavingSizes(false);
+      }
+    }, 500);
+  }
+
+  function onChangeSizeNote(kind, length, value) {
+    const next = {
+      sides: { ...(sizeLogs.sides || {}) },
+      traverses: { ...(sizeLogs.traverses || {}) },
+      [kind]: {
+        ...(sizeLogs[kind] || {}),
+        [length]: value,
+      },
+    };
+    scheduleSizeLogs(next);
   }
 
   async function setCount(sku, stageKey, value) {
@@ -420,9 +587,13 @@ export default function SaunaCloudPage() {
           <div className="h-full bg-neya-orange transition-all" style={{ width: `${totals.pct}%` }} />
         </div>
 
-        {/* Totaux commande — toujours visibles (ne tombent pas à 0 après débit) */}
+        {/* Totaux commande — cliquables pour noter les tailles */}
         <div className="grid sm:grid-cols-2 gap-3 mb-4">
-          <div className="rounded-2xl border-2 border-neya-orange/50 bg-neya-orange/[0.07] px-5 py-4">
+          <button
+            type="button"
+            onClick={() => setSizePanel('sides')}
+            className="text-left rounded-2xl border-2 border-neya-orange/50 bg-neya-orange/[0.07] px-5 py-4 hover:border-neya-orange transition-colors"
+          >
             <p className="text-[12px] font-semibold uppercase tracking-wide text-neya-orange">
               Côtés de cadre
             </p>
@@ -430,15 +601,18 @@ export default function SaunaCloudPage() {
               {totals.sides_total}
             </p>
             <p className="mt-1 text-sm text-neya-muted">
-              commande Sierra (longs + shorts)
-              {totals.sides_missing > 0
-                ? ` · ${totals.sides_missing} encore à couper`
-                : totals.sides_total > 0
-                  ? ' · tout débité / placé'
-                  : ''}
+              Clique pour noter les tailles
+              {totals.sides_missing > 0 ? ` · ${totals.sides_missing} à couper` : ''}
             </p>
-          </div>
-          <div className="rounded-2xl border-2 border-neya-orange/50 bg-neya-orange/[0.07] px-5 py-4">
+            {Object.values(sizeLogs.sides || {}).some(Boolean) ? (
+              <p className="mt-1 text-[11px] text-neya-orange font-medium">Notes enregistrées</p>
+            ) : null}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSizePanel('traverses')}
+            className="text-left rounded-2xl border-2 border-neya-orange/50 bg-neya-orange/[0.07] px-5 py-4 hover:border-neya-orange transition-colors"
+          >
             <p className="text-[12px] font-semibold uppercase tracking-wide text-neya-orange">
               Traverses
             </p>
@@ -446,17 +620,16 @@ export default function SaunaCloudPage() {
               {totals.traverses_total}
             </p>
             <p className="mt-1 text-sm text-neya-muted">
-              commande Sierra
-              {totals.traverses_missing > 0
-                ? ` · ${totals.traverses_missing} encore à couper`
-                : totals.traverses_total > 0
-                  ? ' · tout débité / placé'
-                  : ''}
+              Clique pour noter les tailles
+              {totals.traverses_missing > 0 ? ` · ${totals.traverses_missing} à couper` : ''}
             </p>
-          </div>
+            {Object.values(sizeLogs.traverses || {}).some(Boolean) ? (
+              <p className="mt-1 text-[11px] text-neya-orange font-medium">Notes enregistrées</p>
+            ) : null}
+          </button>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 mb-6">
           <SummaryCard label="Commande" value={totals.qty} />
           <SummaryCard label="À faire" value={totals.remaining} />
           <SummaryCard
@@ -464,9 +637,10 @@ export default function SaunaCloudPage() {
             value={totals.pieces_missing}
             sub={`${totals.pieces_total} au total`}
           />
-          <SummaryCard label="Débité" value={totals.debited} />
-          <SummaryCard label="En cours" value={totals.in_progress} />
-          <SummaryCard label="Livré" value={totals.delivered} sub={`${totals.done} terminé(s)`} />
+          <SummaryCard label="Débité" value={totals.debited} accent={STAGE_STYLE.debited.card} />
+          <SummaryCard label="En cours" value={totals.in_progress} accent={STAGE_STYLE.in_progress.card} />
+          <SummaryCard label="Terminé" value={totals.done} accent={STAGE_STYLE.done.card} />
+          <SummaryCard label="Livré" value={totals.delivered} accent={STAGE_STYLE.delivered.card} />
         </div>
 
         <div className="rounded-2xl border border-neya-border bg-white overflow-x-auto mb-6 shadow-sm">
@@ -476,21 +650,33 @@ export default function SaunaCloudPage() {
                 <th className="px-4 py-3 text-left font-medium">SKU</th>
                 <th className="px-4 py-3 text-left font-medium">Frame</th>
                 <th className="px-3 py-3 text-center font-medium" title="Quantité commandée">Qty</th>
-                <th
-                  className="px-3 py-3 text-center font-medium"
-                  title="Côtés de cadre pour toute la commande (qty × longs+shorts)"
-                >
-                  Côtés
+                <th className="px-3 py-3 text-center font-medium">
+                  <button
+                    type="button"
+                    className="font-medium hover:text-neya-orange hover:underline underline-offset-2"
+                    title="Clique pour noter les tailles des côtés"
+                    onClick={() => setSizePanel('sides')}
+                  >
+                    Côtés
+                  </button>
                 </th>
-                <th
-                  className="px-3 py-3 text-center font-medium"
-                  title="Traverses pour toute la commande (qty × traverse_count)"
-                >
-                  Traverses
+                <th className="px-3 py-3 text-center font-medium">
+                  <button
+                    type="button"
+                    className="font-medium hover:text-neya-orange hover:underline underline-offset-2"
+                    title="Clique pour noter les tailles des traverses"
+                    onClick={() => setSizePanel('traverses')}
+                  >
+                    Traverses
+                  </button>
                 </th>
-                <th className="px-3 py-3 text-center font-medium" title="Frames pas encore placées">À faire</th>
+                <th className="px-3 py-3 text-center font-medium">À faire</th>
                 {STAGES.map((s) => (
-                  <th key={s.key} className="px-3 py-3 text-center font-medium" title={s.hint}>
+                  <th
+                    key={s.key}
+                    className={`px-3 py-3 text-center font-semibold border-b ${STAGE_STYLE[s.key].th}`}
+                    title={s.hint}
+                  >
                     {s.label}
                   </th>
                 ))}
@@ -503,8 +689,15 @@ export default function SaunaCloudPage() {
                 const bomHint = row.bom
                   ? `${row.sides_per_frame} côtés/frame + ${row.traverses_per_frame} trav./frame · L${row.bom.long_in}"×${row.bom.long_count} + S${row.bom.short_in}"×${row.bom.short_count} + T${row.bom.traverse_in}"×${row.bom.traverse_count}`
                   : 'Hors plan Sierra';
+                const doneish = (row.counts?.done || 0) + (row.counts?.delivered || 0) > 0
+                  && row.remaining === 0;
                 return (
-                  <tr key={row.sku} className={`border-b border-neya-border/60 ${over ? 'bg-red-50/60' : 'hover:bg-neya-surface/40'}`}>
+                  <tr
+                    key={row.sku}
+                    className={`border-b border-neya-border/60 ${
+                      over ? 'bg-red-50/60' : doneish ? 'bg-emerald-50/40' : 'hover:bg-neya-surface/40'
+                    }`}
+                  >
                     <td className="px-4 py-3 font-mono text-xs font-semibold text-neya-ink">{row.sku}</td>
                     <td className="px-4 py-3 text-neya-ink">
                       <span>{row.label}</span>
@@ -519,54 +712,57 @@ export default function SaunaCloudPage() {
                     <td className="px-3 py-2 text-center">
                       <QtyInput value={row.qty} disabled={busy} onCommit={(n) => setQty(row.sku, n)} />
                     </td>
-                    <td className="px-3 py-3 text-center bg-neya-orange/[0.07]" title={bomHint}>
-                      <span
+                    <td className="px-3 py-3 text-center bg-neya-orange/[0.07]">
+                      <button
+                        type="button"
+                        disabled={!row.bom}
+                        title={bomHint}
+                        onClick={() => setSizePanel('sides')}
                         className={`inline-block min-w-[2.5rem] font-display text-lg font-semibold tabular-nums ${
-                          !row.bom ? 'text-neya-muted' : 'text-neya-ink'
+                          !row.bom ? 'text-neya-muted cursor-default' : 'text-neya-ink hover:text-neya-orange underline-offset-2 hover:underline'
                         }`}
                       >
                         {row.bom ? row.sides_total : '—'}
-                      </span>
+                      </button>
                       {row.bom ? (
                         <span className="block text-[10px] text-neya-muted tabular-nums">
                           {row.sides_per_frame}/f
-                          {row.sides_missing !== row.sides_total
-                            ? ` · ${row.sides_missing} à couper`
-                            : ''}
                         </span>
                       ) : null}
                     </td>
-                    <td className="px-3 py-3 text-center bg-neya-orange/[0.07]" title={bomHint}>
-                      <span
+                    <td className="px-3 py-3 text-center bg-neya-orange/[0.07]">
+                      <button
+                        type="button"
+                        disabled={!row.bom}
+                        title={bomHint}
+                        onClick={() => setSizePanel('traverses')}
                         className={`inline-block min-w-[2.5rem] font-display text-lg font-semibold tabular-nums ${
-                          !row.bom ? 'text-neya-muted' : 'text-neya-ink'
+                          !row.bom ? 'text-neya-muted cursor-default' : 'text-neya-ink hover:text-neya-orange underline-offset-2 hover:underline'
                         }`}
                       >
                         {row.bom ? row.traverses_total : '—'}
-                      </span>
+                      </button>
                       {row.bom ? (
                         <span className="block text-[10px] text-neya-muted tabular-nums">
                           {row.traverses_per_frame}/f
-                          {row.traverses_missing !== row.traverses_total
-                            ? ` · ${row.traverses_missing} à couper`
-                            : ''}
                         </span>
                       ) : null}
                     </td>
                     <td className="px-3 py-3 text-center bg-neya-cream/20">
                       <span
                         className={`inline-block min-w-[2.5rem] font-display font-semibold tabular-nums ${
-                          row.remaining === 0 ? 'text-neya-muted' : 'text-neya-ink'
+                          row.remaining === 0 ? 'text-emerald-700' : 'text-neya-ink'
                         }`}
                       >
                         {row.remaining}
                       </span>
                     </td>
                     {STAGES.map((s) => (
-                      <td key={s.key} className="px-3 py-2 text-center">
+                      <td key={s.key} className={`px-3 py-2 text-center ${STAGE_STYLE[s.key].cell}`}>
                         <QtyInput
                           value={row.counts?.[s.key] || 0}
                           disabled={busy}
+                          className={STAGE_STYLE[s.key].input}
                           onCommit={(n) => setCount(row.sku, s.key, n)}
                         />
                       </td>
@@ -583,16 +779,20 @@ export default function SaunaCloudPage() {
                 </td>
                 <td className="px-3 py-3 text-center tabular-nums">{totals.qty}</td>
                 <td className="px-3 py-3 text-center tabular-nums bg-neya-orange/[0.07] text-neya-orange text-base">
-                  {totals.sides_total}
+                  <button type="button" className="hover:underline" onClick={() => setSizePanel('sides')}>
+                    {totals.sides_total}
+                  </button>
                 </td>
                 <td className="px-3 py-3 text-center tabular-nums bg-neya-orange/[0.07] text-neya-orange text-base">
-                  {totals.traverses_total}
+                  <button type="button" className="hover:underline" onClick={() => setSizePanel('traverses')}>
+                    {totals.traverses_total}
+                  </button>
                 </td>
                 <td className="px-3 py-3 text-center tabular-nums bg-neya-cream/20">{totals.remaining}</td>
-                <td className="px-3 py-3 text-center tabular-nums">{totals.debited}</td>
-                <td className="px-3 py-3 text-center tabular-nums">{totals.in_progress}</td>
-                <td className="px-3 py-3 text-center tabular-nums">{totals.done}</td>
-                <td className="px-3 py-3 text-center tabular-nums">{totals.delivered}</td>
+                <td className={`px-3 py-3 text-center tabular-nums ${STAGE_STYLE.debited.cell}`}>{totals.debited}</td>
+                <td className={`px-3 py-3 text-center tabular-nums ${STAGE_STYLE.in_progress.cell}`}>{totals.in_progress}</td>
+                <td className={`px-3 py-3 text-center tabular-nums font-semibold text-emerald-800 ${STAGE_STYLE.done.cell}`}>{totals.done}</td>
+                <td className={`px-3 py-3 text-center tabular-nums font-semibold text-green-900 ${STAGE_STYLE.delivered.cell}`}>{totals.delivered}</td>
               </tr>
             </tfoot>
           </table>
@@ -624,7 +824,10 @@ export default function SaunaCloudPage() {
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
             {stageMissing.map((s) => (
-              <div key={s.key} className="rounded-xl border border-neya-border bg-neya-surface/40 px-3 py-3">
+              <div
+                key={s.key}
+                className={`rounded-xl border px-3 py-3 ${STAGE_STYLE[s.key]?.card || 'border-neya-border bg-neya-surface/40'}`}
+              >
                 <p className="text-[11px] uppercase tracking-wide text-neya-muted">Avant {s.label}</p>
                 <p className="text-xl font-display font-semibold tabular-nums text-neya-ink">
                   {s.pieces}
@@ -682,15 +885,29 @@ export default function SaunaCloudPage() {
           <div className="rounded-2xl border border-neya-border bg-neya-surface p-4 text-sm text-neya-muted space-y-2">
             <p className="font-medium text-neya-ink">Comment remplir</p>
             <p>Chaque frame ne compte que dans <em>une</em> colonne à la fois.</p>
-            <p>1. Débit → <span className="text-neya-ink">Débité</span> (les éléments manquants baissent)</p>
-            <p>2. Assemblage → <span className="text-neya-ink">En cours</span></p>
-            <p>3. Prête → <span className="text-neya-ink">Terminé</span></p>
-            <p>4. Expédiée → <span className="text-neya-ink">Livré</span> (fait monter le %)</p>
+            <p>1. Débit → <span className="text-amber-800 font-medium">Débité</span> (ambre)</p>
+            <p>2. Assemblage → <span className="text-sky-800 font-medium">En cours</span> (bleu)</p>
+            <p>3. Prête → <span className="text-emerald-800 font-medium">Terminé</span> (vert)</p>
+            <p>4. Expédiée → <span className="text-green-900 font-medium">Livré</span> (vert fort, % progress)</p>
+            <p className="pt-1 border-t border-neya-border/60">
+              Clique les totaux <strong className="text-neya-ink">Côtés</strong> / <strong className="text-neya-ink">Traverses</strong> pour noter les tailles.
+            </p>
             <p className="pt-1 border-t border-neya-border/60">
               BOM Sierra : H2013, H2026, H2226, H3313, H3726. FS750 / autres = hors plan coupe (1×6).
             </p>
           </div>
         </div>
+      {sizePanel && (
+        <SizeNotesPanel
+          kind={sizePanel}
+          title={sizePanel === 'sides' ? 'Côtés de cadre — tailles' : 'Traverses — tailles'}
+          sizes={sizeBreakdown[sizePanel] || []}
+          notes={sizeLogs[sizePanel] || {}}
+          onChangeNote={onChangeSizeNote}
+          onClose={() => setSizePanel(null)}
+          saving={savingSizes}
+        />
+      )}
       </AppShell>
     </AuthGuard>
   );

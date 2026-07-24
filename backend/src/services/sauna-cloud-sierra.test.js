@@ -66,4 +66,20 @@ describe('Sierra cutting missing pieces', () => {
     assert.equal(row.sides_missing, 80);
     assert.equal(row.traverses_missing, 40);
   });
+
+  it('aggregatePieceSizes regroupe les tailles côtés / traverses', async () => {
+    const { aggregatePieceSizes } = await import('./sauna-cloud.js');
+    const frames = [
+      { sku: 'H2013', qty: 20 },
+      { sku: 'H2026', qty: 10 },
+    ];
+    const sides = aggregatePieceSizes(frames, 'sides');
+    const trav = aggregatePieceSizes(frames, 'traverses');
+    // H2013: 13"×40 + 20"×40 ; H2026: 26"×20 + 20"×20 → 20" = 60
+    const side20 = sides.find((r) => r.length === '20"');
+    assert.ok(side20);
+    assert.equal(side20.qty, 60);
+    const trav20 = trav.find((r) => r.length === '20"');
+    assert.equal(trav20.qty, 20 * 2 + 10 * 4); // 80
+  });
 });
