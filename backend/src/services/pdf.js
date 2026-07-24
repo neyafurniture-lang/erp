@@ -11,29 +11,34 @@ const C = {
   green: '#4D5446',
   orange: '#D86B30',
   cream: '#F9F1EA',
+  creamSoft: '#FBF6F0',
   black: '#2A2F27',
   muted: '#6B7264',
   light: '#9A9F96',
   line: '#E8DFD6',
+  white: '#FFFFFF',
 };
 
 const BRAND_DIR = path.join(__dirname, '../../brand');
 const LOGO_PATH = path.join(BRAND_DIR, 'logo-orange.png');
 
-const M = 50;
+const M = 48;
 const PAGE_W = 612;
+const PAGE_H = 792;
 const W = PAGE_W - M * 2;
 const R = M + W;
-const LOGO_W = 72;
+const LOGO_W = 84;
+const LOGO_RATIO = 596 / 842;
+const FOOTER_Y = PAGE_H - 42;
+const BODY_LIMIT = FOOTER_Y - 24;
 
 function money(n) {
-  return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(n || 0);
+  return new Intl.NumberFormat('fr-CA', { style: 'currency', currency: 'CAD' }).format(n || 0);
 }
 
 function fmtDate(d) {
   if (!d) return '—';
-  const dt = new Date(d);
-  return dt.toLocaleDateString('en-CA', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  return new Date(d).toLocaleDateString('fr-CA', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
 function parseLines(lines) {
@@ -46,248 +51,354 @@ function calcTaxes(subtotal, co) {
   return { gst, qst, total: subtotal + gst + qst };
 }
 
-function addressLines(co) {
-  return [
-    co.address.line1,
-    co.address.line2,
-  ].filter(Boolean);
-}
-
-/** Logo + bande orange bien en dessous (pas de chevauchement). */
-function brandHeader(doc) {
-  let y = M;
-  let logoBottom = y;
+/**
+ * En-tête : logo à gauche, type de document + numéro à droite,
+ * règle orange, puis coordonnées société sur une ligne.
+ */
+function docHeader(doc, co, { docType, number, compact = false }) {
+  let y = M - 12;
 
   if (existsSync(LOGO_PATH)) {
-    doc.image(LOGO_PATH, M, y, { width: LOGO_W });
-    logoBottom = y + LOGO_W * (596 / 842) + 6;
+    doc.image(LOGO_PATH, M, y, { width: compact ? 56 : LOGO_W });
   } else {
-    doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(18).text('Neya', M, y);
-    logoBottom = y + 24;
+    doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(20).text('Neya', M, y);
+  }
+  const logoBottom = y + (compact ? 56 : LOGO_W) * LOGO_RATIO;
+
+  // Type de document en gros à droite
+  doc.fillColor(C.green).font('Helvetica-Bold').fontSize(compact ? 16 : 26)
+    .text(String(docType).toUpperCase(), M + 200, y + (compact ? 6 : 8), {
+      width: W - 200, align: 'right', characterSpacing: 2,
+    });
+  if (number) {
+    doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(compact ? 9 : 11)
+      .text(`Nº ${number}`, M + 200, y + (compact ? 26 : 42), { width: W - 200, align: 'right' });
   }
 
-  doc.fillColor(C.muted).font('Helvetica').fontSize(7)
-    .text('FURNITURES & MORE', M, logoBottom, { characterSpacing: 1.2 });
+  y = Math.max(logoBottom, y + (compact ? 38 : 58)) + 8;
+  doc.moveTo(M, y).lineTo(R, y).strokeColor(C.orange).lineWidth(2).stroke();
+  y += 8;
 
-  const bandY = logoBottom + 14;
-  doc.moveTo(M, bandY).lineTo(R, bandY).strokeColor(C.orange).lineWidth(1.5).stroke();
-  return bandY + 16;
+  const contactBits = [
+    co.tradeName,
+    co.address.line1 && `${co.address.line1}, ${co.address.line2 || ''}`.trim().replace(/,\s*$/, ''),
+    co.phone,
+    co.email,
+  ].filter(Boolean);
+  doc.fillColor(C.muted).font('Helvetica').fontSize(7.5)
+    .text(contactBits.join('   ·   '), M, y, { width: W });
+  y += 12;
+
+  return y + (compact ? 6 : 10);
 }
 
-/** En-tête société façon facture Martin / Sierra (Fabre + nº taxes). */
-function companyBlock(doc, startY, co, { compact = false } = {}) {
-  let y = startY;
-  doc.fillColor(C.green).font('Helvetica-Bold').fontSize(10).text(co.legalName, M, y);
-  doc.font('Helvetica').fontSize(8).fillColor(C.muted);
-  y += 13;
-  for (const line of addressLines(co)) {
-    doc.text(line, M, y);
-    y += 11;
-  }
-  if (!compact) {
-    doc.text(co.phone, M, y); y += 11;
-  }
-  doc.text(co.email, M, y); y += 11;
-  if (co.website && compact) {
-    doc.text(String(co.website).replace(/^https?:\/\//, ''), M, y); y += 11;
-  }
-  if (!compact) {
-    doc.text(`Nº TPS/TVH : ${co.gstNumber}`, M, y); y += 11;
-    doc.text(`Nº TVQ : ${co.qstNumber}`, M, y);
-    y += 4;
-  }
-  return y + 8;
-}
-
-function sectionLabel(doc, text, x, y) {
-  doc.fillColor(C.green).font('Helvetica-Bold').fontSize(8)
-    .text(String(text).toUpperCase(), x, y, { characterSpacing: 0.6 });
-  return y + 13;
-}
-
-function hline(doc, y, { color = C.line, width = 0.6 } = {}) {
-  doc.moveTo(M, y).lineTo(R, y).strokeColor(color).lineWidth(width).stroke();
-  return y + 10;
-}
-
-function thickRule(doc, y) {
-  return hline(doc, y, { color: C.orange, width: 1 });
-}
-
-function ensureSpace(doc, y, need = 80) {
-  if (y + need < 720) return y;
+function ensureSpace(doc, y, need, ctx) {
+  if (y + need < BODY_LIMIT) return y;
   doc.addPage();
-  return brandHeader(doc);
+  return docHeader(doc, ctx.co, { ...ctx, compact: true });
 }
 
-function linesTable(doc, lines, startY) {
-  let y = startY;
-  doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(8);
-  doc.text('Description', M, y);
-  doc.text('Qté', M + 300, y, { width: 50, align: 'right' });
-  doc.text('Prix unit.', M + 360, y, { width: 70, align: 'right' });
-  doc.text('Montant', M + 440, y, { width: 62, align: 'right' });
-  y = hline(doc, y + 11);
+function roundedCard(doc, x, y, w, h, { fill = C.cream } = {}) {
+  doc.roundedRect(x, y, w, h, 6).fillColor(fill).fill();
+}
 
+/**
+ * Deux cartes côte à côte : client à gauche, détails du document à droite.
+ * rows = [[label, value], …]
+ */
+function metaCards(doc, y, leftTitle, leftLines, rightTitle, rightRows) {
+  const gap = 12;
+  const cw = (W - gap) / 2;
+  const pad = 12;
+
+  // Hauteurs
+  doc.font('Helvetica').fontSize(9);
+  let lh = 16; // titre
+  for (const line of leftLines) {
+    lh += doc.heightOfString(line.text, { width: cw - pad * 2 }) + 3;
+  }
+  let rh = 16;
+  for (const [, v] of rightRows) {
+    rh += doc.heightOfString(String(v), { width: cw - pad * 2 - 70 }) + 5;
+  }
+  const h = Math.max(lh, rh, 64) + pad * 1.5;
+
+  roundedCard(doc, M, y, cw, h);
+  roundedCard(doc, M + cw + gap, y, cw, h);
+
+  // Carte gauche
+  let ly = y + pad;
+  doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(7.5)
+    .text(leftTitle.toUpperCase(), M + pad, ly, { characterSpacing: 1 });
+  ly += 14;
+  for (const line of leftLines) {
+    doc.fillColor(line.strong ? C.black : C.muted)
+      .font(line.strong ? 'Helvetica-Bold' : 'Helvetica')
+      .fontSize(line.strong ? 10.5 : 9);
+    doc.text(line.text, M + pad, ly, { width: cw - pad * 2 });
+    ly += doc.heightOfString(line.text, { width: cw - pad * 2 }) + 3;
+  }
+
+  // Carte droite
+  const rx = M + cw + gap + pad;
+  let ry = y + pad;
+  doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(7.5)
+    .text(rightTitle.toUpperCase(), rx, ry, { characterSpacing: 1 });
+  ry += 14;
+  for (const [k, v] of rightRows) {
+    doc.fillColor(C.muted).font('Helvetica').fontSize(8.5).text(k, rx, ry, { width: 70 });
+    doc.fillColor(C.black).font('Helvetica-Bold').fontSize(8.5)
+      .text(String(v), rx + 70, ry, { width: cw - pad * 2 - 70 });
+    ry += Math.max(doc.heightOfString(String(v), { width: cw - pad * 2 - 70 }), 10) + 5;
+  }
+
+  return y + h + 16;
+}
+
+const COL = {
+  desc: { x: M + 10, w: 286 },
+  qty: { x: M + 300, w: 50 },
+  price: { x: M + 356, w: 74 },
+  amount: { x: M + 436, w: W - 436 - 10 },
+};
+
+function tableHeader(doc, y) {
+  doc.roundedRect(M, y, W, 20, 4).fillColor(C.green).fill();
+  doc.fillColor(C.white).font('Helvetica-Bold').fontSize(8);
+  const ty = y + 6;
+  doc.text('DESCRIPTION', COL.desc.x, ty, { width: COL.desc.w, characterSpacing: 0.5 });
+  doc.text('QTÉ', COL.qty.x, ty, { width: COL.qty.w, align: 'right' });
+  doc.text('PRIX UNIT.', COL.price.x, ty, { width: COL.price.w, align: 'right' });
+  doc.text('MONTANT', COL.amount.x, ty, { width: COL.amount.w, align: 'right' });
+  return y + 26;
+}
+
+function linesTable(doc, lines, startY, ctx) {
+  let y = startY;
+  y = ensureSpace(doc, y, 60, ctx);
+  y = tableHeader(doc, y);
+
+  let i = 0;
   for (const line of parseLines(lines)) {
     const qty = Number(line.qty) || 0;
     const price = Number(line.price) || 0;
     const amount = qty * price;
     const desc = line.description || '';
 
-    y = ensureSpace(doc, y, 40);
+    doc.font('Helvetica').fontSize(9);
+    const descH = doc.heightOfString(desc, { width: COL.desc.w });
+    const rowH = Math.max(descH, 11) + 9;
+
+    if (y + rowH >= BODY_LIMIT) {
+      y = ensureSpace(doc, y, rowH + 30, ctx);
+      y = tableHeader(doc, y);
+    }
+
+    if (i % 2 === 1) {
+      doc.rect(M, y - 4, W, rowH).fillColor(C.creamSoft).fill();
+    }
     doc.fillColor(C.black).font('Helvetica').fontSize(9);
-    const descH = doc.heightOfString(desc, { width: 285 });
-    doc.text(desc, M, y, { width: 285 });
-    doc.text(String(line.qty ?? qty), M + 300, y, { width: 50, align: 'right' });
-    doc.text(money(price), M + 360, y, { width: 70, align: 'right' });
-    doc.text(money(amount), M + 440, y, { width: 62, align: 'right' });
-    y += Math.max(descH, 12) + 8;
+    doc.text(desc, COL.desc.x, y, { width: COL.desc.w });
+    doc.fillColor(C.muted);
+    doc.text(String(line.qty ?? qty), COL.qty.x, y, { width: COL.qty.w, align: 'right' });
+    doc.text(money(price), COL.price.x, y, { width: COL.price.w, align: 'right' });
+    doc.fillColor(C.black).font('Helvetica-Bold');
+    doc.text(money(amount), COL.amount.x, y, { width: COL.amount.w, align: 'right' });
+    y += rowH;
+    i += 1;
   }
-  return y;
+  doc.moveTo(M, y).lineTo(R, y).strokeColor(C.line).lineWidth(0.6).stroke();
+  return y + 8;
 }
 
-function totalsBlock(doc, subtotal, y, co, label = 'Total') {
+/**
+ * Bloc totaux : boîte crème à droite, ligne TOTAL sur fond orange.
+ * Retourne { y, total, gst, qst }.
+ */
+function totalsBlock(doc, subtotal, startY, co, label, ctx, { depositNote = false } = {}) {
   const { gst, qst, total } = calcTaxes(subtotal, co);
-  y = hline(doc, y + 2);
-  const tx = M + 320;
-  const lw = 110;
-  const vw = 72;
+  const bw = 240;
+  const bx = R - bw;
+  const rowH = 16;
+  const padX = 12;
+  const boxH = rowH * 3 + 8 + 24 + 10;
 
-  const row = (caption, value, { bold = false, color = C.black, captionColor = C.muted } = {}) => {
-    doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(bold ? 10 : 9);
-    doc.fillColor(captionColor).text(caption, tx, y, { width: lw, align: 'right' });
-    doc.fillColor(color).text(money(value), tx + lw, y, { width: vw, align: 'right' });
-    y += bold ? 18 : 15;
+  let y = ensureSpace(doc, startY, boxH + (depositNote ? 34 : 10), ctx);
+
+  roundedCard(doc, bx, y, bw, boxH, { fill: C.cream });
+  let ty = y + 10;
+
+  const row = (caption, value) => {
+    doc.fillColor(C.muted).font('Helvetica').fontSize(9)
+      .text(caption, bx + padX, ty, { width: bw - padX * 2 - 80 });
+    doc.fillColor(C.black).font('Helvetica').fontSize(9)
+      .text(money(value), bx + padX, ty, { width: bw - padX * 2, align: 'right' });
+    ty += rowH;
   };
-
   row('Sous-total', subtotal);
   row(co.tax.labelGst || 'TPS 5 %', gst);
   row(co.tax.labelQst || 'TVQ 9,975 %', qst);
-  y += 2;
-  doc.moveTo(tx, y).lineTo(R, y).strokeColor(C.line).lineWidth(0.6).stroke();
-  y += 8;
-  row(label, total, { bold: true, color: C.green, captionColor: C.orange });
-  return { y: y + 8, total, gst, qst };
+
+  ty += 2;
+  doc.roundedRect(bx + 6, ty, bw - 12, 24, 5).fillColor(C.orange).fill();
+  doc.fillColor(C.white).font('Helvetica-Bold').fontSize(10)
+    .text(label.toUpperCase(), bx + padX, ty + 7, { width: bw - padX * 2 - 90, characterSpacing: 0.5 });
+  doc.fontSize(11)
+    .text(money(total), bx + padX, ty + 6, { width: bw - padX * 2, align: 'right' });
+
+  y += boxH + 8;
+
+  if (depositNote) {
+    doc.fillColor(C.muted).font('Helvetica').fontSize(8.5)
+      .text(
+        `Acompte 50 % à la commande : ${money(total / 2)}   ·   Solde à la livraison : ${money(total / 2)}`,
+        bx - 60, y, { width: bw + 60, align: 'right' }
+      );
+    y += 16;
+  }
+
+  return { y, total, gst, qst };
 }
 
-function paymentPage(doc, invoiceNumber, co) {
-  doc.addPage();
-  let y = brandHeader(doc);
-  y = companyBlock(doc, y, co, { compact: true });
-  y = thickRule(doc, y);
+function sectionTitle(doc, text, y) {
+  doc.fillColor(C.green).font('Helvetica-Bold').fontSize(10.5).text(text, M, y);
+  doc.moveTo(M, y + 15).lineTo(M + 32, y + 15).strokeColor(C.orange).lineWidth(2).stroke();
+  return y + 24;
+}
 
-  doc.fillColor(C.green).font('Helvetica-Bold').fontSize(12).text('Instructions de paiement', M, y);
-  y += 18;
-  doc.font('Helvetica').fontSize(9).fillColor(C.muted).text(co.payment.intro, M, y, { width: W });
-  y += doc.heightOfString(co.payment.intro, { width: W }) + 16;
+function paragraph(doc, text, y, { size = 9 } = {}) {
+  doc.font('Helvetica').fontSize(size).fillColor(C.muted);
+  doc.text(text, M, y, { width: W });
+  return y + doc.heightOfString(text, { width: W }) + 10;
+}
 
-  doc.fillColor(C.green).font('Helvetica-Bold').fontSize(10).text(co.payment.interac.label, M, y);
-  y += 14;
-  doc.font('Helvetica').fontSize(9).fillColor(C.muted);
-  doc.text(`Envoyer à : ${co.payment.interac.email}`, M, y); y += 13;
-  doc.text(co.payment.interac.note, M, y); y += 22;
+/** Pied de page sur toutes les pages (numérotation incluse). */
+function stampFooters(doc, co, footerLeft) {
+  const range = doc.bufferedPageRange();
+  for (let p = range.start; p < range.start + range.count; p++) {
+    doc.switchToPage(p);
+    // Écrire sous la marge basse sans déclencher l'auto-pagination de pdfkit
+    doc.page.margins.bottom = 0;
+    doc.moveTo(M, FOOTER_Y).lineTo(R, FOOTER_Y).strokeColor(C.line).lineWidth(0.5).stroke();
+    doc.fillColor(C.light).font('Helvetica').fontSize(7);
+    doc.text(footerLeft, M, FOOTER_Y + 6, { width: W - 80, lineBreak: false });
+    doc.text(`Page ${p - range.start + 1} / ${range.count}`, R - 76, FOOTER_Y + 6, {
+      width: 76, align: 'right', lineBreak: false,
+    });
+    doc.fillColor(C.light).fontSize(6.5)
+      .text(`${co.legalName} · TPS ${co.gstNumber} · TVQ ${co.qstNumber}`, M, FOOTER_Y + 15, {
+        width: W, lineBreak: false,
+      });
+    doc.page.margins.bottom = M;
+  }
+}
 
-  doc.fillColor(C.green).font('Helvetica-Bold').fontSize(10).text(co.payment.bank.label, M, y);
-  y += 14;
-  doc.font('Helvetica').fontSize(9).fillColor(C.muted);
-  doc.text(co.payment.bank.institution, M, y); y += 12;
-  doc.text(co.payment.bank.address, M, y); y += 12;
-  doc.text(`Transit : ${co.payment.bank.transit} · Institution : ${co.payment.bank.institutionNumber}`, M, y); y += 12;
-  doc.text(`Compte : ${co.payment.bank.account}`, M, y); y += 12;
-  doc.text(`Bénéficiaire : ${co.payment.bank.beneficiary}`, M, y); y += 18;
+function paymentBlock(doc, y, co, ctx, { compact = false } = {}) {
+  y = ensureSpace(doc, y, 120, ctx);
+  y = sectionTitle(doc, 'Paiement', y);
+  y = paragraph(doc, co.payment.intro, y, { size: compact ? 8 : 9 });
 
-  doc.font('Helvetica-Oblique').fontSize(8).text(
-    `${co.payment.referenceNote.replace('invoice number', `nº de facture ${invoiceNumber}`)}`,
-    M, y, { width: W }
+  const gap = 12;
+  const cw = (W - gap) / 2;
+  const pad = 10;
+  const h = 74;
+  y = ensureSpace(doc, y, h + 10, ctx);
+
+  roundedCard(doc, M, y, cw, h, { fill: C.creamSoft });
+  doc.fillColor(C.green).font('Helvetica-Bold').fontSize(8.5)
+    .text(co.payment.interac.label, M + pad, y + pad);
+  doc.fillColor(C.muted).font('Helvetica').fontSize(8);
+  doc.text(`Envoyer à : ${co.payment.interac.email}`, M + pad, y + pad + 14, { width: cw - pad * 2 });
+  doc.text(co.payment.interac.note, M + pad, y + pad + 27, { width: cw - pad * 2 });
+
+  const rx = M + cw + gap;
+  roundedCard(doc, rx, y, cw, h, { fill: C.creamSoft });
+  doc.fillColor(C.green).font('Helvetica-Bold').fontSize(8.5)
+    .text(co.payment.bank.label, rx + pad, y + pad);
+  doc.fillColor(C.muted).font('Helvetica').fontSize(8);
+  doc.text(co.payment.bank.institution, rx + pad, y + pad + 14, { width: cw - pad * 2 });
+  doc.text(
+    `Transit ${co.payment.bank.transit} · Inst. ${co.payment.bank.institutionNumber} · Compte ${co.payment.bank.account}`,
+    rx + pad, y + pad + 27, { width: cw - pad * 2 }
   );
-  y += 28;
-  doc.font('Helvetica').fontSize(10).fillColor(C.orange).text('Merci pour votre commande.', M, y);
+  doc.text(`Bénéficiaire : ${co.payment.bank.beneficiary}`, rx + pad, y + pad + 44, { width: cw - pad * 2 });
+
+  return y + h + 14;
 }
 
 export async function generateInvoicePdf(invoice, res) {
   const COMPANY = await getCompanyConfig();
-  const doc = new PDFDocument({ margin: M, size: 'LETTER' });
+  const ctx = { co: COMPANY, docType: 'Facture', number: invoice.invoice_number };
+  const doc = new PDFDocument({ margin: M, size: 'LETTER', bufferPages: true });
   doc.pipe(res);
 
   const subtotal = Number(invoice.subtotal) || 0;
   const subtitle = invoice.subtitle || invoice.notes?.split('\n')[0] || '';
 
-  let y = brandHeader(doc);
-  y = companyBlock(doc, y, COMPANY);
-  y = thickRule(doc, y);
+  let y = docHeader(doc, COMPANY, ctx);
 
-  doc.fillColor(C.green).font('Helvetica-Bold').fontSize(14).text('Facture', M, y);
-  y += 18;
   if (subtitle) {
     doc.font('Helvetica').fontSize(10).fillColor(C.muted).text(subtitle, M, y, { width: W });
-    y += doc.heightOfString(subtitle, { width: W }) + 12;
-  } else {
-    y += 4;
+    y += doc.heightOfString(subtitle, { width: W }) + 10;
   }
 
-  y = hline(doc, y);
-  const col2 = M + 300;
-  const topY = y;
+  const clientLines = [
+    { text: invoice.client_name || '—', strong: true },
+    invoice.contact && { text: `Attn : ${invoice.contact}` },
+    invoice.client_address && { text: invoice.client_address },
+    invoice.client_city && { text: invoice.client_city },
+    invoice.email && { text: invoice.email },
+  ].filter(Boolean);
 
-  y = sectionLabel(doc, 'Facturé à', M, topY);
-  doc.fillColor(C.black).font('Helvetica-Bold').fontSize(10).text(invoice.client_name || '—', M, y);
-  y += 13;
-  doc.font('Helvetica').fontSize(9).fillColor(C.muted);
-  if (invoice.contact) { doc.text(`Attn : ${invoice.contact}`, M, y); y += 12; }
-  if (invoice.client_address) {
-    const h = doc.heightOfString(invoice.client_address, { width: 260 });
-    doc.text(invoice.client_address, M, y, { width: 260 });
-    y += h + 4;
-  }
-  if (invoice.client_city) { doc.text(invoice.client_city, M, y); y += 12; }
-  if (invoice.email) { doc.text(invoice.email, M, y); y += 12; }
+  const detailRows = [
+    ['Numéro', invoice.invoice_number],
+    ['Date', fmtDate(invoice.created_at)],
+    ['Modalités', invoice.terms || COMPANY.defaultTerms],
+    invoice.due_date && ['Échéance', fmtDate(invoice.due_date)],
+    invoice.reference && ['Référence', invoice.reference],
+  ].filter(Boolean);
 
-  let yRight = sectionLabel(doc, 'Détails facture', col2, topY);
-  doc.font('Helvetica').fontSize(9).fillColor(C.black);
-  doc.text(`Nº : ${invoice.invoice_number}`, col2, yRight); yRight += 13;
-  doc.text(`Date : ${fmtDate(invoice.created_at)}`, col2, yRight); yRight += 13;
-  doc.text(`Modalités : ${invoice.terms || COMPANY.defaultTerms}`, col2, yRight); yRight += 13;
-  if (invoice.due_date) { doc.text(`Échéance : ${fmtDate(invoice.due_date)}`, col2, yRight); yRight += 13; }
-  if (invoice.reference) {
-    doc.text(`Réf. : ${invoice.reference}`, col2, yRight, { width: 210 });
-    yRight += doc.heightOfString(`Réf. : ${invoice.reference}`, { width: 210 }) + 4;
-  }
-
-  y = Math.max(y, yRight) + 8;
-  y = hline(doc, y);
+  y = metaCards(doc, y, 'Facturé à', clientLines, 'Détails', detailRows);
 
   if (invoice.order_summary || (invoice.notes && !subtitle)) {
-    doc.fillColor(C.black).font('Helvetica-Bold').fontSize(10).text('Résumé de commande', M, y);
-    y += 13;
-    doc.font('Helvetica').fontSize(9).fillColor(C.muted);
-    const summary = invoice.order_summary || invoice.notes;
-    doc.text(summary, M, y, { width: W });
-    y += doc.heightOfString(summary, { width: W }) + 14;
-    y = hline(doc, y);
+    y = sectionTitle(doc, 'Résumé de commande', y);
+    y = paragraph(doc, invoice.order_summary || invoice.notes, y);
   }
 
-  y = linesTable(doc, invoice.lines, y);
-  totalsBlock(doc, subtotal, y, COMPANY, 'Solde à payer');
+  y = linesTable(doc, invoice.lines, y, ctx);
+  let totals = totalsBlock(doc, subtotal, y, COMPANY, 'Solde à payer', ctx);
+  y = totals.y;
 
   if (Number(invoice.amount_paid) > 0) {
     const paid = Number(invoice.amount_paid) || 0;
-    const due = Math.max(0, (Number(invoice.total) || 0) - paid);
-    const yPaid = doc.y + 6;
-    doc.font('Helvetica').fontSize(9).fillColor(C.muted)
-      .text(`Déjà payé : ${money(paid)}`, M + 320, yPaid, { align: 'right', width: 182 });
+    const due = Math.max(0, (Number(invoice.total) || totals.total) - paid);
+    doc.font('Helvetica').fontSize(8.5).fillColor(C.muted)
+      .text(`Déjà payé : ${money(paid)}`, M, y, { width: W, align: 'right' });
+    y += 12;
     if (due > 0.009) {
-      doc.text(`Reste à payer : ${money(due)}`, M + 320, yPaid + 13, { align: 'right', width: 182 });
+      doc.font('Helvetica-Bold').fillColor(C.orange)
+        .text(`Reste à payer : ${money(due)}`, M, y, { width: W, align: 'right' });
+      y += 14;
     }
   }
 
-  paymentPage(doc, invoice.invoice_number, COMPANY);
+  y += 6;
+  y = paymentBlock(doc, y, COMPANY, ctx);
+  y = ensureSpace(doc, y, 30, ctx);
+  doc.font('Helvetica-Oblique').fontSize(8).fillColor(C.muted)
+    .text(COMPANY.payment.referenceNote.replace('invoice number', `nº ${invoice.invoice_number}`), M, y, { width: W });
+  y += 20;
+  doc.font('Helvetica-Bold').fontSize(10).fillColor(C.orange)
+    .text('Merci pour votre commande.', M, y);
+
+  stampFooters(doc, COMPANY, `Facture ${invoice.invoice_number} · ${COMPANY.tradeName}`);
   doc.end();
 }
 
 export async function generateQuotePdf(quote, res) {
   const COMPANY = await getCompanyConfig();
-  const doc = new PDFDocument({ margin: M, size: 'LETTER' });
+  const ctx = { co: COMPANY, docType: 'Devis', number: quote.quote_number };
+  const doc = new PDFDocument({ margin: M, size: 'LETTER', bufferPages: true });
   doc.pipe(res);
 
   const document = normalizeQuoteDocument(quote.lines);
@@ -301,90 +412,65 @@ export async function generateQuotePdf(quote, res) {
     return d;
   })();
 
-  let y = brandHeader(doc);
-  // Adresse légale (Fabre) — plus Masson / ancien atelier
-  y = companyBlock(doc, y, COMPANY);
-  y = thickRule(doc, y);
+  let y = docHeader(doc, COMPANY, ctx);
 
-  doc.fillColor(C.green).font('Helvetica-Bold').fontSize(13).text(`Devis — ${title}`, M, y, { width: W });
-  y += 18;
-  doc.font('Helvetica').fontSize(9).fillColor(C.muted);
-  doc.text(`Émis le ${fmtDate(quote.created_at)} · Valide jusqu’au ${fmtDate(validUntil)}`, M, y);
-  if (quote.quote_number) {
-    y += 12;
-    doc.text(`Nº ${quote.quote_number}`, M, y);
-  }
-  if (quote.reference) {
-    y += 12;
-    doc.text(`Référence : ${quote.reference}`, M, y);
-  }
-  y += 14;
-  y = hline(doc, y);
+  doc.fillColor(C.black).font('Helvetica-Bold').fontSize(12).text(title, M, y, { width: W });
+  y += doc.heightOfString(title, { width: W }) + 10;
 
-  if (quote.client_name) {
-    y = sectionLabel(doc, 'Préparé pour', M, y);
-    doc.fillColor(C.black).font('Helvetica-Bold').fontSize(10).text(quote.client_name, M, y);
-    y += 13;
-    doc.font('Helvetica').fontSize(9).fillColor(C.muted);
-    if (quote.contact) { doc.text(`Attn : ${quote.contact}`, M, y); y += 12; }
-    if (quote.client_address) {
-      const h = doc.heightOfString(quote.client_address, { width: W });
-      doc.text(quote.client_address, M, y, { width: W });
-      y += h + 4;
-    }
-    if (quote.client_city) { doc.text(quote.client_city, M, y); y += 12; }
-    if (quote.email) { doc.text(quote.email, M, y); y += 12; }
-    if (quote.client_phone) { doc.text(quote.client_phone, M, y); y += 12; }
-    y += 6;
-    y = hline(doc, y);
-  }
+  const clientLines = quote.client_name
+    ? [
+      { text: quote.client_name, strong: true },
+      quote.contact && { text: `Attn : ${quote.contact}` },
+      quote.client_address && { text: quote.client_address },
+      quote.client_city && { text: quote.client_city },
+      quote.email && { text: quote.email },
+      quote.client_phone && { text: quote.client_phone },
+    ].filter(Boolean)
+    : [{ text: '—' }];
+
+  const detailRows = [
+    quote.quote_number && ['Numéro', quote.quote_number],
+    ['Émis le', fmtDate(quote.created_at)],
+    ['Valide jusqu’au', fmtDate(validUntil)],
+    quote.reference && ['Référence', quote.reference],
+  ].filter(Boolean);
+
+  y = metaCards(doc, y, 'Préparé pour', clientLines, 'Détails', detailRows);
 
   if (quote.notes) {
-    doc.fillColor(C.black).font('Helvetica-Bold').fontSize(10).text('Portée des travaux', M, y);
-    y += 13;
-    doc.font('Helvetica').fontSize(9).fillColor(C.muted);
-    doc.text(quote.notes, M, y, { width: W });
-    y += doc.heightOfString(quote.notes, { width: W }) + 12;
-    y = hline(doc, y);
+    y = sectionTitle(doc, 'Portée des travaux', y);
+    y = paragraph(doc, quote.notes, y);
   }
 
   for (const section of document.sections) {
-    y = ensureSpace(doc, y, 100);
+    y = ensureSpace(doc, y, 100, ctx);
     if (section.title) {
-      doc.fillColor(C.green).font('Helvetica-Bold').fontSize(10).text(section.title, M, y);
-      y += 14;
+      doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(9)
+        .text(section.title.toUpperCase(), M, y, { characterSpacing: 0.8 });
+      y += 15;
     }
-    y = linesTable(doc, section.lines, y) + 6;
+    y = linesTable(doc, section.lines, y, ctx) + 4;
   }
 
-  const { y: y2 } = totalsBlock(doc, subtotal, y, COMPANY, 'Total TTC');
-  y = y2 + 4;
-  doc.font('Helvetica').fontSize(8).fillColor(C.light)
-    .text('Montants en dollars canadiens. Taxes : TPS 5 % + TVQ 9,975 %.', M, y);
-  y += 16;
+  const { y: yAfterTotals } = totalsBlock(doc, subtotal, y, COMPANY, 'Total TTC', ctx, { depositNote: true });
+  y = yAfterTotals + 4;
 
   const addNotes = quote.additional_notes || document.additional_notes;
   if (addNotes) {
-    y = ensureSpace(doc, y, 80);
-    y = hline(doc, y);
-    doc.fillColor(C.black).font('Helvetica-Bold').fontSize(10).text('Notes additionnelles', M, y);
-    y += 13;
-    doc.font('Helvetica').fontSize(9).fillColor(C.muted);
-    doc.text(addNotes, M, y, { width: W });
-    y += doc.heightOfString(addNotes, { width: W }) + 14;
+    y = ensureSpace(doc, y, 60, ctx);
+    y = sectionTitle(doc, 'Notes additionnelles', y);
+    y = paragraph(doc, addNotes, y);
   }
 
   if ((document.photos || []).length) {
-    y = ensureSpace(doc, y, 200);
-    y = hline(doc, y);
-    doc.fillColor(C.black).font('Helvetica-Bold').fontSize(10).text('Photos', M, y);
-    y += 13;
+    y = ensureSpace(doc, y, 200, ctx);
+    y = sectionTitle(doc, 'Photos', y);
     for (const photo of document.photos.slice(0, 6)) {
       const abs = path.isAbsolute(photo.url)
         ? photo.url
         : path.join(__dirname, '../..', String(photo.url).replace(/^\//, ''));
       if (existsSync(abs)) {
-        y = ensureSpace(doc, y, 180);
+        y = ensureSpace(doc, y, 180, ctx);
         try {
           doc.image(abs, M, y, { fit: [240, 160] });
           y += 170;
@@ -392,57 +478,34 @@ export async function generateQuotePdf(quote, res) {
             doc.font('Helvetica').fontSize(8).fillColor(C.muted).text(photo.caption, M, y, { width: W });
             y += 14;
           }
-        } catch { /* skip bad image */ }
+        } catch { /* image illisible — ignorer */ }
       }
     }
   }
 
-  y = ensureSpace(doc, y, 140);
-  y = hline(doc, y);
-  doc.fillColor(C.black).font('Helvetica-Bold').fontSize(10).text('Conditions', M, y);
-  y += 14;
+  y = ensureSpace(doc, y, 120, ctx);
+  y = sectionTitle(doc, 'Conditions', y);
   doc.font('Helvetica').fontSize(8).fillColor(C.muted);
   for (const term of COMPANY.quoteTerms) {
-    y = ensureSpace(doc, y, 36);
-    doc.text(`• ${term}`, M, y, { width: W });
-    y += doc.heightOfString(`• ${term}`, { width: W }) + 4;
+    y = ensureSpace(doc, y, 30, ctx);
+    doc.text(`•  ${term}`, M, y, { width: W });
+    y += doc.heightOfString(`•  ${term}`, { width: W }) + 4;
   }
   y += 10;
 
   if (document.options?.show_payment !== false) {
-    y = ensureSpace(doc, y, 120);
-    y = hline(doc, y);
-    doc.fillColor(C.black).font('Helvetica-Bold').fontSize(10).text('Paiement', M, y);
-    y += 13;
-    doc.font('Helvetica').fontSize(8).fillColor(C.muted);
-    doc.text(COMPANY.payment.intro, M, y, { width: W });
-    y += doc.heightOfString(COMPANY.payment.intro, { width: W }) + 10;
-    doc.fillColor(C.green).font('Helvetica-Bold').fontSize(9).text(COMPANY.payment.interac.label, M, y);
-    y += 12;
-    doc.font('Helvetica').fontSize(8).fillColor(C.muted);
-    doc.text(`Envoyer à : ${COMPANY.payment.interac.email}`, M, y); y += 11;
-    doc.text(COMPANY.payment.interac.note, M, y); y += 12;
-    doc.fillColor(C.green).font('Helvetica-Bold').fontSize(9).text(COMPANY.payment.bank.label, M, y);
-    y += 12;
-    doc.font('Helvetica').fontSize(8).fillColor(C.muted);
-    doc.text(
-      `${COMPANY.payment.bank.institution} · Transit ${COMPANY.payment.bank.transit} · Inst. ${COMPANY.payment.bank.institutionNumber} · Compte ${COMPANY.payment.bank.account}`,
-      M, y, { width: W }
-    );
-    y += 18;
+    y = paymentBlock(doc, y, COMPANY, ctx, { compact: true });
   }
 
   if (document.options?.show_signature !== false) {
-    y = ensureSpace(doc, y, 100);
-    y = hline(doc, y);
-    doc.fillColor(C.black).font('Helvetica-Bold').fontSize(10).text('Pour confirmer la commande', M, y);
-    y += 14;
-    doc.font('Helvetica').fontSize(9).fillColor(C.muted);
-    doc.text(
+    y = ensureSpace(doc, y, 110, ctx);
+    y = sectionTitle(doc, 'Pour confirmer la commande', y);
+    y = paragraph(
+      doc,
       `Veuillez retourner ce devis signé à ${COMPANY.email}. Nous confirmerons ensuite le calendrier de production.`,
-      M, y, { width: W }
+      y
     );
-    y += 28;
+    y += 10;
     doc.fillColor(C.black).font('Helvetica').fontSize(9);
     doc.text('Signature client : ______________________________________', M, y);
     y += 22;
@@ -452,20 +515,7 @@ export async function generateQuotePdf(quote, res) {
     doc.text(acceptLabel, M, y);
   }
 
-  if (quote.quote_number) {
-    const footer = `${title} · ${COMPANY.tradeName} · ${quote.quote_number}`;
-    const prevBottom = doc.page.margins.bottom;
-    doc.page.margins.bottom = 24;
-    doc.fontSize(7).fillColor(C.light)
-      .text(footer, M, doc.page.height - 36, {
-        align: 'center',
-        width: W,
-        lineBreak: false,
-        height: 12,
-      });
-    doc.page.margins.bottom = prevBottom;
-  }
-
+  stampFooters(doc, COMPANY, `${title} · ${COMPANY.tradeName}${quote.quote_number ? ` · ${quote.quote_number}` : ''}`);
   doc.end();
 }
 
