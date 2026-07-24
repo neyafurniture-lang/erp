@@ -124,7 +124,10 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
   const [hoursPeople, setHoursPeople] = useState(() => normalizeHoursPeople(hoursLog));
   const [hoursRows, setHoursRows] = useState(() => normalizeHoursRows(hoursLog?.rows || [], normalizeHoursPeople(hoursLog)));
   const hoursDirtyRef = useRef(false);
+  const hoursBusyRef = useRef(false);
   const hoursAutosaveRef = useRef(null);
+  const hoursRowsRef = useRef(hoursRows);
+  const hoursPeopleRef = useRef(hoursPeople);
   const savedHoursSnapRef = useRef(hoursSnapshot(
     normalizeHoursPeople(hoursLog),
     normalizeHoursRows(hoursLog?.rows || [], normalizeHoursPeople(hoursLog))
@@ -193,6 +196,8 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
     const log = parseHoursLogbook(project);
     const people = normalizeHoursPeople(log);
     const rows = normalizeHoursRows(log?.rows || [], people);
+    hoursPeopleRef.current = people;
+    hoursRowsRef.current = rows;
     setHoursPeople(people);
     setHoursRows(rows);
     savedHoursSnapRef.current = hoursSnapshot(people, rows);
@@ -202,6 +207,14 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
   useEffect(() => {
     hoursDirtyRef.current = hoursDirty;
   }, [hoursDirty]);
+
+  useEffect(() => {
+    hoursRowsRef.current = hoursRows;
+  }, [hoursRows]);
+
+  useEffect(() => {
+    hoursPeopleRef.current = hoursPeople;
+  }, [hoursPeople]);
 
   useEffect(() => {
     const t = searchParams.get('tab');
@@ -222,10 +235,45 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
   useEffect(() => () => {
     if (hoursAutosaveRef.current) clearTimeout(hoursAutosaveRef.current);
     if (notesAutosaveRef.current) clearTimeout(notesAutosaveRef.current);
-  }, []);
+    // Flush best-effort si navigation SPA avec heures non sauvées
+    if (hoursDirtyRef.current && project?.id) {
+      try {
+        const people = hoursPeopleRef.current;
+        const rows = hoursRowsRef.current;
+        const totals = {};
+        for (const p of people) totals[p] = sumPersonHours(rows, p);
+        const body = JSON.stringify({
+          hours_logbook: {
+            source: 'manuel',
+            people,
+            rows,
+            totals,
+            updated_at: new Date().toISOString(),
+          },
+        });
+        const root = typeof window !== 'undefined' ? `${window.location.origin}/api` : '';
+        const token = typeof window !== 'undefined' ? localStorage.getItem('neya_token') : null;
+        if (root && token) {
+          fetch(`${root}/projects/${project.id}/hours-logbook`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body,
+            keepalive: true,
+          }).catch(() => {});
+        }
+      } catch { /* best effort */ }
+    }
+  }, [project.id]);
 
   function markHoursDirty(nextPeople, nextRows) {
-    const snap = hoursSnapshot(nextPeople ?? hoursPeople, nextRows ?? hoursRows);
+    const people = nextPeople ?? hoursPeopleRef.current;
+    const rows = nextRows ?? hoursRowsRef.current;
+    hoursPeopleRef.current = people;
+    hoursRowsRef.current = rows;
+    const snap = hoursSnapshot(people, rows);
     const dirty = snap !== savedHoursSnapRef.current;
     setHoursDirty(dirty);
     hoursDirtyRef.current = dirty;
@@ -447,7 +495,8 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
   function updateHourRow(idx, field, value) {
     setHoursRows(rows => {
       const next = rows.map((r, i) => (i === idx ? { ...r, [field]: value } : r));
-      queueMicrotask(() => markHoursDirty(hoursPeople, next));
+      hoursRowsRef.current = next;
+      queueMicrotask(() => markHoursDirty(hoursPeopleRef.current, next));
       return next;
     });
   }
@@ -458,15 +507,17 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
         if (i !== idx) return r;
         return { ...r, hours: { ...r.hours, [person]: value } };
       });
-      queueMicrotask(() => markHoursDirty(hoursPeople, next));
+      hoursRowsRef.current = next;
+      queueMicrotask(() => markHoursDirty(hoursPeopleRef.current, next));
       return next;
     });
   }
 
   function addHoursRow() {
     setHoursRows(rows => {
-      const next = [...rows, emptyHoursRow(hoursPeople)];
-      queueMicrotask(() => markHoursDirty(hoursPeople, next));
+      const next = [...rows, emptyHoursRow(hoursPeopleRef.current)];
+      hoursRowsRef.current = next;
+      queueMicrotask(() => markHoursDirty(hoursPeopleRef.current, next));
       return next;
     });
   }
@@ -474,7 +525,8 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
   function removeHoursRow(idx) {
     setHoursRows(rows => {
       const next = rows.filter((_, i) => i !== idx);
-      queueMicrotask(() => markHoursDirty(hoursPeople, next));
+      hoursRowsRef.current = next;
+      queueMicrotask(() => markHoursDirty(hoursPeopleRef.current, next));
       return next;
     });
   }
@@ -482,42 +534,59 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
   async function saveHoursLogbook(opts = {}) {
     const silent = opts.silent === true;
     const confirmClear = opts.confirmClear === true;
-    if (hoursBusy) return;
+    if (hoursBusyRef.current) {
+      scheduleHoursAutosave();
+      return;
+    }
+    const people = hoursPeopleRef.current;
+    const rows = hoursRowsRef.current;
+    const snapAtStart = hoursSnapshot(people, rows);
+    hoursBusyRef.current = true;
     setHoursBusy(true);
     if (!silent) setHoursSaveMsg('');
     try {
       const totals = {};
-      for (const p of hoursPeople) totals[p] = sumPersonHours(hoursRows, p);
+      for (const p of people) totals[p] = sumPersonHours(rows, p);
       const payload = {
         source: hoursLog?.source || 'manuel',
-        people: hoursPeople,
-        rows: hoursRows,
+        people,
+        rows,
         totals,
         updated_at: new Date().toISOString(),
       };
       if (confirmClear) payload.confirm_clear = true;
 
-      const result = await api(`/projects/${project.id}/hours-logbook`, {
+      await api(`/projects/${project.id}/hours-logbook`, {
         method: 'PATCH',
         body: JSON.stringify({ hours_logbook: payload }),
       });
-      savedHoursSnapRef.current = hoursSnapshot(hoursPeople, hoursRows);
-      setHoursDirty(false);
-      hoursDirtyRef.current = false;
-      setHoursSaveMsg(silent ? 'Enregistré automatiquement' : 'Enregistré');
-      setTimeout(() => setHoursSaveMsg(''), 2000);
-      if (result?.project) {
-        // Recharge pour sync meta (prev inclus) sans perdre l’état local propre
+
+      const currentSnap = hoursSnapshot(hoursPeopleRef.current, hoursRowsRef.current);
+      if (currentSnap === snapAtStart) {
+        savedHoursSnapRef.current = snapAtStart;
+        setHoursDirty(false);
+        hoursDirtyRef.current = false;
+        setHoursSaveMsg(silent ? 'Enregistré automatiquement' : 'Enregistré');
+        setTimeout(() => setHoursSaveMsg(''), 2000);
         onReload();
       } else {
-        onReload();
+        // Saisie pendant l’enregistrement — ne pas écraser, re-sauver
+        setHoursSaveMsg('Enregistré — suite en cours…');
+        scheduleHoursAutosave();
       }
     } catch (err) {
       if (err?.code === 'HOURS_CLEAR_BLOCKED' || /effacer le carnet/i.test(err.message || '')) {
+        // Autosave silencieux : ne jamais proposer d’effacer (cause fréquente de wipe)
+        if (silent) {
+          setHoursSaveMsg('Auto-save bloqué — heures conservées');
+          setTimeout(() => setHoursSaveMsg(''), 2500);
+          return;
+        }
         const ok = window.confirm(
           `${err.message}\n\nVoulez-vous vraiment effacer toutes les heures ?`
         );
         if (ok) {
+          hoursBusyRef.current = false;
           setHoursBusy(false);
           return saveHoursLogbook({ ...opts, confirmClear: true, silent: false });
         }
@@ -528,6 +597,7 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
         setHoursSaveMsg(err.message || 'Auto-save échoué');
       }
     } finally {
+      hoursBusyRef.current = false;
       setHoursBusy(false);
     }
   }
@@ -535,6 +605,7 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
   async function restoreHoursLogbook() {
     if (!hoursLogPrev?.rows?.length) return;
     if (!window.confirm(`Restaurer ${hoursLogPrev.rows.length} ligne(s) de la sauvegarde précédente ?`)) return;
+    hoursBusyRef.current = true;
     setHoursBusy(true);
     try {
       await api(`/projects/${project.id}/hours-logbook/restore`, { method: 'POST' });
@@ -545,6 +616,7 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
     } catch (err) {
       window.alert(err.message || 'Restauration impossible');
     } finally {
+      hoursBusyRef.current = false;
       setHoursBusy(false);
     }
   }
