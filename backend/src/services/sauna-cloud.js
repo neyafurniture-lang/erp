@@ -22,6 +22,65 @@ export const SAUNA_FRAME_STAGES = [
   { key: 'delivered', label: 'Livré' },
 ];
 
+/**
+ * BOM Cutting Plan Sierra (PDF) — pièces par frame.
+ * 2 longs + 2 shorts (périmètre) + traverses intérieures.
+ */
+export const SIERRA_CUTTING_BOM = {
+  H2013: {
+    label: '20×13"',
+    long_in: 13,
+    short_in: 20,
+    long_count: 2,
+    short_count: 2,
+    traverse_in: 20,
+    traverse_count: 2,
+  },
+  H2026: {
+    label: '20×26"',
+    long_in: 26,
+    short_in: 20,
+    long_count: 2,
+    short_count: 2,
+    traverse_in: 20,
+    traverse_count: 4,
+  },
+  H2226: {
+    label: '22×26"',
+    long_in: 26,
+    short_in: 22,
+    long_count: 2,
+    short_count: 2,
+    traverse_in: 22,
+    traverse_count: 4,
+  },
+  H3313: {
+    label: '33×13"',
+    long_in: 33,
+    short_in: 13,
+    long_count: 2,
+    short_count: 2,
+    traverse_in: 13,
+    traverse_count: 2,
+  },
+  H3726: {
+    label: '37×26"',
+    long_in: 37,
+    short_in: 26,
+    long_count: 2,
+    short_count: 2,
+    traverse_in: 26,
+    traverse_count: 4,
+  },
+};
+
+export const SIERRA_PLAN_META = {
+  title: 'Cutting plan — Sierra Frames',
+  invoice: '#1026',
+  pdf_url: '/docs/Cutting_Plan_Sierra_EN.pdf',
+  notes: 'Stock structurel refendu ×2 · Traverses refendues ×4 · Planches 2×4 × 8 pi',
+};
+
 /** Anciennes tâches checklist (conservées si déjà créées) */
 export const DEFAULT_SAUNA_FRAMES = [
   { title: 'Frame base / plancher', type: 'assemblage' },
@@ -110,10 +169,175 @@ export function normalizeTracker(saved) {
   return { frames, stages: SAUNA_FRAME_STAGES };
 }
 
+function piecesPerFrame(bom) {
+  if (!bom) return 0;
+  return (bom.long_count || 0) + (bom.short_count || 0) + (bom.traverse_count || 0);
+}
+
+/** Combien de frames n’ont pas encore atteint cette étape (pipeline exclusif). */
+export function framesNotReachedStage(row, stageKey) {
+  const qty = Number(row.qty) || 0;
+  const counts = row.counts || {};
+  const order = SAUNA_FRAME_STAGES.map((s) => s.key);
+  const idx = order.indexOf(stageKey);
+  if (idx < 0) return qty;
+  // Frames déjà à cette étape ou plus loin
+  const reached = order.slice(idx).reduce((s, k) => s + (Number(counts[k]) || 0), 0);
+  return Math.max(0, qty - reached);
+}
+
+/** Expand n frames d’un SKU en compteurs de pièces (par longueur). */
+export function expandPiecesForSku(sku, frameCount) {
+  const n = Math.max(0, Math.round(Number(frameCount) || 0));
+  const bom = SIERRA_CUTTING_BOM[String(sku || '').toUpperCase()];
+  if (!bom || !n) {
+    return {
+      sku: String(sku || '').toUpperCase(),
+      frames: n,
+      pieces: 0,
+      structural: 0,
+      traverses: 0,
+      by_length: {},
+      bom: bom || null,
+    };
+  }
+  const by_length = {};
+  const add = (inches, count) => {
+    if (!inches || !count) return;
+    const key = `${inches}"`;
+    by_length[key] = (by_length[key] || 0) + count;
+  };
+  add(bom.long_in, bom.long_count * n);
+  add(bom.short_in, bom.short_count * n);
+  add(bom.traverse_in, bom.traverse_count * n);
+  const structural = (bom.long_count + bom.short_count) * n;
+  const traverses = bom.traverse_count * n;
+  return {
+    sku: String(sku).toUpperCase(),
+    frames: n,
+    pieces: structural + traverses,
+    structural,
+    traverses,
+    by_length,
+    bom,
+  };
+}
+
+function mergeLengthMaps(target, source) {
+  for (const [k, v] of Object.entries(source || {})) {
+    target[k] = (target[k] || 0) + v;
+  }
+  return target;
+}
+
+/**
+ * Pour chaque étape : frames manquantes × BOM Sierra → pièces manquantes.
+ * - debited : frames pas encore débitées (= à couper)
+ * - in_progress : pas encore en assemblage
+ * - done / delivered : idem
+ */
+export function computeSierraMissing(frames = []) {
+  const by_sku = [];
+  const by_stage = {};
+  for (const st of SAUNA_FRAME_STAGES) {
+    by_stage[st.key] = {
+      key: st.key,
+      label: st.label,
+      frames: 0,
+      pieces: 0,
+      structural: 0,
+      traverses: 0,
+      by_length: {},
+      rows: [],
+    };
+  }
+
+  for (const row of frames) {
+    const sku = String(row.sku || '').toUpperCase();
+    const bom = SIERRA_CUTTING_BOM[sku];
+    const remaining = Math.max(0, (Number(row.qty) || 0) - (
+      SAUNA_FRAME_STAGES.reduce((s, st) => s + (Number(row.counts?.[st.key]) || 0), 0)
+    ));
+    const cutMissing = expandPiecesForSku(sku, remaining);
+    const skuEntry = {
+      sku,
+      label: row.label || bom?.label || sku,
+      qty: Number(row.qty) || 0,
+      remaining,
+      pieces_per_frame: piecesPerFrame(bom),
+      pieces_missing: cutMissing.pieces,
+      structural_missing: cutMissing.structural,
+      traverses_missing: cutMissing.traverses,
+      by_length: cutMissing.by_length,
+      has_bom: Boolean(bom),
+      missing_by_stage: {},
+    };
+
+    for (const st of SAUNA_FRAME_STAGES) {
+      const n = framesNotReachedStage(row, st.key);
+      const exp = expandPiecesForSku(sku, n);
+      skuEntry.missing_by_stage[st.key] = {
+        frames: n,
+        pieces: exp.pieces,
+        structural: exp.structural,
+        traverses: exp.traverses,
+        by_length: exp.by_length,
+      };
+      const bucket = by_stage[st.key];
+      bucket.frames += n;
+      bucket.pieces += exp.pieces;
+      bucket.structural += exp.structural;
+      bucket.traverses += exp.traverses;
+      mergeLengthMaps(bucket.by_length, exp.by_length);
+      if (bom && n > 0) {
+        bucket.rows.push({
+          sku,
+          label: skuEntry.label,
+          frames: n,
+          pieces: exp.pieces,
+        });
+      }
+    }
+
+    by_sku.push(skuEntry);
+  }
+
+  // Totaux « à débiter » = étape debited (pièces encore à couper)
+  const to_cut = by_stage.debited;
+  const length_list = Object.entries(to_cut.by_length)
+    .map(([length, qty]) => ({ length, qty }))
+    .sort((a, b) => parseFloat(b.length) - parseFloat(a.length));
+
+  return {
+    plan: SIERRA_PLAN_META,
+    bom: SIERRA_CUTTING_BOM,
+    by_sku,
+    by_stage,
+    to_cut: {
+      frames: to_cut.frames,
+      pieces: to_cut.pieces,
+      structural: to_cut.structural,
+      traverses: to_cut.traverses,
+      by_length: length_list,
+    },
+  };
+}
+
 export function enrichTrackerRow(row) {
   const placed = SAUNA_FRAME_STAGES.reduce((s, st) => s + (Number(row.counts?.[st.key]) || 0), 0);
   const remaining = Math.max(0, (Number(row.qty) || 0) - placed);
-  return { ...row, remaining, placed };
+  const sku = String(row.sku || '').toUpperCase();
+  const bom = SIERRA_CUTTING_BOM[sku] || null;
+  const pieces_per_frame = piecesPerFrame(bom);
+  const pieces_missing = remaining * pieces_per_frame;
+  return {
+    ...row,
+    remaining,
+    placed,
+    bom,
+    pieces_per_frame,
+    pieces_missing,
+  };
 }
 
 export function summarizeTracker(tracker) {
@@ -130,7 +354,18 @@ export function summarizeTracker(tracker) {
   return {
     frames,
     stages: SAUNA_FRAME_STAGES,
-    totals: { qty, remaining, debited, in_progress: inProgress, done, delivered, pct, complete },
+    totals: {
+      qty,
+      remaining,
+      debited,
+      in_progress: inProgress,
+      done,
+      delivered,
+      pct,
+      complete,
+      pieces_missing: frames.reduce((s, f) => s + (f.pieces_missing || 0), 0),
+    },
+    sierra: computeSierraMissing(frames),
   };
 }
 
@@ -269,6 +504,7 @@ export async function getSaunaCloudBoard(projectId = null) {
       client_id: proj.client_id,
     },
     tracker,
+    sierra: tracker.sierra || computeSierraMissing(tracker.frames),
     frames,
     progress: {
       done: tracker.totals.delivered,
@@ -276,6 +512,7 @@ export async function getSaunaCloudBoard(projectId = null) {
       pct: tracker.totals.pct,
       remaining: tracker.totals.remaining,
       complete: tracker.totals.complete,
+      pieces_missing: tracker.totals.pieces_missing || 0,
       tasks_done: doneTasks,
       tasks_total: frames.length,
     },
