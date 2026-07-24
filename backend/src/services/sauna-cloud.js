@@ -78,8 +78,37 @@ export const SIERRA_PLAN_META = {
   title: 'Cutting plan — Sierra Frames',
   invoice: '#1026',
   pdf_url: '/docs/Cutting_Plan_Sierra_EN.pdf',
-  notes: 'Stock structurel refendu ×2 · Traverses refendues ×4 · Planches 2×4 × 8 pi',
+  notes: 'Stock structurel refendu ×2 · Traverses refendues ×4 · Planches 2×4 × 8 pi · Longueurs affichées en cm',
+  length_unit: 'cm',
 };
+
+/** BOM stocke les cotes produit en pouces → affichage atelier en cm. */
+export function inchesToCm(inches) {
+  const n = Number(inches);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n * 2.54 * 10) / 10;
+}
+
+export function formatLengthCm(inches) {
+  const cm = inchesToCm(inches);
+  if (cm == null) return '';
+  const s = Number.isInteger(cm) ? String(cm) : String(cm);
+  return `${s} cm`;
+}
+
+/** Normalise une clé de longueur (legacy `"20"` / `20"` / `50.8 cm`) → label cm. */
+export function normalizeLengthKey(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  const cmMatch = s.match(/^(\d+(?:\.\d+)?)\s*cm$/i);
+  if (cmMatch) {
+    const cm = Math.round(Number(cmMatch[1]) * 10) / 10;
+    return `${Number.isInteger(cm) ? cm : cm} cm`;
+  }
+  const inchMatch = s.match(/^(\d+(?:\.\d+)?)\s*"?$/);
+  if (inchMatch) return formatLengthCm(inchMatch[1]);
+  return s;
+}
 
 /** Anciennes tâches checklist (conservées si déjà créées) */
 export const DEFAULT_SAUNA_FRAMES = [
@@ -169,7 +198,7 @@ export function normalizeTracker(saved) {
   return { frames, stages: SAUNA_FRAME_STAGES, size_logs: normalizeSizeLogs(saved?.size_logs) };
 }
 
-/** Notes de tailles (côtés / traverses) — clés = "20\"", valeurs = texte atelier. */
+/** Notes de tailles (côtés / traverses) — clés = "50.8 cm", valeurs = texte atelier. */
 export function normalizeSizeLogs(raw) {
   const out = { sides: {}, traverses: {} };
   if (!raw || typeof raw !== 'object') return out;
@@ -177,9 +206,11 @@ export function normalizeSizeLogs(raw) {
     const src = raw[kind];
     if (!src || typeof src !== 'object') continue;
     for (const [k, v] of Object.entries(src)) {
-      const key = String(k || '').trim();
+      const key = normalizeLengthKey(k);
       if (!key) continue;
-      out[kind][key] = String(v ?? '').slice(0, 2000);
+      const text = String(v ?? '').slice(0, 2000);
+      // Fusionne legacy pouces → cm si les deux clés existent
+      out[kind][key] = out[kind][key] && !text ? out[kind][key] : text || out[kind][key] || '';
     }
   }
   return out;
@@ -188,6 +219,7 @@ export function normalizeSizeLogs(raw) {
 /**
  * Agrège les longueurs BOM pour la commande (qty × counts).
  * kind = 'sides' → longs + shorts ; 'traverses' → traverses.
+ * Labels en cm (atelier).
  */
 export function aggregatePieceSizes(frames = [], kind = 'sides') {
   const by = new Map();
@@ -199,8 +231,16 @@ export function aggregatePieceSizes(frames = [], kind = 'sides') {
     if (!qty) continue;
     const add = (inches, count, role) => {
       if (!inches || !count) return;
-      const length = `${inches}"`;
-      const prev = by.get(length) || { length, inches: Number(inches), qty: 0, roles: {}, skus: [] };
+      const length = formatLengthCm(inches);
+      const cm = inchesToCm(inches);
+      const prev = by.get(length) || {
+        length,
+        inches: Number(inches),
+        cm,
+        qty: 0,
+        roles: {},
+        skus: [],
+      };
       const pieceQty = count * qty;
       prev.qty += pieceQty;
       prev.roles[role] = (prev.roles[role] || 0) + pieceQty;
@@ -214,7 +254,7 @@ export function aggregatePieceSizes(frames = [], kind = 'sides') {
       add(bom.short_in, bom.short_count, 'short');
     }
   }
-  return [...by.values()].sort((a, b) => b.inches - a.inches);
+  return [...by.values()].sort((a, b) => (b.cm || 0) - (a.cm || 0));
 }
 
 function piecesPerFrame(bom) {
@@ -263,7 +303,7 @@ export function expandPiecesForSku(sku, frameCount) {
   const by_length = {};
   const add = (inches, count) => {
     if (!inches || !count) return;
-    const key = `${inches}"`;
+    const key = formatLengthCm(inches);
     by_length[key] = (by_length[key] || 0) + count;
   };
   add(bom.long_in, bom.long_count * n);
@@ -367,8 +407,8 @@ export function computeSierraMissing(frames = []) {
   // Totaux « à débiter » = étape debited (pièces encore à couper)
   const to_cut = by_stage.debited;
   const length_list = Object.entries(to_cut.by_length)
-    .map(([length, qty]) => ({ length, qty }))
-    .sort((a, b) => parseFloat(b.length) - parseFloat(a.length));
+    .map(([length, qty]) => ({ length, qty, cm: parseFloat(length) || 0 }))
+    .sort((a, b) => b.cm - a.cm);
 
   // Bois déjà débité = commande − encore à couper
   let orderSides = 0;

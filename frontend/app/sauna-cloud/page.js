@@ -65,6 +65,19 @@ const STAGE_STYLE = {
 
 const SIERRA_PDF = '/docs/Cutting_Plan_Sierra_EN.pdf';
 
+/** BOM produit en pouces → affichage atelier en cm. */
+export function inchesToCm(inches) {
+  const n = Number(inches);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n * 2.54 * 10) / 10;
+}
+
+export function formatLengthCm(inches) {
+  const cm = inchesToCm(inches);
+  if (cm == null) return '';
+  return `${Number.isInteger(cm) ? cm : cm} cm`;
+}
+
 function emptyCounts() {
   return { debited: 0, in_progress: 0, done: 0, delivered: 0 };
 }
@@ -104,7 +117,7 @@ function expandLengths(sku, frameCount) {
   if (!bom || !n) return { pieces: 0, structural: 0, traverses: 0, by_length: by };
   const add = (inches, count) => {
     if (!inches || !count) return;
-    const key = `${inches}"`;
+    const key = formatLengthCm(inches);
     by[key] = (by[key] || 0) + count;
   };
   add(bom.long_in, bom.long_count * n);
@@ -125,8 +138,9 @@ export function aggregatePieceSizes(frames = [], kind = 'sides') {
     if (!qty) continue;
     const add = (inches, count, role) => {
       if (!inches || !count) return;
-      const length = `${inches}"`;
-      const prev = by.get(length) || { length, inches: Number(inches), qty: 0, roles: {}, skus: [] };
+      const length = formatLengthCm(inches);
+      const cm = inchesToCm(inches);
+      const prev = by.get(length) || { length, inches: Number(inches), cm, qty: 0, roles: {}, skus: [] };
       const pieceQty = count * qty;
       prev.qty += pieceQty;
       prev.roles[role] = (prev.roles[role] || 0) + pieceQty;
@@ -140,7 +154,7 @@ export function aggregatePieceSizes(frames = [], kind = 'sides') {
       add(bom.short_in, bom.short_count, 'short');
     }
   }
-  return [...by.values()].sort((a, b) => b.inches - a.inches);
+  return [...by.values()].sort((a, b) => (b.cm || 0) - (a.cm || 0));
 }
 
 function buildLocalFrames(apiFrames) {
@@ -262,8 +276,8 @@ function computeSierraLocal(frames) {
       sides: to_cut.structural,
       traverses: to_cut.traverses,
       by_length: Object.entries(to_cut.by_length)
-        .map(([length, qty]) => ({ length, qty }))
-        .sort((a, b) => parseFloat(b.length) - parseFloat(a.length)),
+        .map(([length, qty]) => ({ length, qty, cm: parseFloat(length) || 0 }))
+        .sort((a, b) => b.cm - a.cm),
     },
   };
 }
@@ -325,7 +339,7 @@ function SizeNotesPanel({ kind, title, sizes, notes, onChangeNote, onClose, savi
             <p className="text-[11px] font-semibold uppercase tracking-wide text-neya-orange">{title}</p>
             <p className="font-display text-2xl font-semibold tabular-nums text-neya-ink">{total}</p>
             <p className="text-xs text-neya-muted mt-0.5">
-              Clique une ligne pour noter la taille / le bois utilisé
+              Longueurs en cm — note essence, refente, défauts…
               {saving ? ' · Enregistrement…' : ''}
             </p>
           </div>
@@ -771,7 +785,7 @@ export default function SaunaCloudPage() {
                 const busy = savingSku === row.sku;
                 const over = row.placed > row.qty;
                 const bomHint = row.bom
-                  ? `${row.sides_per_frame} côtés/frame + ${row.traverses_per_frame} trav./frame · L${row.bom.long_in}"×${row.bom.long_count} + S${row.bom.short_in}"×${row.bom.short_count} + T${row.bom.traverse_in}"×${row.bom.traverse_count}`
+                  ? `${row.sides_per_frame} côtés/frame + ${row.traverses_per_frame} trav./frame · L${formatLengthCm(row.bom.long_in)}×${row.bom.long_count} + S${formatLengthCm(row.bom.short_in)}×${row.bom.short_count} + T${formatLengthCm(row.bom.traverse_in)}×${row.bom.traverse_count}`
                   : 'Hors plan Sierra';
                 const doneish = (row.counts?.done || 0) + (row.counts?.delivered || 0) > 0
                   && row.remaining === 0;
@@ -956,7 +970,7 @@ export default function SaunaCloudPage() {
 
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-neya-muted mb-2">
-              Longueurs encore à débiter (frames « À faire »)
+              Longueurs encore à débiter (cm) — frames « À faire »
             </p>
             {(sierra?.to_cut?.by_length || []).length === 0 ? (
               <p className="text-sm text-neya-muted">Rien à couper — toutes les frames Sierra sont placées.</p>

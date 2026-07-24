@@ -11,8 +11,8 @@ describe('Sierra cutting missing pieces', () => {
   it('compte 6 pièces pour 1× H2013 (2L+2S+2T)', () => {
     const exp = expandPiecesForSku('H2013', 1);
     assert.equal(exp.pieces, 6);
-    assert.equal(exp.by_length['13"'], 2);
-    assert.equal(exp.by_length['20"'], 4); // 2 shorts + 2 traverses
+    assert.equal(exp.by_length['33 cm'], 2);
+    assert.equal(exp.by_length['50.8 cm'], 4); // 2 shorts + 2 traverses (20")
   });
 
   it('framesNotReachedStage respecte le pipeline', () => {
@@ -75,12 +75,20 @@ describe('Sierra cutting missing pieces', () => {
     ];
     const sides = aggregatePieceSizes(frames, 'sides');
     const trav = aggregatePieceSizes(frames, 'traverses');
-    // H2013: 13"×40 + 20"×40 ; H2026: 26"×20 + 20"×20 → 20" = 60
-    const side20 = sides.find((r) => r.length === '20"');
+    // H2013: 33 cm×40 + 50.8 cm×40 ; H2026: 66 cm×20 + 50.8 cm×20 → 50.8 = 60
+    const side20 = sides.find((r) => r.length === '50.8 cm');
     assert.ok(side20);
     assert.equal(side20.qty, 60);
-    const trav20 = trav.find((r) => r.length === '20"');
+    const trav20 = trav.find((r) => r.length === '50.8 cm');
     assert.equal(trav20.qty, 20 * 2 + 10 * 4); // 80
+  });
+
+  it('formatLengthCm convertit pouces → cm', async () => {
+    const { formatLengthCm, normalizeLengthKey } = await import('./sauna-cloud.js');
+    assert.equal(formatLengthCm(20), '50.8 cm');
+    assert.equal(formatLengthCm(13), '33 cm');
+    assert.equal(normalizeLengthKey('20"'), '50.8 cm');
+    assert.equal(normalizeLengthKey('50.8 cm'), '50.8 cm');
   });
 
   it('expose côtés/traverses débités (colonne) et déjà coupés', () => {
