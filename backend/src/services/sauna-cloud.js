@@ -124,12 +124,13 @@ export function summarizeTracker(tracker) {
   const inProgress = frames.reduce((s, f) => s + (f.counts?.in_progress || 0), 0);
   const debited = frames.reduce((s, f) => s + (f.counts?.debited || 0), 0);
   const remaining = frames.reduce((s, f) => s + (f.remaining || 0), 0);
-  const finishedLike = delivered + done;
-  const pct = qty ? Math.round((finishedLike / qty) * 100) : 0;
+  // 100 % seulement quand TOUTES les frames sont livrées
+  const pct = qty ? Math.min(100, Math.round((delivered / qty) * 100)) : 0;
+  const complete = qty > 0 && delivered >= qty;
   return {
     frames,
     stages: SAUNA_FRAME_STAGES,
-    totals: { qty, remaining, debited, in_progress: inProgress, done, delivered, pct },
+    totals: { qty, remaining, debited, in_progress: inProgress, done, delivered, pct, complete },
   };
 }
 
@@ -147,18 +148,50 @@ async function loadProject(projectId = null) {
   return rows[0] || null;
 }
 
+async function writeProjectMeta(projectId, meta) {
+  try {
+    await pool.query(
+      `UPDATE projects SET meta = COALESCE(meta, '{}'::jsonb) || $1::jsonb WHERE id = $2`,
+      [JSON.stringify(meta), projectId]
+    );
+  } catch (err) {
+    // Fallback si || jsonb échoue (meta texte / null)
+    await pool.query('UPDATE projects SET meta = $1::jsonb WHERE id = $2', [
+      JSON.stringify(meta),
+      projectId,
+    ]);
+  }
+}
+
 async function ensureTrackerOnProject(project) {
   const meta = parseMeta(project.meta);
   if (meta.sauna_frame_tracker?.frames?.length) {
     return normalizeTracker(meta.sauna_frame_tracker);
   }
   const tracker = normalizeTracker(defaultTrackerRows());
-  meta.sauna_frame_tracker = { frames: tracker.frames, updated_at: new Date().toISOString() };
-  await pool.query('UPDATE projects SET meta = $1::jsonb WHERE id = $2', [
-    JSON.stringify(meta),
-    project.id,
-  ]);
+  const nextMeta = {
+    ...meta,
+    sauna_frame_tracker: { frames: tracker.frames, updated_at: new Date().toISOString() },
+  };
+  try {
+    await writeProjectMeta(project.id, nextMeta);
+  } catch (err) {
+    console.warn('sauna-cloud tracker seed:', err.message);
+  }
   return tracker;
+}
+
+async function syncProjectCompleteFromTracker(projectId, tracker) {
+  const complete = Boolean(tracker?.totals?.complete);
+  await pool.query(
+    `UPDATE projects SET status = $1
+     WHERE id = $2
+       AND (
+         ($1 = 'done' AND status IS DISTINCT FROM 'done')
+         OR ($1 = 'active' AND status = 'done')
+       )`,
+    [complete ? 'done' : 'active', projectId]
+  );
 }
 
 export async function ensureSaunaCloudProject() {
@@ -202,6 +235,15 @@ export async function getSaunaCloudBoard(projectId = null) {
 
   const trackerRaw = await ensureTrackerOnProject(project);
   const tracker = summarizeTracker(trackerRaw);
+  try {
+    await syncProjectCompleteFromTracker(project.id, tracker);
+  } catch { /* non bloquant */ }
+
+  const { rows: refreshed } = await pool.query(
+    'SELECT id, name, status, notes, deadline, client_id FROM projects WHERE id = $1',
+    [project.id]
+  );
+  const proj = refreshed[0] || project;
 
   const { rows: frames } = await pool.query(
     `SELECT id, project_id, title, description, type, status, sort_order, estimated_minutes,
@@ -210,26 +252,27 @@ export async function getSaunaCloudBoard(projectId = null) {
      WHERE project_id = $1
      ORDER BY sort_order ASC, id ASC`,
     [project.id]
-  );
+  ).catch(() => ({ rows: [] }));
 
   const doneTasks = frames.filter((f) => f.status === 'done').length;
 
   return {
     project: {
-      id: project.id,
-      name: project.name,
-      status: project.status,
-      notes: project.notes || '',
-      deadline: project.deadline,
-      client_id: project.client_id,
+      id: proj.id,
+      name: proj.name,
+      status: proj.status,
+      notes: proj.notes || '',
+      deadline: proj.deadline,
+      client_id: proj.client_id,
     },
     tracker,
     frames,
     progress: {
-      done: tracker.totals.delivered + tracker.totals.done,
+      done: tracker.totals.delivered,
       total: tracker.totals.qty,
       pct: tracker.totals.pct,
       remaining: tracker.totals.remaining,
+      complete: tracker.totals.complete,
       tasks_done: doneTasks,
       tasks_total: frames.length,
     },
@@ -288,11 +331,7 @@ export async function updateFrameTracker(projectId, payload = {}) {
     updated_at: new Date().toISOString(),
   };
 
-  await pool.query('UPDATE projects SET meta = $1::jsonb WHERE id = $2', [
-    JSON.stringify(meta),
-    projectId,
-  ]);
-
+  await writeProjectMeta(projectId, meta);
   return getSaunaCloudBoard(projectId);
 }
 
@@ -304,10 +343,7 @@ export async function resetFrameTracker(projectId) {
     frames: defaultTrackerRows(),
     updated_at: new Date().toISOString(),
   };
-  await pool.query('UPDATE projects SET meta = $1::jsonb WHERE id = $2', [
-    JSON.stringify(meta),
-    projectId,
-  ]);
+  await writeProjectMeta(projectId, meta);
   return getSaunaCloudBoard(projectId);
 }
 
