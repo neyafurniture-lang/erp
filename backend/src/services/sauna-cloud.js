@@ -25,6 +25,8 @@ export const SAUNA_FRAME_STAGES = [
 /**
  * BOM Cutting Plan Sierra (PDF) — pièces par frame.
  * 2 longs + 2 shorts (périmètre) + traverses intérieures.
+ * Règle atelier : en général 2 traverses de chaque cote du frame
+ * (ex. 26×13 → 2×13 + 2×26).
  */
 export const SIERRA_CUTTING_BOM = {
   H2013: {
@@ -33,8 +35,10 @@ export const SIERRA_CUTTING_BOM = {
     short_in: 20,
     long_count: 2,
     short_count: 2,
-    traverse_in: 20,
-    traverse_count: 2,
+    traverses: [
+      { length_in: 13, count: 2 },
+      { length_in: 20, count: 2 },
+    ],
   },
   H2026: {
     label: '20×26"',
@@ -42,8 +46,10 @@ export const SIERRA_CUTTING_BOM = {
     short_in: 20,
     long_count: 2,
     short_count: 2,
-    traverse_in: 20,
-    traverse_count: 4,
+    traverses: [
+      { length_in: 20, count: 2 },
+      { length_in: 26, count: 2 },
+    ],
   },
   H2226: {
     label: '22×26"',
@@ -51,8 +57,10 @@ export const SIERRA_CUTTING_BOM = {
     short_in: 22,
     long_count: 2,
     short_count: 2,
-    traverse_in: 22,
-    traverse_count: 4,
+    traverses: [
+      { length_in: 22, count: 2 },
+      { length_in: 26, count: 2 },
+    ],
   },
   H3313: {
     label: '33×13"',
@@ -60,8 +68,10 @@ export const SIERRA_CUTTING_BOM = {
     short_in: 13,
     long_count: 2,
     short_count: 2,
-    traverse_in: 13,
-    traverse_count: 2,
+    traverses: [
+      { length_in: 13, count: 2 },
+      { length_in: 33, count: 2 },
+    ],
   },
   H3726: {
     label: '37×26"',
@@ -69,8 +79,10 @@ export const SIERRA_CUTTING_BOM = {
     short_in: 26,
     long_count: 2,
     short_count: 2,
-    traverse_in: 26,
-    traverse_count: 4,
+    traverses: [
+      { length_in: 26, count: 2 },
+      { length_in: 37, count: 2 },
+    ],
   },
 };
 
@@ -78,9 +90,33 @@ export const SIERRA_PLAN_META = {
   title: 'Cutting plan — Sierra Frames',
   invoice: '#1026',
   pdf_url: '/docs/Cutting_Plan_Sierra_EN.pdf',
-  notes: 'Stock structurel refendu ×2 · Traverses refendues ×4 · Planches 2×4 × 8 pi · Longueurs affichées en cm',
+  notes: 'Stock structurel refendu ×2 · Traverses : 2 de chaque cote du frame · Planches 2×4 × 8 pi · Longueurs en cm',
   length_unit: 'cm',
 };
+
+/** Liste des traverses d’un BOM (2 longueurs typiques, ou legacy traverse_in). */
+export function traverseList(bom) {
+  if (!bom) return [];
+  if (Array.isArray(bom.traverses) && bom.traverses.length) {
+    return bom.traverses
+      .map((t) => ({
+        length_in: Number(t.length_in) || 0,
+        count: Math.max(0, Math.round(Number(t.count) || 0)),
+      }))
+      .filter((t) => t.length_in > 0 && t.count > 0);
+  }
+  const length_in = Number(bom.traverse_in) || 0;
+  const count = Math.max(0, Math.round(Number(bom.traverse_count) || 0));
+  if (!length_in || !count) return [];
+  return [{ length_in, count }];
+}
+
+/** Libellé court des traverses (ex. "33 cm×2 + 50.8 cm×2"). */
+export function formatTraversesLabel(bom, formatLength = formatLengthCm) {
+  return traverseList(bom)
+    .map((t) => `${formatLength(t.length_in)}×${t.count}`)
+    .join(' + ');
+}
 
 /** BOM stocke les cotes produit en pouces → affichage atelier en cm. */
 export function inchesToCm(inches) {
@@ -248,7 +284,9 @@ export function aggregatePieceSizes(frames = [], kind = 'sides') {
       by.set(length, prev);
     };
     if (kind === 'traverses') {
-      add(bom.traverse_in, bom.traverse_count, 'traverse');
+      for (const t of traverseList(bom)) {
+        add(t.length_in, t.count, 'traverse');
+      }
     } else {
       add(bom.long_in, bom.long_count, 'long');
       add(bom.short_in, bom.short_count, 'short');
@@ -259,7 +297,7 @@ export function aggregatePieceSizes(frames = [], kind = 'sides') {
 
 function piecesPerFrame(bom) {
   if (!bom) return 0;
-  return (bom.long_count || 0) + (bom.short_count || 0) + (bom.traverse_count || 0);
+  return (bom.long_count || 0) + (bom.short_count || 0) + traversesPerFrame(bom);
 }
 
 /** Côtés de cadre = longs + shorts (périmètre). */
@@ -270,7 +308,7 @@ export function sidesPerFrame(bom) {
 
 export function traversesPerFrame(bom) {
   if (!bom) return 0;
-  return bom.traverse_count || 0;
+  return traverseList(bom).reduce((s, t) => s + t.count, 0);
 }
 
 /** Combien de frames n’ont pas encore atteint cette étape (pipeline exclusif). */
@@ -308,9 +346,11 @@ export function expandPiecesForSku(sku, frameCount) {
   };
   add(bom.long_in, bom.long_count * n);
   add(bom.short_in, bom.short_count * n);
-  add(bom.traverse_in, bom.traverse_count * n);
+  for (const t of traverseList(bom)) {
+    add(t.length_in, t.count * n);
+  }
   const structural = (bom.long_count + bom.short_count) * n;
-  const traverses = bom.traverse_count * n;
+  const traverses = traversesPerFrame(bom) * n;
   return {
     sku: String(sku).toUpperCase(),
     frames: n,

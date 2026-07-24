@@ -19,13 +19,28 @@ export const DEFAULT_FRAME_CATALOG = [
   { sku: 'FS750', label: 'Full-spectrum', qty: 10 },
 ];
 
-/** BOM Cutting Plan Sierra — pièces par frame (2 longs + 2 shorts + traverses). */
+/** BOM Cutting Plan Sierra — 2 longs + 2 shorts + 2 traverses de chaque cote. */
 export const SIERRA_BOM = {
-  H2013: { long_in: 13, short_in: 20, long_count: 2, short_count: 2, traverse_in: 20, traverse_count: 2 },
-  H2026: { long_in: 26, short_in: 20, long_count: 2, short_count: 2, traverse_in: 20, traverse_count: 4 },
-  H2226: { long_in: 26, short_in: 22, long_count: 2, short_count: 2, traverse_in: 22, traverse_count: 4 },
-  H3313: { long_in: 33, short_in: 13, long_count: 2, short_count: 2, traverse_in: 13, traverse_count: 2 },
-  H3726: { long_in: 37, short_in: 26, long_count: 2, short_count: 2, traverse_in: 26, traverse_count: 4 },
+  H2013: {
+    long_in: 13, short_in: 20, long_count: 2, short_count: 2,
+    traverses: [{ length_in: 13, count: 2 }, { length_in: 20, count: 2 }],
+  },
+  H2026: {
+    long_in: 26, short_in: 20, long_count: 2, short_count: 2,
+    traverses: [{ length_in: 20, count: 2 }, { length_in: 26, count: 2 }],
+  },
+  H2226: {
+    long_in: 26, short_in: 22, long_count: 2, short_count: 2,
+    traverses: [{ length_in: 22, count: 2 }, { length_in: 26, count: 2 }],
+  },
+  H3313: {
+    long_in: 33, short_in: 13, long_count: 2, short_count: 2,
+    traverses: [{ length_in: 13, count: 2 }, { length_in: 33, count: 2 }],
+  },
+  H3726: {
+    long_in: 37, short_in: 26, long_count: 2, short_count: 2,
+    traverses: [{ length_in: 26, count: 2 }, { length_in: 37, count: 2 }],
+  },
 };
 
 const STAGES = [
@@ -86,9 +101,31 @@ function emptySizeLogs() {
   return { sides: {}, traverses: {} };
 }
 
+function traverseList(bom) {
+  if (!bom) return [];
+  if (Array.isArray(bom.traverses) && bom.traverses.length) {
+    return bom.traverses
+      .map((t) => ({
+        length_in: Number(t.length_in) || 0,
+        count: Math.max(0, Math.round(Number(t.count) || 0)),
+      }))
+      .filter((t) => t.length_in > 0 && t.count > 0);
+  }
+  const length_in = Number(bom.traverse_in) || 0;
+  const count = Math.max(0, Math.round(Number(bom.traverse_count) || 0));
+  if (!length_in || !count) return [];
+  return [{ length_in, count }];
+}
+
+function formatTraversesLabel(bom) {
+  return traverseList(bom)
+    .map((t) => `${formatLengthCm(t.length_in)}×${t.count}`)
+    .join(' + ');
+}
+
 function piecesPerFrame(bom) {
   if (!bom) return 0;
-  return (bom.long_count || 0) + (bom.short_count || 0) + (bom.traverse_count || 0);
+  return (bom.long_count || 0) + (bom.short_count || 0) + traversesPerFrame(bom);
 }
 
 /** Côtés de cadre = longs + shorts (périmètre du cadre). */
@@ -99,7 +136,7 @@ function sidesPerFrame(bom) {
 
 function traversesPerFrame(bom) {
   if (!bom) return 0;
-  return bom.traverse_count || 0;
+  return traverseList(bom).reduce((s, t) => s + t.count, 0);
 }
 
 function framesNotReached(row, stageKey) {
@@ -122,9 +159,11 @@ function expandLengths(sku, frameCount) {
   };
   add(bom.long_in, bom.long_count * n);
   add(bom.short_in, bom.short_count * n);
-  add(bom.traverse_in, bom.traverse_count * n);
+  for (const t of traverseList(bom)) {
+    add(t.length_in, t.count * n);
+  }
   const structural = (bom.long_count + bom.short_count) * n;
-  const traverses = bom.traverse_count * n;
+  const traverses = traversesPerFrame(bom) * n;
   return { pieces: structural + traverses, structural, traverses, by_length: by };
 }
 
@@ -148,7 +187,9 @@ export function aggregatePieceSizes(frames = [], kind = 'sides') {
       by.set(length, prev);
     };
     if (kind === 'traverses') {
-      add(bom.traverse_in, bom.traverse_count, 'traverse');
+      for (const t of traverseList(bom)) {
+        add(t.length_in, t.count, 'traverse');
+      }
     } else {
       add(bom.long_in, bom.long_count, 'long');
       add(bom.short_in, bom.short_count, 'short');
@@ -785,7 +826,7 @@ export default function SaunaCloudPage() {
                 const busy = savingSku === row.sku;
                 const over = row.placed > row.qty;
                 const bomHint = row.bom
-                  ? `${row.sides_per_frame} côtés/frame + ${row.traverses_per_frame} trav./frame · L${formatLengthCm(row.bom.long_in)}×${row.bom.long_count} + S${formatLengthCm(row.bom.short_in)}×${row.bom.short_count} + T${formatLengthCm(row.bom.traverse_in)}×${row.bom.traverse_count}`
+                  ? `${row.sides_per_frame} côtés/frame + ${row.traverses_per_frame} trav./frame · L${formatLengthCm(row.bom.long_in)}×${row.bom.long_count} + S${formatLengthCm(row.bom.short_in)}×${row.bom.short_count} + T ${formatTraversesLabel(row.bom) || '—'}`
                   : 'Hors plan Sierra';
                 const doneish = (row.counts?.done || 0) + (row.counts?.delivered || 0) > 0
                   && row.remaining === 0;
@@ -802,6 +843,7 @@ export default function SaunaCloudPage() {
                       {row.bom ? (
                         <span className="block text-[11px] text-neya-muted tabular-nums mt-0.5">
                           {row.sides_per_frame} côtés · {row.traverses_per_frame} trav. / frame
+                          {formatTraversesLabel(row.bom) ? ` · T ${formatTraversesLabel(row.bom)}` : ''}
                         </span>
                       ) : (
                         <span className="block text-[11px] text-neya-muted mt-0.5">Hors plan Sierra</span>
@@ -1018,7 +1060,7 @@ export default function SaunaCloudPage() {
               Clique les totaux <strong className="text-neya-ink">Côtés</strong> / <strong className="text-neya-ink">Traverses</strong> pour noter les tailles.
             </p>
             <p className="pt-1 border-t border-neya-border/60">
-              BOM Sierra : H2013, H2026, H2226, H3313, H3726. FS750 / autres = hors plan coupe (1×6).
+              BOM Sierra : H2013, H2026, H2226, H3313, H3726 — traverses = 2 de chaque cote (ex. 26×13 → 2×13 + 2×26). FS750 / autres = hors plan.
             </p>
           </div>
         </div>
