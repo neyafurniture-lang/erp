@@ -18,10 +18,12 @@ import {
   clearMeetingDraft,
   clearMeetingError,
   downloadMeetingAudio,
+  ensureRecordingAlive,
   getFullMeetingText,
   getMeetingState,
   getSavedMeeting,
   hydrateMeetingFromStorage,
+  isMeetingRecordingDesired,
   isMeetingSpeechSupported,
   isSafariMeetingBrowser,
   saveMeetingToHistory,
@@ -40,6 +42,7 @@ import {
 } from '../lib/meeting-window';
 import { useAuth } from '../lib/auth-context';
 import { canAccessPath } from '../lib/permissions';
+import { usePathname } from 'next/navigation';
 
 function useMeetingRecorderState() {
   return useSyncExternalStore(subscribeMeeting, getMeetingState, getMeetingState);
@@ -57,6 +60,7 @@ function formatDuration(startedAt, listening) {
 
 export default function MeetingSynthesisWindow() {
   const { user } = useAuth();
+  const pathname = usePathname();
   const ui = useMeetingWindowUi();
   const session = useMeetingRecorderState();
   const [copied, setCopied] = useState(false);
@@ -66,6 +70,7 @@ export default function MeetingSynthesisWindow() {
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef(null);
   const hydrated = useRef(false);
+  const prevPathRef = useRef(pathname);
 
   const allowed = canAccessPath(user, '/reunions');
   const viewing = ui.viewingId ? getSavedMeeting(ui.viewingId) : null;
@@ -78,6 +83,15 @@ export default function MeetingSynthesisWindow() {
     hydrated.current = true;
     void hydrateMeetingFromStorage();
   }, []);
+
+  // Changement de page (Next.js) : Safari coupe souvent la dictée → relancer + pastille
+  useEffect(() => {
+    if (prevPathRef.current === pathname) return;
+    prevPathRef.current = pathname;
+    if (!isMeetingRecordingDesired()) return;
+    minimizeMeetingWindow();
+    void ensureRecordingAlive();
+  }, [pathname]);
 
   useEffect(() => {
     if (!session.listening) return undefined;
@@ -94,7 +108,27 @@ export default function MeetingSynthesisWindow() {
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [session.transcript, session.interim, viewing?.transcript]);
 
-  if (!user || !allowed) return null;
+  // Si enregistrement en cours, toujours montrer la pastille même pendant un refresh auth
+  const recordingActive = session.listening || isMeetingRecordingDesired();
+  if ((!user || !allowed) && !recordingActive) return null;
+  if ((!user || !allowed) && recordingActive) {
+    return (
+      <button
+        type="button"
+        onClick={expandMeetingWindow}
+        className="fixed z-[68] right-3 bottom-[calc(var(--dock-clearance)+5.5rem)] lg:right-8 lg:bottom-36 flex items-center gap-2 rounded-full border border-neya-border bg-white px-3.5 py-2.5 shadow-lg shadow-black/10"
+        aria-label="Ouvrir synthèse réunion"
+      >
+        <span className="grid h-8 w-8 place-items-center rounded-full bg-red-500 text-white animate-pulse">
+          <Mic className="h-4 w-4" />
+        </span>
+        <span className="text-left pr-1">
+          <span className="block text-[12px] font-display font-semibold text-neya-ink">Enregistrement…</span>
+          <span className="block text-[11px] text-neya-muted">Toucher pour ouvrir</span>
+        </span>
+      </button>
+    );
+  }
 
   const liveText = readOnly
     ? viewing?.transcript || ''
@@ -174,7 +208,7 @@ export default function MeetingSynthesisWindow() {
   };
 
   /* Pastille flottante quand réduit + enregistrement (ou fenêtre ouverte réduite) */
-  if (ui.minimized || (!ui.open && session.listening)) {
+  if (ui.minimized || (!ui.open && session.listening) || (!ui.open && isMeetingRecordingDesired())) {
     return (
       <button
         type="button"
@@ -225,10 +259,10 @@ export default function MeetingSynthesisWindow() {
             {readOnly
               ? viewing?.title || 'Lecture'
               : session.listening
-                ? `Live · ${duration}${safari ? ' · mode Safari' : ''} · SQL auto`
+                ? `Live · ${duration}${safari ? ' · Safari keep-alive' : ''} · SQL auto`
                 : supported
                   ? safari
-                    ? 'Safari · dictée Apple · PostgreSQL'
+                    ? 'Safari · dictée continue même en changeant de page'
                     : 'Speak-to-text · stocké en base SQL'
                   : 'Navigateur non supporté'}
           </p>
