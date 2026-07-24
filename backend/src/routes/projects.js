@@ -715,9 +715,22 @@ router.post('/:id/toggle-done', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
   try {
-    await pool.query('DELETE FROM projects WHERE id = $1', [req.params.id]);
-    res.json({ ok: true });
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: 'Identifiant projet invalide' });
+    }
+    const { rowCount } = await pool.query('DELETE FROM projects WHERE id = $1', [id]);
+    if (!rowCount) {
+      return res.status(404).json({ error: 'Projet introuvable' });
+    }
+    res.json({ ok: true, id });
   } catch (err) {
+    const msg = String(err.message || '');
+    if (/foreign key|violates/i.test(msg)) {
+      return res.status(409).json({
+        error: 'Impossible de supprimer : des éléments liés bloquent encore ce projet.',
+      });
+    }
     res.status(500).json({ error: err.message });
   }
 });

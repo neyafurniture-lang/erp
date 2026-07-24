@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Search, Plus, Calendar, DollarSign, ChevronRight, Star } from 'lucide-react';
+import { Search, Plus, Calendar, DollarSign, ChevronRight, Star, Trash2 } from 'lucide-react';
 import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
 import {
@@ -82,6 +82,24 @@ export default function ProjectsPage() {
       load();
     } catch (err) {
       window.alert(err.message || 'Impossible de mettre à jour le statut');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function deleteProject(e, project) {
+    e.preventDefault();
+    e.stopPropagation();
+    const name = project.name || `projet #${project.id}`;
+    if (!window.confirm(`Supprimer définitivement « ${name} » ?\n\nLes tâches et matériaux liés seront aussi supprimés.`)) {
+      return;
+    }
+    setBusyId(project.id);
+    try {
+      await api(`/projects/${project.id}`, { method: 'DELETE' });
+      load();
+    } catch (err) {
+      window.alert(err.message || 'Suppression impossible');
     } finally {
       setBusyId(null);
     }
@@ -333,6 +351,15 @@ export default function ProjectsPage() {
                           <option key={s.value} value={s.value} style={{ color: '#111' }}>{s.label}</option>
                         ))}
                       </select>
+                      <button
+                        type="button"
+                        title="Supprimer le projet"
+                        disabled={busyId === p.id}
+                        onClick={(e) => deleteProject(e, p)}
+                        className="rounded-lg border border-red-200 bg-white p-1.5 text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                   </div>
                 );

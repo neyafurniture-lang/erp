@@ -332,6 +332,25 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
     }
   }
 
+  async function deleteProject() {
+    if (statusBusy) return;
+    const name = project.name || `projet #${project.id}`;
+    if (!window.confirm(`Supprimer définitivement « ${name} » ?\n\nLes tâches et matériaux liés seront aussi supprimés. Les devis/factures resteront (sans projet).`)) {
+      return;
+    }
+    if (!window.confirm('Dernière confirmation : cette action est irréversible.')) {
+      return;
+    }
+    setStatusBusy(true);
+    try {
+      await api(`/projects/${project.id}`, { method: 'DELETE' });
+      router.push('/projects');
+    } catch (err) {
+      window.alert(err.message || 'Suppression impossible');
+      setStatusBusy(false);
+    }
+  }
+
   async function toggleProjectPriority() {
     if (statusBusy) return;
     setStatusBusy(true);
@@ -660,6 +679,15 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
                 ))}
               </select>
             </div>
+            <button
+              type="button"
+              onClick={deleteProject}
+              disabled={statusBusy}
+              className="inline-flex items-center justify-center rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50 sm:self-end"
+              title="Supprimer ce projet"
+            >
+              Supprimer
+            </button>
           </div>
         </div>
         <div className="flex flex-wrap gap-2 mt-4">
