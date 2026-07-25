@@ -1171,6 +1171,26 @@ h1, h2, h3, h4, h5, h6 {
     min-height: 320px;
   }
 
+  .drive-preview--sheet .drive-preview-body--sheet {
+    min-height: 480px;
+  }
+
+  .drive-csv-table {
+    @apply w-full border-collapse text-xs sm:text-sm;
+  }
+
+  .drive-csv-table th {
+    @apply sticky top-0 z-[1] bg-neya-surface text-left font-semibold text-neya-ink px-2.5 py-2 border-b border-neya-border whitespace-nowrap;
+  }
+
+  .drive-csv-table td {
+    @apply px-2.5 py-1.5 border-b border-neya-border/70 text-neya-ink align-top whitespace-nowrap max-w-[16rem] truncate;
+  }
+
+  .drive-csv-table tr:nth-child(even) td {
+    @apply bg-neya-surface/40;
+  }
+
   .drive-thumb {
     @apply absolute inset-0 w-full h-full object-cover bg-neya-surface;
   }

@@ -1,33 +1,58 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { getApiUrl, getToken } from '../lib/api';
+import {
+  canPreview,
+  driveFilePreviewUrl,
+  getPreviewMode,
+  googleEmbedUrl,
+  isSpreadsheetMime,
+  parseCsvPreview,
+} from '../lib/drive-preview';
 
-const GOOGLE_APP_TYPES = new Set([
-  'application/vnd.google-apps.document',
-  'application/vnd.google-apps.spreadsheet',
-  'application/vnd.google-apps.presentation',
-  'application/vnd.google-apps.drawing',
-]);
-
-export function getPreviewMode(file) {
-  if (!file || file.isFolder) return null;
-  const mime = file.mimeType || '';
-  if (GOOGLE_APP_TYPES.has(mime)) return 'google';
-  if (mime.startsWith('image/')) return 'image';
-  if (mime === 'application/pdf') return 'pdf';
-  if (mime.startsWith('video/')) return 'video';
-  if (mime.startsWith('audio/')) return 'audio';
-  if (mime.startsWith('text/') || mime === 'application/json' || mime === 'application/xml') return 'text';
-  return null;
-}
-
-export function canPreview(file) {
-  return !!getPreviewMode(file);
-}
+export { canPreview, getPreviewMode, googleEmbedUrl, isSpreadsheetMime, parseCsvPreview };
 
 function previewUrl(fileId) {
   return `${getApiUrl()}/drive/files/${fileId}/preview`;
+}
+
+function CsvTable({ text }) {
+  const rows = useMemo(() => parseCsvPreview(text), [text]);
+  if (!rows.length) {
+    return <p className="p-4 text-sm text-neya-muted">CSV vide</p>;
+  }
+  const colCount = Math.max(...rows.map((r) => r.length), 1);
+  const header = rows[0];
+  const body = rows.slice(1);
+
+  return (
+    <div className="h-full overflow-auto">
+      <table className="drive-csv-table">
+        <thead>
+          <tr>
+            {Array.from({ length: colCount }, (_, i) => (
+              <th key={i}>{header[i] ?? ''}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {body.map((r, ri) => (
+            <tr key={ri}>
+              {Array.from({ length: colCount }, (_, i) => (
+                <td key={i}>{r[i] ?? ''}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {rows.length >= 200 && (
+        <p className="px-3 py-2 text-[11px] text-neya-muted border-t border-neya-border">
+          Aperçu limité aux 200 premières lignes.
+        </p>
+      )}
+    </div>
+  );
 }
 
 export default function DriveFilePreview({ file, onClose }) {
@@ -36,6 +61,14 @@ export default function DriveFilePreview({ file, onClose }) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const mode = getPreviewMode(file);
+  const isSheet = isSpreadsheetMime(file?.mimeType, file?.name);
+
+  const embedSrc = useMemo(() => {
+    if (!file?.id) return '';
+    if (mode === 'google') return googleEmbedUrl(file);
+    if (mode === 'office') return driveFilePreviewUrl(file.id);
+    return '';
+  }, [file, mode]);
 
   useEffect(() => {
     if (!file?.id || !mode) return undefined;
@@ -48,7 +81,7 @@ export default function DriveFilePreview({ file, onClose }) {
       setTextContent('');
       setBlobUrl(null);
 
-      if (mode === 'google') {
+      if (mode === 'google' || mode === 'office') {
         setLoading(false);
         return;
       }
@@ -59,10 +92,10 @@ export default function DriveFilePreview({ file, onClose }) {
         });
         if (!res.ok) throw new Error('Impossible de charger l’aperçu');
 
-        if (mode === 'text') {
+        if (mode === 'text' || mode === 'csv') {
           const text = await res.text();
           if (!revoked) {
-            setTextContent(text.length > 120000 ? `${text.slice(0, 120000)}\n\n… (fichier tronqué)` : text);
+            setTextContent(text.length > 400000 ? `${text.slice(0, 400000)}\n\n… (fichier tronqué)` : text);
           }
         } else {
           const blob = await res.blob();
@@ -86,12 +119,24 @@ export default function DriveFilePreview({ file, onClose }) {
   if (!file || !mode) return null;
 
   return (
-    <div className="drive-preview">
+    <div className={`drive-preview ${isSheet ? 'drive-preview--sheet' : ''}`}>
       <div className="drive-preview-header">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-neya-ink truncate">{file.name}</p>
-          <p className="text-[11px] text-neya-muted">Aperçu</p>
+          <p className="text-[11px] text-neya-muted">
+            {isSheet ? 'Aperçu tableur' : 'Aperçu'}
+          </p>
         </div>
+        {file.webViewLink && (
+          <a
+            href={file.webViewLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn-secondary text-xs shrink-0 min-h-[32px] px-2.5"
+          >
+            Ouvrir
+          </a>
+        )}
         {onClose && (
           <button type="button" onClick={onClose} className="drive-icon-btn shrink-0" aria-label="Fermer l’aperçu">
             ✕
@@ -99,7 +144,7 @@ export default function DriveFilePreview({ file, onClose }) {
         )}
       </div>
 
-      <div className="drive-preview-body">
+      <div className={`drive-preview-body ${isSheet ? 'drive-preview-body--sheet' : ''}`}>
         {loading && (
           <div className="flex flex-col items-center justify-center h-full gap-3">
             <div className="w-6 h-6 border-2 border-neya-border border-t-neya-ink rounded-full animate-spin" />
@@ -118,13 +163,18 @@ export default function DriveFilePreview({ file, onClose }) {
           </div>
         )}
 
-        {!loading && !err && mode === 'google' && (
+        {!loading && !err && (mode === 'google' || mode === 'office') && (
           <iframe
             title={file.name}
-            src={`https://drive.google.com/file/d/${file.id}/preview`}
+            src={embedSrc}
             className="w-full h-full border-0 bg-white"
-            allow="autoplay"
+            allow="autoplay; fullscreen"
+            referrerPolicy="no-referrer-when-downgrade"
           />
+        )}
+
+        {!loading && !err && mode === 'csv' && (
+          <CsvTable text={textContent} />
         )}
 
         {!loading && !err && mode === 'image' && blobUrl && (
