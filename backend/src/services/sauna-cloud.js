@@ -249,14 +249,16 @@ export function normalizeSizeLogs(raw) {
     return m ? Math.round(Number(m[1]) * 10) / 10 : null;
   };
 
-  const pushEntry = (kind, cm, qty, note) => {
+  const pushEntry = (kind, cm, qty, note, sku = '') => {
     if (cm == null || !Number.isFinite(cm) || cm <= 0) return;
     const rounded = Math.round(cm * 10) / 10;
+    const skuKey = sku ? String(sku).toUpperCase() : '';
     out[kind].push({
       cm: rounded,
       length: `${Number.isInteger(rounded) ? rounded : rounded} cm`,
       qty: clampInt(qty, 99999),
       note: String(note ?? '').slice(0, 2000),
+      ...(skuKey ? { sku: skuKey } : {}),
     });
   };
 
@@ -266,7 +268,7 @@ export function normalizeSizeLogs(raw) {
       for (const row of src) {
         if (!row || typeof row !== 'object') continue;
         const cm = row.cm != null ? Number(row.cm) : parseCm(row.length);
-        pushEntry(kind, cm, row.qty, row.note);
+        pushEntry(kind, cm, row.qty, row.note, row.sku);
       }
       continue;
     }
@@ -275,29 +277,34 @@ export function normalizeSizeLogs(raw) {
     for (const [k, v] of Object.entries(src)) {
       const cm = parseCm(k);
       if (v && typeof v === 'object' && !Array.isArray(v)) {
-        pushEntry(kind, cm, v.qty, v.note ?? v.text ?? '');
+        pushEntry(kind, cm, v.qty, v.note ?? v.text ?? '', v.sku);
       } else {
         pushEntry(kind, cm, 0, v);
       }
     }
   }
 
-  // Déduplique par cm (garde la dernière qty/note non vide)
+  // Déduplique par (sku, cm) — dimensions uniques par SKU
   for (const kind of ['sides', 'traverses']) {
-    const byCm = new Map();
+    const byKey = new Map();
     for (const row of out[kind]) {
-      const prev = byCm.get(row.cm);
+      const key = `${row.sku || '_'}|${row.cm}`;
+      const prev = byKey.get(key);
       if (!prev) {
-        byCm.set(row.cm, row);
+        byKey.set(key, row);
         continue;
       }
-      byCm.set(row.cm, {
+      byKey.set(key, {
         ...prev,
         qty: row.qty > 0 ? row.qty : prev.qty,
         note: row.note || prev.note,
       });
     }
-    out[kind] = [...byCm.values()].sort((a, b) => b.cm - a.cm);
+    out[kind] = [...byKey.values()].sort((a, b) => {
+      const skuCmp = String(a.sku || '').localeCompare(String(b.sku || ''));
+      if (skuCmp) return skuCmp;
+      return b.cm - a.cm;
+    });
   }
   return out;
 }

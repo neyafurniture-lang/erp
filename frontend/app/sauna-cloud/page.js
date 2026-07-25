@@ -44,7 +44,7 @@ export const SIERRA_BOM = {
 };
 
 const STAGES = [
-  { key: 'debited', label: 'Débité', hint: 'Bois débité', color: 'amber' },
+  { key: 'debited', label: 'Débité', hint: 'Bois débité', color: 'stone' },
   { key: 'in_progress', label: 'En cours', hint: 'En assemblage', color: 'sky' },
   { key: 'done', label: 'Terminé', hint: 'Fabriqué / prêt', color: 'emerald' },
   { key: 'delivered', label: 'Livré', hint: 'Expédié / livré', color: 'green' },
@@ -53,13 +53,13 @@ const STAGES = [
 /** Couleurs par étape — vert = fini (styles inline = visibles même sans rebuild Tailwind). */
 const STAGE_STYLE = {
   debited: {
-    th: 'text-amber-950 font-semibold',
+    th: 'text-stone-800 font-semibold',
     cell: '',
-    input: 'border-amber-400 bg-amber-50 focus:border-amber-500 focus:ring-amber-200/60',
-    card: 'border-amber-300 bg-amber-100',
-    bg: '#FDE68A', // amber-200
-    bgSoft: '#FEF3C7', // amber-100
-    chip: '#D97706',
+    input: 'border-stone-300 bg-stone-50 focus:border-stone-400 focus:ring-stone-200/60',
+    card: 'border-stone-300 bg-stone-100',
+    bg: '#E7E5E4', // stone-200 — neutre (plus de jaune)
+    bgSoft: '#F5F5F4', // stone-100
+    chip: '#57534E',
   },
   in_progress: {
     th: 'text-sky-950 font-semibold',
@@ -114,50 +114,112 @@ function emptySizeLogs() {
 }
 
 function entriesFromLogs(raw) {
-  if (Array.isArray(raw)) return raw.map((r) => ({ ...r }));
+  if (Array.isArray(raw)) {
+    return raw.map((r) => ({
+      ...r,
+      sku: r.sku ? String(r.sku).toUpperCase() : '',
+    }));
+  }
   if (!raw || typeof raw !== 'object') return [];
   // legacy map
   return Object.entries(raw).map(([k, v]) => {
     const m = String(k).match(/^(\d+(?:\.\d+)?)/);
     const cm = m ? Number(m[1]) : 0;
     if (v && typeof v === 'object') {
-      return { cm, length: `${cm} cm`, qty: Number(v.qty) || 0, note: String(v.note || '') };
+      return {
+        cm,
+        length: `${cm} cm`,
+        qty: Number(v.qty) || 0,
+        note: String(v.note || ''),
+        sku: v.sku ? String(v.sku).toUpperCase() : '',
+      };
     }
-    return { cm, length: `${cm} cm`, qty: 0, note: String(v || '') };
+    return { cm, length: `${cm} cm`, qty: 0, note: String(v || ''), sku: '' };
   }).filter((r) => r.cm > 0);
 }
 
-/** Fusionne BOM + saisies atelier (saisie libre cm / qty / note). */
-function buildEditableSizeRows(bomSizes = [], savedEntries = []) {
-  const byCm = new Map();
-  for (const s of bomSizes) {
-    const cm = Number(s.cm);
-    if (!cm) continue;
-    byCm.set(cm, {
-      cm,
-      length: s.length || `${cm} cm`,
-      qty: Number(s.qty) || 0,
-      note: '',
-      fromBom: true,
-      roles: s.roles || {},
-      skus: s.skus || [],
-    });
+/** Dimensions uniques d’un SKU (côtés + traverses) pour le tableau global. */
+export function formatSkuDimensions(bom) {
+  if (!bom) return null;
+  const sides = [];
+  if (bom.long_in && bom.long_count) sides.push(`${formatLengthCm(bom.long_in)}×${bom.long_count}`);
+  if (bom.short_in && bom.short_count) sides.push(`${formatLengthCm(bom.short_in)}×${bom.short_count}`);
+  const traverses = formatTraversesLabel(bom);
+  return {
+    sides: sides.join(' · ') || '—',
+    traverses: traverses || '—',
+  };
+}
+
+function sizeRowKey(sku, cm) {
+  return `${sku || '_'}|${cm}`;
+}
+
+/** Lignes BOM + saisies, une entrée unique par (SKU, cm). */
+function buildPerSkuEditableRows(frames = [], kind = 'sides', savedEntries = []) {
+  const byKey = new Map();
+  for (const frame of frames) {
+    const sku = String(frame.sku || '').toUpperCase();
+    const bom = SIERRA_BOM[sku];
+    if (!bom) continue;
+    const qty = Math.max(0, Math.round(Number(frame.qty) || 0));
+    const add = (inches, count, role) => {
+      if (!inches || !count) return;
+      const cm = inchesToCm(inches);
+      if (cm == null) return;
+      const key = sizeRowKey(sku, cm);
+      const prev = byKey.get(key) || {
+        sku,
+        cm,
+        length: formatLengthCm(inches),
+        qty: 0,
+        note: '',
+        fromBom: true,
+        roles: {},
+        skus: [sku],
+      };
+      const pieceQty = count * qty;
+      prev.qty += pieceQty;
+      prev.roles[role] = (prev.roles[role] || 0) + pieceQty;
+      byKey.set(key, prev);
+    };
+    if (kind === 'traverses') {
+      for (const t of traverseList(bom)) add(t.length_in, t.count, 'traverse');
+    } else {
+      add(bom.long_in, bom.long_count, 'long');
+      add(bom.short_in, bom.short_count, 'short');
+    }
   }
-  for (const e of savedEntries) {
+  for (const e of savedEntries || []) {
     const cm = Number(e.cm);
     if (!cm) continue;
-    const prev = byCm.get(cm);
-    byCm.set(cm, {
-      cm,
-      length: e.length || `${cm} cm`,
-      qty: e.qty > 0 ? Number(e.qty) : (prev?.qty || 0),
-      note: e.note || '',
-      fromBom: Boolean(prev?.fromBom),
-      roles: prev?.roles || {},
-      skus: prev?.skus || [],
+    const sku = e.sku ? String(e.sku).toUpperCase() : '';
+    const key = sizeRowKey(sku, cm);
+    const prev = byKey.get(key);
+    if (!prev) {
+      byKey.set(key, {
+        sku,
+        cm,
+        length: e.length || `${cm} cm`,
+        qty: Math.max(0, Math.round(Number(e.qty) || 0)),
+        note: e.note || '',
+        fromBom: false,
+        roles: {},
+        skus: sku ? [sku] : [],
+      });
+      continue;
+    }
+    byKey.set(key, {
+      ...prev,
+      qty: e.qty > 0 ? Number(e.qty) : prev.qty,
+      note: e.note || prev.note,
     });
   }
-  return [...byCm.values()].sort((a, b) => b.cm - a.cm);
+  return [...byKey.values()].sort((a, b) => {
+    const skuCmp = String(a.sku || '').localeCompare(String(b.sku || ''));
+    if (skuCmp) return skuCmp;
+    return (b.cm || 0) - (a.cm || 0);
+  });
 }
 
 function traverseList(bom) {
@@ -427,24 +489,27 @@ function SummaryCard({ label, value, accent, sub, style }) {
   );
 }
 
-/** Panneau : saisie libre des longueurs (cm), quantités et notes. */
-function SizeNotesPanel({ kind, title, rows, onChangeRows, onClose, saving }) {
+/** Panneau : saisie libre des longueurs (cm), quantités et notes — par SKU. */
+function SizeNotesPanel({ kind, title, sku, rows, onChangeRows, onClose, saving }) {
   const total = rows.reduce((s, r) => s + (Number(r.qty) || 0), 0);
 
   function updateRow(index, patch) {
     const next = rows.map((r, i) => (i === index ? { ...r, ...patch } : r));
-    onChangeRows(kind, next);
+    onChangeRows(kind, next, sku);
   }
 
   function addRow() {
     onChangeRows(kind, [
       ...rows,
-      { cm: '', length: '', qty: 0, note: '', fromBom: false, roles: {}, skus: [] },
-    ]);
+      {
+        cm: '', length: '', qty: 0, note: '', fromBom: false, roles: {},
+        skus: sku ? [sku] : [], sku: sku || '',
+      },
+    ], sku);
   }
 
   function removeRow(index) {
-    onChangeRows(kind, rows.filter((_, i) => i !== index));
+    onChangeRows(kind, rows.filter((_, i) => i !== index), sku);
   }
 
   return (
@@ -456,7 +521,8 @@ function SizeNotesPanel({ kind, title, rows, onChangeRows, onClose, saving }) {
             <p className="text-[11px] font-semibold uppercase tracking-wide text-neya-orange">{title}</p>
             <p className="font-display text-2xl font-semibold tabular-nums text-neya-ink">{total}</p>
             <p className="text-xs text-neya-muted mt-0.5">
-              Entre la longueur en <strong className="text-neya-ink">cm</strong> et la quantité — tu peux ajouter n’importe quelle taille
+              Dimensions {sku ? <>uniques pour <strong className="text-neya-ink font-mono">{sku}</strong></> : <strong className="text-neya-ink">par SKU</strong>}
+              {' '}— longueur en <strong className="text-neya-ink">cm</strong>
               {saving ? ' · Enregistrement…' : ''}
             </p>
           </div>
@@ -472,8 +538,12 @@ function SizeNotesPanel({ kind, title, rows, onChangeRows, onClose, saving }) {
               const roleHint = Object.entries(row.roles || {})
                 .map(([role, n]) => `${n} ${role === 'long' ? 'longs' : role === 'short' ? 'shorts' : 'trav.'}`)
                 .join(' · ');
+              const rowSku = row.sku || (row.skus && row.skus[0]) || '';
               return (
-                <div key={`${row.cm}-${index}`} className="rounded-xl border border-neya-border bg-neya-surface/30 p-3 space-y-2">
+                <div key={`${rowSku}-${row.cm}-${index}`} className="rounded-xl border border-neya-border bg-neya-surface/30 p-3 space-y-2">
+                  {rowSku ? (
+                    <p className="text-[11px] font-mono font-semibold text-neya-ink">{rowSku}</p>
+                  ) : null}
                   <div className="flex flex-wrap items-end gap-2">
                     <label className="flex flex-col gap-1 min-w-[7rem] flex-1">
                       <span className="text-[10px] uppercase tracking-wide text-neya-muted">Longueur (cm)</span>
@@ -521,10 +591,9 @@ function SizeNotesPanel({ kind, title, rows, onChangeRows, onClose, saving }) {
                       Retirer
                     </button>
                   </div>
-                  {(roleHint || row.skus?.length) ? (
+                  {(roleHint || row.fromBom) ? (
                     <p className="text-[11px] text-neya-muted">
                       {roleHint}
-                      {row.skus?.length ? ` · ${row.skus.join(', ')}` : ''}
                       {row.fromBom ? ' · BOM Sierra' : ' · saisie libre'}
                     </p>
                   ) : (
@@ -555,7 +624,7 @@ export default function SaunaCloudPage() {
   const [loading, setLoading] = useState(true);
   const [savingSku, setSavingSku] = useState('');
   const [projectNotes, setProjectNotes] = useState('');
-  const [sizePanel, setSizePanel] = useState(null); // 'sides' | 'traverses' | null
+  const [sizePanel, setSizePanel] = useState(null); // { kind, sku? } | null
   const [sizeLogs, setSizeLogs] = useState(emptySizeLogs());
   const [draftRows, setDraftRows] = useState([]);
   const [savingSizes, setSavingSizes] = useState(false);
@@ -600,15 +669,6 @@ export default function SaunaCloudPage() {
     return computeSierraLocal(frames);
   }, [board, frames, savingSku]);
 
-  const sizeBreakdown = useMemo(() => ({
-    sides: board?.tracker?.size_breakdown?.sides?.length
-      ? board.tracker.size_breakdown.sides
-      : aggregatePieceSizes(frames, 'sides'),
-    traverses: board?.tracker?.size_breakdown?.traverses?.length
-      ? board.tracker.size_breakdown.traverses
-      : aggregatePieceSizes(frames, 'traverses'),
-  }), [board, frames]);
-
   function scheduleProjectNotes(value) {
     setProjectNotes(value);
     if (notesTimer.current) clearTimeout(notesTimer.current);
@@ -625,35 +685,37 @@ export default function SaunaCloudPage() {
     }, 600);
   }
 
-  function openSizePanel(kind) {
-    setSizePanel(kind);
-    setDraftRows(buildEditableSizeRows(sizeBreakdown[kind] || [], sizeLogs[kind] || []));
+  function openSizePanel(kind, sku = null) {
+    const skuKey = sku ? String(sku).toUpperCase() : null;
+    setSizePanel({ kind, sku: skuKey });
+    const scopeFrames = skuKey ? frames.filter((f) => f.sku === skuKey) : frames;
+    const saved = (sizeLogs[kind] || []).filter((e) => {
+      if (!skuKey) return true;
+      return !e.sku || e.sku === skuKey;
+    });
+    setDraftRows(buildPerSkuEditableRows(scopeFrames, kind, saved));
+  }
+
+  function normalizeLogEntries(list) {
+    return (list || [])
+      .filter((r) => Number(r.cm) > 0)
+      .map((r) => {
+        const cm = Math.round(Number(r.cm) * 10) / 10;
+        const sku = r.sku ? String(r.sku).toUpperCase() : '';
+        return {
+          cm,
+          length: `${Number.isInteger(cm) ? cm : cm} cm`,
+          qty: Math.max(0, Math.round(Number(r.qty) || 0)),
+          note: String(r.note || '').slice(0, 2000),
+          ...(sku ? { sku } : {}),
+        };
+      });
   }
 
   function scheduleSizeLogs(nextLogs) {
     const normalized = {
-      sides: (nextLogs.sides || [])
-        .filter((r) => Number(r.cm) > 0)
-        .map((r) => {
-          const cm = Math.round(Number(r.cm) * 10) / 10;
-          return {
-            cm,
-            length: `${Number.isInteger(cm) ? cm : cm} cm`,
-            qty: Math.max(0, Math.round(Number(r.qty) || 0)),
-            note: String(r.note || '').slice(0, 2000),
-          };
-        }),
-      traverses: (nextLogs.traverses || [])
-        .filter((r) => Number(r.cm) > 0)
-        .map((r) => {
-          const cm = Math.round(Number(r.cm) * 10) / 10;
-          return {
-            cm,
-            length: `${Number.isInteger(cm) ? cm : cm} cm`,
-            qty: Math.max(0, Math.round(Number(r.qty) || 0)),
-            note: String(r.note || '').slice(0, 2000),
-          };
-        }),
+      sides: normalizeLogEntries(nextLogs.sides),
+      traverses: normalizeLogEntries(nextLogs.traverses),
     };
     setSizeLogs(normalized);
     if (sizeTimer.current) clearTimeout(sizeTimer.current);
@@ -677,11 +739,24 @@ export default function SaunaCloudPage() {
     }, 500);
   }
 
-  function onChangeSizeRows(kind, rows) {
-    setDraftRows(rows);
+  function onChangeSizeRows(kind, rows, sku = null) {
+    const skuKey = sku ? String(sku).toUpperCase() : null;
+    const tagged = rows.map((r) => ({
+      ...r,
+      sku: r.sku || skuKey || '',
+      skus: r.skus?.length ? r.skus : (skuKey ? [skuKey] : []),
+    }));
+    setDraftRows(tagged);
+    let nextKind;
+    if (skuKey) {
+      const others = (sizeLogs[kind] || []).filter((e) => e.sku && e.sku !== skuKey);
+      nextKind = [...others, ...tagged];
+    } else {
+      nextKind = tagged;
+    }
     scheduleSizeLogs({
-      sides: kind === 'sides' ? rows : (sizeLogs.sides || []),
-      traverses: kind === 'traverses' ? rows : (sizeLogs.traverses || []),
+      sides: kind === 'sides' ? nextKind : (sizeLogs.sides || []),
+      traverses: kind === 'traverses' ? nextKind : (sizeLogs.traverses || []),
     });
   }
 
@@ -868,7 +943,7 @@ export default function SaunaCloudPage() {
         {/* Bois déjà débité vs encore à couper */}
         <div className="grid sm:grid-cols-2 gap-3 mb-4">
           <div className={`rounded-2xl border px-5 py-4 ${STAGE_STYLE.debited.card}`}>
-            <p className="text-[12px] font-semibold uppercase tracking-wide text-amber-900">
+            <p className="text-[12px] font-semibold uppercase tracking-wide text-stone-700">
               Déjà débités
             </p>
             <div className="mt-2 grid grid-cols-2 gap-3">
@@ -876,13 +951,13 @@ export default function SaunaCloudPage() {
                 <p className="text-3xl font-display font-semibold tabular-nums text-neya-ink">
                   {totals.sides_cut}
                 </p>
-                <p className="text-sm text-amber-900/80">côtés</p>
+                <p className="text-sm text-stone-600">côtés</p>
               </div>
               <div>
                 <p className="text-3xl font-display font-semibold tabular-nums text-neya-ink">
                   {totals.traverses_cut}
                 </p>
-                <p className="text-sm text-amber-900/80">traverses</p>
+                <p className="text-sm text-stone-600">traverses</p>
               </div>
             </div>
             <p className="mt-2 text-[11px] text-neya-muted">
@@ -934,17 +1009,18 @@ export default function SaunaCloudPage() {
         </div>
 
         <div className="rounded-2xl border border-neya-border bg-white overflow-x-auto mb-6 shadow-sm">
-          <table className="w-full text-sm min-w-[1020px]">
+          <table className="w-full text-sm min-w-[1180px]">
             <thead>
               <tr className="border-b border-neya-border bg-neya-cream/40">
                 <th className="px-4 py-3 text-left font-medium">SKU</th>
                 <th className="px-4 py-3 text-left font-medium">Frame</th>
+                <th className="px-3 py-3 text-left font-medium min-w-[11rem]">Dimensions</th>
                 <th className="px-3 py-3 text-center font-medium" title="Quantité commandée">Qty</th>
                 <th className="px-3 py-3 text-center font-medium">
                   <button
                     type="button"
                     className="font-medium hover:text-neya-orange hover:underline underline-offset-2"
-                    title="Clique pour noter les tailles des côtés"
+                    title="Clique pour noter les tailles des côtés (par SKU)"
                     onClick={() => openSizePanel('sides')}
                   >
                     Côtés
@@ -954,7 +1030,7 @@ export default function SaunaCloudPage() {
                   <button
                     type="button"
                     className="font-medium hover:text-neya-orange hover:underline underline-offset-2"
-                    title="Clique pour noter les tailles des traverses"
+                    title="Clique pour noter les tailles des traverses (par SKU)"
                     onClick={() => openSizePanel('traverses')}
                   >
                     Traverses
@@ -982,8 +1058,9 @@ export default function SaunaCloudPage() {
               {frames.map((row) => {
                 const busy = savingSku === row.sku;
                 const over = row.placed > row.qty;
+                const dims = formatSkuDimensions(row.bom);
                 const bomHint = row.bom
-                  ? `${row.sides_per_frame} côtés/frame + ${row.traverses_per_frame} trav./frame · L${formatLengthCm(row.bom.long_in)}×${row.bom.long_count} + S${formatLengthCm(row.bom.short_in)}×${row.bom.short_count} + T ${formatTraversesLabel(row.bom) || '—'}`
+                  ? `${row.sides_per_frame} côtés/frame + ${row.traverses_per_frame} trav./frame · Côtés ${dims.sides} · Trav. ${dims.traverses}`
                   : 'Hors plan Sierra';
                 const doneish = (row.counts?.done || 0) + (row.counts?.delivered || 0) > 0
                   && row.remaining === 0;
@@ -1000,10 +1077,19 @@ export default function SaunaCloudPage() {
                       {row.bom ? (
                         <span className="block text-[11px] text-neya-muted tabular-nums mt-0.5">
                           {row.sides_per_frame} côtés · {row.traverses_per_frame} trav. / frame
-                          {formatTraversesLabel(row.bom) ? ` · T ${formatTraversesLabel(row.bom)}` : ''}
                         </span>
                       ) : (
                         <span className="block text-[11px] text-neya-muted mt-0.5">Hors plan Sierra</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-[11px] tabular-nums text-neya-ink">
+                      {dims ? (
+                        <div className="space-y-0.5 leading-snug">
+                          <p><span className="text-neya-muted">Côtés</span> {dims.sides}</p>
+                          <p><span className="text-neya-muted">Trav.</span> {dims.traverses}</p>
+                        </div>
+                      ) : (
+                        <span className="text-neya-muted">—</span>
                       )}
                     </td>
                     <td className="px-3 py-2 text-center">
@@ -1014,7 +1100,7 @@ export default function SaunaCloudPage() {
                         type="button"
                         disabled={!row.bom}
                         title={bomHint}
-                        onClick={() => openSizePanel('sides')}
+                        onClick={() => openSizePanel('sides', row.sku)}
                         className={`inline-block min-w-[2.5rem] font-display text-lg font-semibold tabular-nums ${
                           !row.bom ? 'text-neya-muted cursor-default' : 'text-neya-ink hover:text-neya-orange underline-offset-2 hover:underline'
                         }`}
@@ -1032,7 +1118,7 @@ export default function SaunaCloudPage() {
                         type="button"
                         disabled={!row.bom}
                         title={bomHint}
-                        onClick={() => openSizePanel('traverses')}
+                        onClick={() => openSizePanel('traverses', row.sku)}
                         className={`inline-block min-w-[2.5rem] font-display text-lg font-semibold tabular-nums ${
                           !row.bom ? 'text-neya-muted cursor-default' : 'text-neya-ink hover:text-neya-orange underline-offset-2 hover:underline'
                         }`}
@@ -1067,7 +1153,7 @@ export default function SaunaCloudPage() {
                           onCommit={(n) => setCount(row.sku, s.key, n)}
                         />
                         {s.key === 'debited' && row.bom && (row.counts?.debited || 0) > 0 ? (
-                          <span className="block text-[10px] text-amber-900/80 tabular-nums mt-0.5">
+                          <span className="block text-[10px] text-stone-600 tabular-nums mt-0.5">
                             {row.sides_debited} côt. · {row.traverses_debited} trav.
                           </span>
                         ) : null}
@@ -1079,7 +1165,7 @@ export default function SaunaCloudPage() {
             </tbody>
             <tfoot>
               <tr className="bg-neya-surface/50 font-medium">
-                <td className="px-4 py-3" colSpan={2}>
+                <td className="px-4 py-3" colSpan={3}>
                   Total commande
                   {savingSku ? <span className="ml-2 text-[10px] text-neya-muted font-normal">Enregistrement…</span> : null}
                 </td>
@@ -1097,7 +1183,7 @@ export default function SaunaCloudPage() {
                 <td className="px-3 py-3 text-center tabular-nums bg-neya-cream/20">{totals.remaining}</td>
                 <td className="px-3 py-3 text-center tabular-nums" style={{ backgroundColor: STAGE_STYLE.debited.bgSoft }}>
                   <span className="block">{totals.debited}</span>
-                  <span className="block text-[10px] font-normal text-amber-900/80">
+                  <span className="block text-[10px] font-normal text-stone-600">
                     {totals.sides_debited} côt. · {totals.traverses_debited} trav.
                   </span>
                 </td>
@@ -1135,7 +1221,7 @@ export default function SaunaCloudPage() {
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
             <div className={`rounded-xl border px-3 py-3 sm:col-span-2 ${STAGE_STYLE.debited.card}`}>
-              <p className="text-[11px] uppercase tracking-wide text-amber-900/80">Déjà débités (Sierra)</p>
+              <p className="text-[11px] uppercase tracking-wide text-stone-600">Déjà débités (Sierra)</p>
               <div className="mt-1 flex flex-wrap gap-6">
                 <p className="text-xl font-display font-semibold tabular-nums text-neya-ink">
                   {sierra?.cut?.sides ?? totals.sides_cut}
@@ -1213,12 +1299,13 @@ export default function SaunaCloudPage() {
           <div className="rounded-2xl border border-neya-border bg-neya-surface p-4 text-sm text-neya-muted space-y-2">
             <p className="font-medium text-neya-ink">Comment remplir</p>
             <p>Chaque frame ne compte que dans <em>une</em> colonne à la fois.</p>
-            <p>1. Débit → <span className="text-amber-800 font-medium">Débité</span> (ambre)</p>
+            <p>1. Débit → <span className="text-stone-700 font-medium">Débité</span> (gris)</p>
             <p>2. Assemblage → <span className="text-sky-800 font-medium">En cours</span> (bleu)</p>
             <p>3. Prête → <span className="text-emerald-800 font-medium">Terminé</span> (vert)</p>
             <p>4. Expédiée → <span className="text-green-900 font-medium">Livré</span> (vert fort, % progress)</p>
             <p className="pt-1 border-t border-neya-border/60">
-              Clique les totaux <strong className="text-neya-ink">Côtés</strong> / <strong className="text-neya-ink">Traverses</strong> pour entrer les dimensions en cm (quantité libre).
+              Colonne <strong className="text-neya-ink">Dimensions</strong> = tailles uniques par SKU.
+              Clique une cellule <strong className="text-neya-ink">Côtés</strong> / <strong className="text-neya-ink">Traverses</strong> pour éditer ce SKU.
             </p>
             <p className="pt-1 border-t border-neya-border/60">
               BOM Sierra : H2013, H2026, H2226, H3313, H3726 — traverses = 2 de chaque cote (ex. 26×13 → 2×13 + 2×26). FS750 / autres = hors plan.
@@ -1227,8 +1314,13 @@ export default function SaunaCloudPage() {
         </div>
       {sizePanel && (
         <SizeNotesPanel
-          kind={sizePanel}
-          title={sizePanel === 'sides' ? 'Côtés de cadre — dimensions (cm)' : 'Traverses — dimensions (cm)'}
+          kind={sizePanel.kind}
+          sku={sizePanel.sku}
+          title={
+            sizePanel.kind === 'sides'
+              ? `Côtés de cadre — dimensions (cm)${sizePanel.sku ? ` · ${sizePanel.sku}` : ''}`
+              : `Traverses — dimensions (cm)${sizePanel.sku ? ` · ${sizePanel.sku}` : ''}`
+          }
           rows={panelRows}
           onChangeRows={onChangeSizeRows}
           onClose={() => setSizePanel(null)}
