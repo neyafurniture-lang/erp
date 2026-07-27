@@ -16,6 +16,7 @@ export const ACTION_CATALOG = [
   { type: 'complete_task', usage: 'Cocher une tâche', params: { task_title: 'string', project_name: 'string?', project_id: 'number?' } },
   { type: 'update_task', usage: 'Modifier tâche (titre/statut)', params: { task_title: 'string', new_title: 'string?', status: 'done|todo?', project_name: 'string?' } },
   { type: 'delete_task', usage: 'Supprimer une tâche', params: { task_title: 'string', project_id: 'number?' } },
+  { type: 'clear_day', usage: 'Vider le planning d\'un jour (demain / aujourd\'hui)', params: {} },
   { type: 'unlink_task', usage: 'Détacher une tâche du projet (admin mal classée / « pas en rapport »)', params: { task_title: 'string?', task_id: 'number?', project_id: 'number?' } },
   { type: 'list_project_tasks', usage: 'Lister tâches d’un projet', params: { project_name: 'string?', project_id: 'number?' } },
   { type: 'update_project', usage: 'Notes / deadline / budget / statut projet', params: { project_name: 'string?', project_id: 'number?', notes: 'string?', append_notes: 'boolean?', status: 'active|done?', deadline: 'YYYY-MM-DD?', budget_estimated: 'number?' } },

@@ -8,6 +8,10 @@ import {
   createProjectFromStandard,
   isDayPlanMessage,
   isMultiIntentErpMessage,
+  isClearDayIntent,
+  isDeleteTaskIntent,
+  stripAssistantMeta,
+  sanitizeAssistantReply,
   runSkillAction,
   wantsUnlinkFromProject,
 } from './skill-actions.js';
@@ -300,9 +304,12 @@ async function tryOpenAI(message, history, pageContext = null) {
   if (actionType && ACTION_TYPES.includes(actionType)) {
     const fakeSkill = { action_type: actionType, name: actionType };
     const result = await executeSkill(fakeSkill, message, pageContext, actionParams || {});
-    return { reply: parsed.reply || result.reply, actions: result.actions };
+    return {
+      reply: sanitizeAssistantReply(parsed.reply || result.reply),
+      actions: result.actions,
+    };
   }
-  return { reply: parsed.reply || 'OK', actions: [] };
+  return { reply: sanitizeAssistantReply(parsed.reply || 'OK'), actions: [] };
 }
 
 function contextExamples(ctx) {
@@ -529,70 +536,89 @@ export async function processMessage(message, attachments = [], rawContext = nul
     return unlinkResult;
   }
 
+  // « Supprime toutes les tâches de demain » — avant LLM / plan_day (évite de replanifier la consigne)
+  if (isClearDayIntent(message)) {
+    const clearResult = await runSkillAction('clear_day', message, pageContext);
+    const reply = sanitizeAssistantReply(clearResult.reply);
+    await pool.query(
+      'INSERT INTO assistant_messages (role, content, actions_taken) VALUES ($1,$2,$3)',
+      ['assistant', reply, JSON.stringify(clearResult.actions || [])]
+    );
+    return { ...clearResult, reply };
+  }
+
   async function runKeywordActions(msg = message) {
-    if (isDayPlanMessage(msg)) {
-      return runSkillAction('plan_day', msg, pageContext);
+    // Toujours router sur le message utilisateur seul — jamais l'historique collé
+    const routingMsg = stripAssistantMeta(msg);
+
+    if (isClearDayIntent(routingMsg)) {
+      return runSkillAction('clear_day', routingMsg, pageContext);
+    }
+    if (isDayPlanMessage(routingMsg)) {
+      return runSkillAction('plan_day', routingMsg, pageContext);
     }
     // Multi-intent (client + devis + calendrier…) : ne pas coller en un seul plan_day / skill
-    if (isMultiIntentErpMessage(msg)) {
+    if (isMultiIntentErpMessage(routingMsg)) {
       return {
         reply: 'Cette demande contient plusieurs actions ERP distinctes (ex. tâches calendrier, devis, client). '
           + 'Utilisez le micro → « Créer le plan » pour les séparer et confirmer, ou envoyez une action à la fois.',
         actions: [],
       };
     }
-    if (wantsUnlinkFromProject(msg)) {
-      return runSkillAction('unlink_task', msg, pageContext);
+    if (wantsUnlinkFromProject(routingMsg)) {
+      return runSkillAction('unlink_task', routingMsg, pageContext);
     }
-    const skill = await matchSkill(msg);
+    const skill = await matchSkill(routingMsg);
     if (skill) {
       // Ne jamais forcer plan_day via skill DB si le message n'est pas une vraie liste journée
-      if (skill.action_type === 'plan_day' && !isDayPlanMessage(msg)) {
+      if (skill.action_type === 'plan_day' && !isDayPlanMessage(routingMsg)) {
         /* fall through */
+      } else if (skill.action_type === 'schedule_task' && (isClearDayIntent(routingMsg) || isDeleteTaskIntent(routingMsg))) {
+        /* fall through — « demain » dans un message de suppression ne planifie pas */
       } else {
-        return executeSkill(skill, msg, pageContext);
+        return executeSkill(skill, routingMsg, pageContext);
       }
     }
-    if (/cocher|marquer|termin|fait|complét/i.test(msg) && /tâche|étape|finition|débitage|assemblage|projet|sur /i.test(msg)) {
-      return runSkillAction('complete_task', msg, pageContext);
+    if (/cocher|marquer|termin|fait|complét/i.test(routingMsg) && /t[aâ]che|[eé]tape|finition|débitage|assemblage|projet|sur /i.test(routingMsg)) {
+      return runSkillAction('complete_task', routingMsg, pageContext);
     }
-    if (/supprimer|retirer|effacer/i.test(msg) && /tâche|étape/i.test(msg)) {
-      return runSkillAction('delete_task', msg, pageContext);
+    if (isDeleteTaskIntent(routingMsg)) {
+      return runSkillAction('delete_task', routingMsg, pageContext);
     }
-    if (/ajouter|ajoute|étape|checklist|nouvelle tâche|créer tâche|t[aâ]che\s+admin/i.test(msg)) {
-      return runSkillAction('create_task', msg, pageContext);
+    if (/ajouter|ajoute|[eé]tape|checklist|nouvelle t[aâ]che|cr[eé]er t[aâ]che|t[aâ]che\s+admin/i.test(routingMsg)) {
+      return runSkillAction('create_task', routingMsg, pageContext);
     }
-    if (/descriptif|description|note(s)? (du )?projet|modifier (le )?projet|deadline|budget|renommer projet/i.test(msg)) {
-      return runSkillAction('update_project', msg, pageContext);
+    if (/descriptif|description|note(s)? (du )?projet|modifier (le )?projet|deadline|budget|renommer projet/i.test(routingMsg)) {
+      return runSkillAction('update_project', routingMsg, pageContext);
     }
-    if (pageContext?.type === 'project' && /modifier|deadline|budget|renommer/i.test(msg)) {
-      return runSkillAction('update_project', msg, pageContext);
+    if (pageContext?.type === 'project' && /modifier|deadline|budget|renommer/i.test(routingMsg)) {
+      return runSkillAction('update_project', routingMsg, pageContext);
     }
-    if (/cherche.*(projet|mémoire)|trouve.*(projet)|anciens? projets|projets? termin/i.test(msg)) {
-      if (/mémoire|souvenir/i.test(msg)) return runSkillAction('search_memory', msg, pageContext);
-      return runSkillAction('search_projects', msg, pageContext);
+    if (/cherche.*(projet|mémoire)|trouve.*(projet)|anciens? projets|projets? termin/i.test(routingMsg)) {
+      if (/mémoire|souvenir/i.test(routingMsg)) return runSkillAction('search_memory', routingMsg, pageContext);
+      return runSkillAction('search_projects', routingMsg, pageContext);
     }
-    if (pageContext?.type === 'client' && /projet|nouveau/i.test(msg)) {
-      return runSkillAction('create_project', msg, pageContext);
+    if (pageContext?.type === 'client' && /projet|nouveau/i.test(routingMsg)) {
+      return runSkillAction('create_project', routingMsg, pageContext);
     }
-    if (pageContext?.type === 'client' && /email|téléphone|telephone|renommer|modifier/i.test(msg)) {
-      return runSkillAction('update_client', msg, pageContext);
+    if (pageContext?.type === 'client' && /email|téléphone|telephone|renommer|modifier/i.test(routingMsg)) {
+      return runSkillAction('update_client', routingMsg, pageContext);
     }
-    if (pageContext?.type === 'standard' && /projet|créer|depuis/i.test(msg)) {
-      return createProjectFromStandard(pageContext, msg);
+    if (pageContext?.type === 'standard' && /projet|créer|depuis/i.test(routingMsg)) {
+      return createProjectFromStandard(pageContext, routingMsg);
     }
     if (pageContext?.type === 'quote') {
-      if (/envoie|envoyer|mail devis/i.test(msg)) return runSkillAction('send_quote', msg, pageContext);
-      if (/convertir|facturer|acompte/i.test(msg)) return runSkillAction('convert_quote', msg, pageContext);
-      if (/montre|voir|détail|contenu|lignes du devis|lis le devis/i.test(msg)) {
-        return runSkillAction('get_quote', msg, pageContext);
+      if (/envoie|envoyer|mail devis/i.test(routingMsg)) return runSkillAction('send_quote', routingMsg, pageContext);
+      if (/convertir|facturer|acompte/i.test(routingMsg)) return runSkillAction('convert_quote', routingMsg, pageContext);
+      if (/montre|voir|détail|contenu|lignes du devis|lis le devis/i.test(routingMsg)) {
+        return runSkillAction('get_quote', routingMsg, pageContext);
       }
-      if (/ajoute|ajouter|ligne|prix|change|modifie|titre|note|supprime|retire|status|statut|brouillon|accept/i.test(msg)) {
-        return runSkillAction('update_quote', msg, pageContext);
+      if (/ajoute|ajouter|ligne|prix|change|modifie|titre|note|supprime|retire|status|statut|brouillon|accept/i.test(routingMsg)) {
+        return runSkillAction('update_quote', routingMsg, pageContext);
       }
     }
-    if (wantsEmailAttachmentImport(msg)) {
-      return runSkillAction('import_email_attachment', msg, pageContext);
+    if (wantsEmailAttachmentImport(routingMsg)) {
+      return runSkillAction('import_email_attachment', routingMsg, pageContext);
     }
     return null;
   }
@@ -630,10 +656,10 @@ export async function processMessage(message, attachments = [], rawContext = nul
 
   await pool.query(
     'INSERT INTO assistant_messages (role, content, actions_taken, attachments) VALUES ($1,$2,$3,$4)',
-    ['assistant', result.reply, JSON.stringify(result.actions || []), JSON.stringify(result.attachments || [])]
+    ['assistant', sanitizeAssistantReply(result.reply), JSON.stringify(result.actions || []), JSON.stringify(result.attachments || [])]
   );
 
-  return result;
+  return { ...result, reply: sanitizeAssistantReply(result.reply) };
 }
 
 async function handleAttachments(message, attachments, pageContext = null, preExtracts = null) {
@@ -830,14 +856,15 @@ export async function seedDefaultSkills() {
     { name: 'create_task', description: 'Créer une tâche', trigger_patterns: ['créer tâche', 'ajouter tâche', 'nouvelle tâche', 'task', 'ajouter étape'], action_type: 'create_task' },
     { name: 'create_project', description: 'Créer un projet', trigger_patterns: ['créer projet', 'nouveau projet', 'project'], action_type: 'create_project' },
     { name: 'plan_day', description: 'Planifier plusieurs étapes', trigger_patterns: ['planifier demain', 'journée de demain', 'étapes demain', 'pour demain', 'planning demain'], action_type: 'plan_day' },
-    { name: 'schedule_task', description: 'Planifier au calendrier', trigger_patterns: ['planifier', 'programmer', 'calendrier', 'demain', 'lundi'], action_type: 'schedule_task' },
+    { name: 'clear_day', description: 'Vider le planning d\'un jour', trigger_patterns: ['supprime toutes les tâches', 'supprimer toutes les tâches', 'vide le planning', 'efface demain', 'annule le planning'], action_type: 'clear_day' },
+    { name: 'schedule_task', description: 'Planifier au calendrier', trigger_patterns: ['planifier', 'programmer', 'calendrier', 'lundi'], action_type: 'schedule_task' },
     { name: 'create_expense', description: 'Enregistrer une dépense', trigger_patterns: ['dépense', 'acheté', 'payé pour'], action_type: 'create_expense' },
     { name: 'list_today', description: 'Tâches du jour', trigger_patterns: ["aujourd'hui", 'tâches du jour', 'planning jour'], action_type: 'list_today' },
-    { name: 'list_tomorrow', description: 'Tâches de demain', trigger_patterns: ['demain matin', 'tâches demain', 'planning demain', 'voir demain'], action_type: 'list_tomorrow' },
+    { name: 'list_tomorrow', description: 'Tâches de demain', trigger_patterns: ['demain matin', 'tâches demain', 'voir demain'], action_type: 'list_tomorrow' },
     { name: 'create_client', description: 'Ajouter un client', trigger_patterns: ['nouveau client', 'ajouter client'], action_type: 'create_client' },
     { name: 'complete_task', description: 'Marquer tâche terminée', trigger_patterns: ['cocher', 'marquer fait', 'terminé', 'complété', 'fait'], action_type: 'complete_task' },
     { name: 'update_task', description: 'Modifier une tâche', trigger_patterns: ['modifier tâche', 'renommer tâche', 'mettre à jour tâche'], action_type: 'update_task' },
-    { name: 'delete_task', description: 'Supprimer une tâche', trigger_patterns: ['supprimer tâche', 'retirer tâche', 'effacer tâche'], action_type: 'delete_task' },
+    { name: 'delete_task', description: 'Supprimer une tâche', trigger_patterns: ['supprimer tâche', 'supprime tâche', 'supprime tache', 'retirer tâche', 'effacer tâche', 'efface tache'], action_type: 'delete_task' },
     { name: 'list_project_tasks', description: 'Lister tâches du projet', trigger_patterns: ['liste tâches', 'tâches du projet', 'voir tâches'], action_type: 'list_project_tasks' },
     { name: 'update_project', description: 'Modifier le projet', trigger_patterns: ['modifier projet', 'deadline', 'budget projet', 'statut projet'], action_type: 'update_project' },
     { name: 'update_client', description: 'Modifier le client', trigger_patterns: ['modifier client', 'email client', 'téléphone client'], action_type: 'update_client' },
@@ -873,7 +900,13 @@ export async function seedDefaultSkills() {
   for (const s of defaults) {
     await pool.query(
       `INSERT INTO assistant_skills (name, description, trigger_patterns, action_type)
-       VALUES ($1,$2,$3,$4) ON CONFLICT (name) DO NOTHING`,
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT (name) DO UPDATE SET
+         description = EXCLUDED.description,
+         trigger_patterns = EXCLUDED.trigger_patterns,
+         action_type = EXCLUDED.action_type
+       WHERE assistant_skills.action_type IN ('schedule_task', 'list_tomorrow', 'delete_task', 'plan_day', 'clear_day')
+          OR assistant_skills.name = 'clear_day'`,
       [s.name, s.description, JSON.stringify(s.trigger_patterns), s.action_type]
     );
   }
