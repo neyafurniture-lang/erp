@@ -1,5 +1,46 @@
 /** Classification des messages « planning journée » vs multi-intentions ERP (sans I/O). */
 
+/** Retire métadonnées injectées (historique, contexte page) — ne jamais les router vers plan_day. */
+export function stripAssistantMeta(message) {
+  return String(message || '')
+    .replace(/\n?\[Suite de conversation[\s\S]*$/i, '')
+    .replace(/\n?\[Contexte page[\s\S]*$/i, '')
+    .replace(/\n?\[[0-9]+\s*fichier\(s\)[\s\S]*$/i, '')
+    .replace(/\n?\[Extraction[\s\S]*$/i, '')
+    .trim();
+}
+
+/** « Supprime toutes les tâches de demain » / « vide le planning » — pas une liste à planifier. */
+export function isClearDayIntent(message) {
+  const text = stripAssistantMeta(message);
+  const m = text.toLowerCase();
+  if (!m) return false;
+
+  const clearVerb = /\b(supprim\w*|effac\w*|retir\w*|annul\w*|vide[rz]?|enl[eè]v\w*|clear|reset)\b/i.test(m);
+  if (!clearVerb) return false;
+
+  const dayHint = /\b(demain|aujourd['’]?hui|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|journ[eé]e|planning)\b/i.test(m);
+  const bulkTasks = /\b(toutes?\s+les\s+t[aâ]ches?|tout(es)?\s+les\s+[eé]tapes?|les\s+t[aâ]ches?|le\s+planning|tout\s+le\s+planning|toutes?\s+les\s+[eé]tapes?)\b/i.test(m)
+    || /\bt[aâ]che\b/i.test(m) && /\b(toute|toutes|tout)\b/i.test(m);
+
+  // « Supprime toute les tache de demain et on refait… »
+  if (bulkTasks && dayHint) return true;
+  // « Vide / efface le planning de demain »
+  if (/\b(planning|journ[eé]e)\b/i.test(m) && dayHint) return true;
+  // « Efface demain » / « Annule le planning demain »
+  if (/\b(effac\w*|vid(e|er)|annul\w*)\b/i.test(m) && /\bdemain\b/i.test(m)) return true;
+  return false;
+}
+
+/** Imperatif supprimer + tâche (singulier) — hors clear-day bulk. */
+export function isDeleteTaskIntent(message) {
+  const m = stripAssistantMeta(message).toLowerCase();
+  if (!m || isClearDayIntent(m)) return false;
+  const clearVerb = /\b(supprim\w*|effac\w*|retir\w*)\b/i.test(m);
+  const taskWord = /\b(t[aâ]ches?|[eé]tapes?)\b/i.test(m);
+  return clearVerb && taskWord;
+}
+
 export function stripPlanPrefix(message) {
   return String(message || '')
     .replace(/^(planifie[rz]?|programme[rz]?|prévois|prevoyez|organise[rz]?)\s+(ma\s+)?(journée|journee|planning|étapes?|etapes?)\s+(de\s+|pour\s+)?(demain|lundi|mardi|mercredi|jeudi|vendredi)\s*[:,-]?\s*/i, '')
@@ -92,8 +133,22 @@ function looksLikeListDayPlan(message) {
 }
 
 export function isDayPlanMessage(message) {
-  if (isMultiIntentErpMessage(message)) return false;
-  return looksLikeListDayPlan(message);
+  const clean = stripAssistantMeta(message);
+  if (isClearDayIntent(clean) || isDeleteTaskIntent(clean)) return false;
+  if (isMultiIntentErpMessage(clean)) return false;
+  return looksLikeListDayPlan(clean);
+}
+
+/** Nettoie une réponse Lia avant affichage / stockage (fuites prompt, préfixe miroir). */
+export function sanitizeAssistantReply(reply) {
+  let r = String(reply || '').trim();
+  if (!r) return r;
+  r = r.replace(/^Lia\s*:\s*/i, '');
+  const suiteIdx = r.search(/\[Suite de conversation/i);
+  if (suiteIdx >= 0) r = r.slice(0, suiteIdx).trim();
+  // Historique collé en fin de bulle (ex. « Utilisateur: … »)
+  r = r.replace(/\n(?:Utilisateur|Lia)\s*:\s*[\s\S]*$/i, '').trim();
+  return r;
 }
 
 /** Wall-clock America/Toronto → Date UTC (évite 08:30 serveur = 04:30 affichage QC). */

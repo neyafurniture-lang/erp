@@ -42,6 +42,7 @@ Règles STRICTES :
 - Une demande avec PLUSIEURS intentions (client + devis + tâches calendrier + jours différents) = PLUSIEURS steps distincts
 - NE JAMAIS utiliser plan_day pour découper une phrase narrative en créneaux de 30 minutes
 - plan_day UNIQUEMENT pour une vraie liste atelier courte du type « Demain finition X, mail Y, débitage Z »
+- clear_day si l'utilisateur veut supprimer / vider toutes les tâches d'un jour (« Supprime toutes les tâches de demain »)
 - « Créer des tâches pour mardi, mercredi, jeudi » = plusieurs create_task ou schedule_task (un par jour / sujet), PAS un seul plan_day
 - « Nouveau client James » + « nouveau devis » = create_client puis create_quote (params.name / params.title)
 - Ne crée pas d'étape pour du texte flou sans action (« à vérifier », « semaine prochaine » seul) — mets-le en note dans summary
