@@ -251,6 +251,7 @@ export const TASK_TYPES = [
   { value: 'usinage', label: 'Usinage' },
   { value: 'assemblage', label: 'Assemblage' },
   { value: 'finition', label: 'Finition' },
+  { value: 'installation', label: 'Installation' },
   { value: 'admin', label: 'Admin' },
 ];
 

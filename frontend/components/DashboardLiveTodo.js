@@ -5,10 +5,18 @@ import Link from 'next/link';
 import { Circle, ListTodo, Plus } from 'lucide-react';
 import { api } from '../lib/api';
 
+const LIVE_TYPES = [
+  { id: 'admin', label: 'Admin' },
+  { id: 'atelier', label: 'Atelier' },
+  { id: 'rdv', label: 'RDV' },
+  { id: 'installation', label: 'Installation' },
+];
+
 const SOURCE_META = {
   admin: { label: 'Admin', className: 'bg-amber-50 text-amber-800 border-amber-200/80' },
   atelier: { label: 'Atelier', className: 'bg-orange-50 text-neya-orange border-orange-200/70' },
   rdv: { label: 'RDV', className: 'bg-sky-50 text-sky-800 border-sky-200/80' },
+  installation: { label: 'Installation', className: 'bg-emerald-50 text-emerald-800 border-emerald-200/80' },
   todo: { label: 'Perso', className: 'bg-neya-surface text-neya-muted border-neya-border' },
 };
 
@@ -25,6 +33,7 @@ export default function DashboardLiveTodo({ initial }) {
   const [live, setLive] = useState(initial || { items: [], open: 0, bySource: {} });
   const [busyKey, setBusyKey] = useState('');
   const [draft, setDraft] = useState('');
+  const [todoType, setTodoType] = useState('admin');
   const [adding, setAdding] = useState(false);
 
   useEffect(() => {
@@ -59,7 +68,7 @@ export default function DashboardLiveTodo({ initial }) {
     try {
       await api('/dashboard/todos', {
         method: 'POST',
-        body: JSON.stringify({ title, list_key: 'main' }),
+        body: JSON.stringify({ title, list_key: todoType }),
       });
       setDraft('');
       const next = await api('/dashboard/live-todo');
@@ -72,6 +81,14 @@ export default function DashboardLiveTodo({ initial }) {
   const items = live?.items || [];
   const open = live?.open ?? items.length;
   const by = live?.bySource || {};
+  const types = live?.types?.length ? live.types : LIVE_TYPES;
+
+  const summaryBits = [
+    by.admin ? `${by.admin} admin` : null,
+    by.atelier ? `${by.atelier} atelier` : null,
+    by.rdv ? `${by.rdv} RDV` : null,
+    by.installation ? `${by.installation} installation` : null,
+  ].filter(Boolean);
 
   return (
     <section className="cf-panel mb-6">
@@ -83,20 +100,34 @@ export default function DashboardLiveTodo({ initial }) {
           </h2>
           <p className="cf-panel-sub">
             {open} reste{open > 1 ? 'nt' : ''} à faire
-            {by.admin || by.atelier
-              ? ` · ${by.admin || 0} admin · ${by.atelier || 0} atelier`
-              : ''}
-            {by.rdv ? ` · ${by.rdv} RDV` : ''}
+            {summaryBits.length ? ` · ${summaryBits.join(' · ')}` : ''}
           </p>
         </div>
         <div className="flex items-center gap-3 shrink-0">
           <Link href="/admin" className="dash-link">Admin</Link>
+          <Link href="/calendar" className="dash-link">RDV</Link>
           <Link href="/production" className="dash-link">Atelier</Link>
         </div>
       </div>
 
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        {types.map(t => {
+          const meta = SOURCE_META[t.id] || SOURCE_META.todo;
+          const count = by[t.id] || 0;
+          return (
+            <span
+              key={t.id}
+              className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-medium ${meta.className}`}
+            >
+              {meta.label}
+              <span className="tabular-nums opacity-70">{count}</span>
+            </span>
+          );
+        })}
+      </div>
+
       {!items.length ? (
-        <p className="dash-empty px-1">Rien en attente — admin et atelier sont à jour.</p>
+        <p className="dash-empty px-1">Rien en attente — admin, atelier, RDV et installation sont à jour.</p>
       ) : (
         <ul className="divide-y divide-neya-border/70">
           {items.map(item => {
@@ -147,18 +178,38 @@ export default function DashboardLiveTodo({ initial }) {
         </ul>
       )}
 
-      <form onSubmit={addTodo} className="mt-3 flex gap-2 border-t border-neya-border/70 pt-3">
+      <form onSubmit={addTodo} className="mt-3 flex flex-col gap-2 border-t border-neya-border/70 pt-3 sm:flex-row sm:items-center">
+        <div className="flex flex-wrap gap-1.5 shrink-0">
+          {LIVE_TYPES.map(t => {
+            const active = todoType === t.id;
+            const meta = SOURCE_META[t.id];
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTodoType(t.id)}
+                className={`rounded border px-2 py-1 text-[11px] font-medium transition-colors ${
+                  active
+                    ? `${meta.className} ring-1 ring-neya-ink/15`
+                    : 'border-neya-border bg-white text-neya-muted hover:bg-neya-surface'
+                }`}
+              >
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
         <input
           type="text"
           value={draft}
           onChange={e => setDraft(e.target.value)}
-          placeholder="Ajouter une chose à faire…"
+          placeholder={`Ajouter une tâche ${SOURCE_META[todoType]?.label?.toLowerCase() || ''}…`}
           className="flex-1 min-w-0 rounded-lg border border-neya-border bg-white px-3 py-2 text-sm text-neya-ink placeholder:text-neya-muted focus:outline-none focus:ring-2 focus:ring-neya-orange/30"
         />
         <button
           type="submit"
           disabled={adding || !draft.trim()}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-neya-ink px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
+          className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-neya-ink px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
         >
           <Plus className="h-4 w-4" strokeWidth={2} />
           Ajouter
