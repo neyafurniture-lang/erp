@@ -55,6 +55,19 @@ const AVATAR_COLORS = [
 ];
 
 const UNDO_MS = 8000;
+const MAX_COMPOSE_FILES = 8;
+const MAX_COMPOSE_FILE_BYTES = 20 * 1024 * 1024;
+
+function mergeComposeFiles(current, incoming) {
+  const next = [...(current || [])];
+  for (const file of Array.from(incoming || [])) {
+    if (next.length >= MAX_COMPOSE_FILES) break;
+    if (!file || file.size > MAX_COMPOSE_FILE_BYTES) continue;
+    const dup = next.some(f => f.name === file.name && f.size === file.size && f.lastModified === file.lastModified);
+    if (!dup) next.push(file);
+  }
+  return next;
+}
 
 function parseKeyPoints(raw) {
   if (!raw) return [];
@@ -296,6 +309,14 @@ function IconSent({ className = 'w-4 h-4' }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3 21l18-9L3 3l3 9zm0 0h7" />
+    </svg>
+  );
+}
+
+function IconPaperclip({ className = 'w-4 h-4' }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
     </svg>
   );
 }
@@ -606,7 +627,12 @@ export default function GmailInbox({
   const [listFilter, setListFilter] = useState('tous');
   const [showComposeNew, setShowComposeNew] = useState(false);
   const [composeNew, setComposeNew] = useState({ to: '', subject: '', body: '' });
+  const [composeFiles, setComposeFiles] = useState([]);
+  const [replyFiles, setReplyFiles] = useState([]);
   const [composeSending, setComposeSending] = useState(false);
+  const [replySending, setReplySending] = useState(false);
+  const replyFileInputRef = useRef(null);
+  const composeFileInputRef = useRef(null);
   const [sections, setSections] = useState(
     [{ id: 'inbox', count: 0 }, ...ERP_FOLDERS.map(s => ({ ...s, count: 0 }))]
   );
@@ -712,6 +738,7 @@ export default function GmailInbox({
     setSelected(null);
     setThread(null);
     setReply('');
+    setReplyFiles([]);
     setPrevReply(null);
     if (!search) load('', id);
   }
@@ -816,6 +843,7 @@ export default function GmailInbox({
     setMobileDetail(true);
     setErpOpen(false);
     setPrevReply(null);
+    setReplyFiles([]);
     setShowDraftInstr(false);
 
     let full = null;
@@ -1081,20 +1109,28 @@ export default function GmailInbox({
   }
 
   async function sendReply() {
-    if (!reply.trim() || !selected) return;
+    if ((!reply.trim() && !replyFiles.length) || !selected || replySending) return;
     const body = reply;
+    const files = [...replyFiles];
     const selectedId = selected.id;
+    setReplySending(true);
     try {
+      const form = new FormData();
+      form.append('body', body);
+      form.append('confirm', 'true');
+      files.forEach(f => form.append('files', f));
       const sent = await api(`/gmail/messages/${selectedId}/reply`, {
         method: 'POST',
-        body: JSON.stringify({ body, confirm: true }),
+        body: form,
       });
       setReply('');
+      setReplyFiles([]);
       setPrevReply(null);
       showUndo('Message envoyé', async () => {
         if (sent?.id) {
           await api(`/gmail/messages/${sent.id}?confirm=1`, { method: 'DELETE' });
           setReply(body);
+          setReplyFiles(files);
           await load(search, activeFolder);
         }
       });
@@ -1105,6 +1141,8 @@ export default function GmailInbox({
       }
     } catch (e) {
       setErr(e.message);
+    } finally {
+      setReplySending(false);
     }
   }
 
@@ -1235,16 +1273,24 @@ export default function GmailInbox({
     const to = composeNew.to.trim();
     const subject = composeNew.subject.trim();
     const body = composeNew.body.trim();
-    if (!to || !subject || !body) return;
+    if (!to || !subject) return;
+    if (!body && !composeFiles.length) return;
     setComposeSending(true);
     setErr('');
     try {
+      const form = new FormData();
+      form.append('to', to);
+      form.append('subject', subject);
+      form.append('body', body);
+      form.append('confirm', 'true');
+      composeFiles.forEach(f => form.append('files', f));
       await api('/gmail/send', {
         method: 'POST',
-        body: JSON.stringify({ to, subject, body, confirm: true }),
+        body: form,
       });
       setShowComposeNew(false);
       setComposeNew({ to: '', subject: '', body: '' });
+      setComposeFiles([]);
       showUndo('Message envoyé', null);
       if (activeFolder === 'sent') load('', 'sent');
     } catch (ex) {
@@ -1730,15 +1776,57 @@ export default function GmailInbox({
                         value={reply}
                         onChange={e => { setReply(e.target.value); setPrevReply(null); }}
                       />
+                      {replyFiles.length > 0 && (
+                        <div className="mail-compose-attachments">
+                          {replyFiles.map((f, i) => (
+                            <div key={`${f.name}-${f.size}-${i}`} className="mail-compose-att">
+                              <span className="shrink-0" aria-hidden>{attIcon(f.type, f.name)}</span>
+                              <span className="min-w-0 truncate">{f.name}</span>
+                              <span className="text-neya-muted shrink-0">{formatAttSize(f.size)}</span>
+                              <button
+                                type="button"
+                                className="mail-compose-att__remove"
+                                aria-label={`Retirer ${f.name}`}
+                                onClick={() => setReplyFiles(prev => prev.filter((_, idx) => idx !== i))}
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       <div className="mail-compose-card__foot">
-                        {draftAiLoading && <span className="mr-auto text-xs text-neya-muted">L’IA travaille…</span>}
+                        <input
+                          ref={replyFileInputRef}
+                          type="file"
+                          multiple
+                          className="hidden"
+                          onChange={e => {
+                            if (e.target.files?.length) {
+                              setReplyFiles(prev => mergeComposeFiles(prev, e.target.files));
+                            }
+                            e.target.value = '';
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="mail-compose-attach-btn mr-auto"
+                          onClick={() => replyFileInputRef.current?.click()}
+                          disabled={replyFiles.length >= MAX_COMPOSE_FILES || replySending}
+                          title="Joindre un fichier"
+                        >
+                          <IconPaperclip />
+                          Joindre
+                          {replyFiles.length > 0 ? ` (${replyFiles.length})` : ''}
+                        </button>
+                        {draftAiLoading && <span className="text-xs text-neya-muted">L’IA travaille…</span>}
                         <button
                           type="button"
                           onClick={sendReply}
-                          disabled={!reply.trim()}
+                          disabled={(!reply.trim() && !replyFiles.length) || replySending}
                           className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-neya-orange px-4 text-[12.5px] font-semibold text-white shadow-sm hover:bg-neya-orange/90 disabled:opacity-40"
                         >
-                          <IconSent /> Envoyer
+                          <IconSent /> {replySending ? 'Envoi…' : 'Envoyer'}
                         </button>
                       </div>
                     </div>
@@ -1924,7 +2012,7 @@ export default function GmailInbox({
             type="button"
             className="absolute inset-0 bg-black/30 backdrop-blur-[1px]"
             aria-label="Fermer"
-            onClick={() => setShowComposeNew(false)}
+            onClick={() => { setShowComposeNew(false); setComposeFiles([]); }}
           />
           <form
             onSubmit={sendComposeNew}
@@ -1932,7 +2020,14 @@ export default function GmailInbox({
           >
             <div className="flex items-center justify-between gap-2">
               <h2 className="font-display text-[17px] font-semibold text-neya-ink">Nouveau message</h2>
-              <button type="button" className="mail-icon-btn" onClick={() => setShowComposeNew(false)} aria-label="Fermer">✕</button>
+              <button
+                type="button"
+                className="mail-icon-btn"
+                onClick={() => { setShowComposeNew(false); setComposeFiles([]); }}
+                aria-label="Fermer"
+              >
+                ✕
+              </button>
             </div>
             <div>
               <label className="label">À</label>
@@ -1958,16 +2053,69 @@ export default function GmailInbox({
               <label className="label">Message</label>
               <textarea
                 className="input min-h-[140px]"
-                required
+                required={composeFiles.length === 0}
                 value={composeNew.body}
                 onChange={e => setComposeNew({ ...composeNew, body: e.target.value })}
               />
             </div>
-            <div className="flex justify-end gap-2 pt-1">
-              <button type="button" className="btn-secondary text-sm" onClick={() => setShowComposeNew(false)}>Annuler</button>
-              <button type="submit" disabled={composeSending} className="btn-primary text-sm gap-1.5">
-                <IconSent /> {composeSending ? 'Envoi…' : 'Envoyer'}
+            {composeFiles.length > 0 && (
+              <div className="mail-compose-attachments">
+                {composeFiles.map((f, i) => (
+                  <div key={`${f.name}-${f.size}-${i}`} className="mail-compose-att">
+                    <span className="shrink-0" aria-hidden>{attIcon(f.type, f.name)}</span>
+                    <span className="min-w-0 truncate">{f.name}</span>
+                    <span className="text-neya-muted shrink-0">{formatAttSize(f.size)}</span>
+                    <button
+                      type="button"
+                      className="mail-compose-att__remove"
+                      aria-label={`Retirer ${f.name}`}
+                      onClick={() => setComposeFiles(prev => prev.filter((_, idx) => idx !== i))}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <input
+                ref={composeFileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={e => {
+                  if (e.target.files?.length) {
+                    setComposeFiles(prev => mergeComposeFiles(prev, e.target.files));
+                  }
+                  e.target.value = '';
+                }}
+              />
+              <button
+                type="button"
+                className="mail-compose-attach-btn"
+                onClick={() => composeFileInputRef.current?.click()}
+                disabled={composeFiles.length >= MAX_COMPOSE_FILES || composeSending}
+              >
+                <IconPaperclip />
+                Joindre
+                {composeFiles.length > 0 ? ` (${composeFiles.length})` : ''}
               </button>
+              <div className="flex gap-2 ml-auto">
+                <button
+                  type="button"
+                  className="btn-secondary text-sm"
+                  onClick={() => { setShowComposeNew(false); setComposeFiles([]); }}
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={composeSending || (!composeNew.body.trim() && !composeFiles.length)}
+                  className="btn-primary text-sm gap-1.5"
+                >
+                  <IconSent /> {composeSending ? 'Envoi…' : 'Envoyer'}
+                </button>
+              </div>
             </div>
           </form>
         </div>

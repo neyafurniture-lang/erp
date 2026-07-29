@@ -494,21 +494,73 @@ export async function searchMessages(query, max = 30) {
   return listMessages({ q: query, max, label: null });
 }
 
-function buildRawEmail({ to, subject, body, inReplyTo, references, threadId }) {
-  const lines = [
-    `To: ${to}`,
-    `Subject: ${subject}`,
-    'Content-Type: text/plain; charset=utf-8',
-    'MIME-Version: 1.0',
-  ];
-  if (inReplyTo) lines.push(`In-Reply-To: ${inReplyTo}`);
-  if (references) lines.push(`References: ${references}`);
-  lines.push('', body);
-  const raw = lines.join('\r\n');
-  return Buffer.from(raw).toString('base64url');
+function encodeRfc2047(value) {
+  const s = String(value || '');
+  if (!/[^\x20-\x7E]/.test(s)) return s;
+  return `=?UTF-8?B?${Buffer.from(s, 'utf8').toString('base64')}?=`;
 }
 
-export async function sendEmail({ to, subject, body, threadId, replyToMessageId }) {
+function safeAttachmentFilename(name) {
+  const base = String(name || 'fichier').replace(/[\r\n"\\]/g, '_').trim() || 'fichier';
+  return base.slice(0, 180);
+}
+
+function buildRawEmail({ to, subject, body, inReplyTo, references, attachments = [] }) {
+  const headers = [
+    `To: ${to}`,
+    `Subject: ${encodeRfc2047(subject)}`,
+    'MIME-Version: 1.0',
+  ];
+  if (inReplyTo) headers.push(`In-Reply-To: ${inReplyTo}`);
+  if (references) headers.push(`References: ${references}`);
+
+  const textBody = String(body || '');
+  const files = Array.isArray(attachments) ? attachments.filter(a => a?.content) : [];
+
+  let mime;
+  if (!files.length) {
+    mime = [
+      ...headers,
+      'Content-Type: text/plain; charset=utf-8',
+      '',
+      textBody,
+    ].join('\r\n');
+  } else {
+    const boundary = `neya_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    const parts = [
+      ...headers,
+      `Content-Type: multipart/mixed; boundary="${boundary}"`,
+      '',
+      `--${boundary}`,
+      'Content-Type: text/plain; charset=utf-8',
+      'Content-Transfer-Encoding: 8bit',
+      '',
+      textBody,
+    ];
+    for (const att of files) {
+      const filename = safeAttachmentFilename(att.filename);
+      const mimeType = String(att.mimeType || 'application/octet-stream').replace(/[\r\n]/g, '');
+      const buf = Buffer.isBuffer(att.content)
+        ? att.content
+        : Buffer.from(String(att.content || ''), 'base64');
+      const b64 = buf.toString('base64').replace(/(.{76})/g, '$1\r\n');
+      parts.push(
+        `--${boundary}`,
+        `Content-Type: ${mimeType}; name="${filename}"`,
+        'Content-Transfer-Encoding: base64',
+        `Content-Disposition: attachment; filename="${filename}"`,
+        '',
+        b64,
+      );
+    }
+    parts.push(`--${boundary}--`, '');
+    mime = parts.join('\r\n');
+  }
+
+  return Buffer.from(mime).toString('base64url');
+}
+
+export async function sendEmail({ to, subject, body, threadId, replyToMessageId, attachments = [] }) {
   let inReplyTo;
   let references;
   if (replyToMessageId) {
@@ -519,7 +571,7 @@ export async function sendEmail({ to, subject, body, threadId, replyToMessageId 
     threadId = threadId || orig.threadId;
   }
 
-  const raw = buildRawEmail({ to, subject, body, inReplyTo, references, threadId });
+  const raw = buildRawEmail({ to, subject, body, inReplyTo, references, attachments });
   const payload = { raw };
   if (threadId) payload.threadId = threadId;
 
