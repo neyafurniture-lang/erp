@@ -881,6 +881,21 @@ h1, h2, h3, h4, h5, h6 {
     @apply flex items-center justify-end gap-2 border-t px-4 py-2.5;
     border-color: var(--border, #e6e4e2);
   }
+  .mail-compose-attachments {
+    @apply flex flex-wrap gap-2 px-4 pb-3;
+  }
+  .mail-compose-att {
+    @apply inline-flex items-center gap-1.5 max-w-full rounded-lg border px-2 py-1 text-[11.5px] text-neya-ink;
+    border-color: var(--border, #e6e4e2);
+    background: var(--surface, #f7f5f2);
+  }
+  .mail-compose-att__remove {
+    @apply ml-0.5 text-neya-muted hover:text-neya-ink text-sm leading-none px-0.5;
+  }
+  .mail-compose-attach-btn {
+    @apply inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-[12px] font-medium text-neya-muted hover:text-neya-ink hover:bg-neya-surface disabled:opacity-40;
+    border-color: var(--border, #e6e4e2);
+  }
 
   .mail-erp-panel {
     @apply flex-col overflow-hidden;
