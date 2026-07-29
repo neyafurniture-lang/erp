@@ -8,6 +8,7 @@ import {
   createProjectFromStandard,
   isDayPlanMessage,
   isMultiIntentErpMessage,
+  wantsSmartTaskPlan,
   runSkillAction,
   wantsUnlinkFromProject,
 } from './skill-actions.js';
@@ -529,20 +530,59 @@ export async function processMessage(message, attachments = [], rawContext = nul
     return unlinkResult;
   }
 
-  async function runKeywordActions(msg = message) {
-    if (isDayPlanMessage(msg)) {
-      return runSkillAction('plan_day', msg, pageContext);
+  // Texte riche / multi-intent → plan IA (analyse destinations calendrier / admin / todo / projet)
+  // Ne pas coller les mots en un seul create_task, ni refuser « utilisez le micro ».
+  const planSource = String(message || '')
+    .replace(/\n?\[Contexte page[\s\S]*$/i, '')
+    .replace(/\n?\[Suite de conversation[\s\S]*$/i, '')
+    .trim();
+  if (wantsSmartTaskPlan(planSource) || isMultiIntentErpMessage(planSource)) {
+    try {
+      const { getActiveAiProvider } = await import('./ai-chat.js');
+      const provider = await getActiveAiProvider();
+      if (provider) {
+        const { buildOperationPlan, executeOperationPlan } = await import('./assistant-plan.js');
+        const plan = await buildOperationPlan(planSource, pageContext);
+        const actionable = (plan.steps || []).filter(s => s?.action_type);
+        if (actionable.length) {
+          const executed = await executeOperationPlan(plan, pageContext);
+          const reply = executed.reply || plan.summary || 'Plan exécuté.';
+          await pool.query(
+            'INSERT INTO assistant_messages (role, content, actions_taken) VALUES ($1,$2,$3)',
+            ['assistant', reply, JSON.stringify(executed.actions || [])]
+          );
+          return {
+            reply,
+            actions: executed.actions || [],
+            plan,
+          };
+        }
+      }
+    } catch (err) {
+      console.warn('smart task plan:', err?.message || err);
     }
-    // Multi-intent (client + devis + calendrier…) : ne pas coller en un seul plan_day / skill
-    if (isMultiIntentErpMessage(msg)) {
+  }
+
+  async function runKeywordActions(msg = message) {
+    const bare = String(msg || '')
+      .replace(/\n?\[Contexte page[\s\S]*$/i, '')
+      .replace(/\n?\[Suite de conversation[\s\S]*$/i, '')
+      .trim();
+    if (isDayPlanMessage(bare) || isDayPlanMessage(msg)) {
+      return runSkillAction('plan_day', bare || msg, pageContext);
+    }
+    // Multi-intent sans IA : expliquer, ne pas créer une tâche-mot
+    if (isMultiIntentErpMessage(bare) || wantsSmartTaskPlan(bare)) {
       return {
-        reply: 'Cette demande contient plusieurs actions ERP distinctes (ex. tâches calendrier, devis, client). '
-          + 'Utilisez le micro → « Créer le plan » pour les séparer et confirmer, ou envoyez une action à la fois.',
+        reply: 'Cette demande contient plusieurs actions (calendrier, admin, todo, client…). '
+          + 'Configurez une clé IA (Paramètres → Assistant) pour que Lia analyse et route chaque action, '
+          + 'ou utilisez le micro → « Créer le plan ». '
+          + 'Sinon envoyez une action à la fois.',
         actions: [],
       };
     }
-    if (wantsUnlinkFromProject(msg)) {
-      return runSkillAction('unlink_task', msg, pageContext);
+    if (wantsUnlinkFromProject(msg) || wantsUnlinkFromProject(bare)) {
+      return runSkillAction('unlink_task', bare || msg, pageContext);
     }
     const skill = await matchSkill(msg);
     if (skill) {

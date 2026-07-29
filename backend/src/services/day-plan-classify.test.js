@@ -4,6 +4,8 @@ import {
   isDayPlanMessage,
   isMultiIntentErpMessage,
   splitPlanItems,
+  wantsSmartTaskPlan,
+  cleanTaskTitle,
 } from './day-plan-classify.js';
 
 const PROSE_BUG = `La semaine prochaine. Il faut avancer sur le projet (nom non clair.
@@ -25,6 +27,41 @@ describe('isMultiIntentErpMessage', () => {
   });
 });
 
+describe('wantsSmartTaskPlan', () => {
+  it('capture la prose multi-intent', () => {
+    assert.equal(wantsSmartTaskPlan(PROSE_BUG), true);
+  });
+
+  it('capture « créer des tâches depuis ce texte »', () => {
+    assert.equal(
+      wantsSmartTaskPlan('Analyse ce texte et crée des tâches : appeler James, payer Olive, débitage mardi'),
+      true
+    );
+  });
+
+  it('ne capture pas une courte consigne simple', () => {
+    assert.equal(wantsSmartTaskPlan('ajoute finition sur projet Olive'), false);
+  });
+
+  it('ne capture pas une vraie liste journée (reste plan_day)', () => {
+    assert.equal(
+      wantsSmartTaskPlan('Demain finition banc olive, mail pour The NNS, débitage table chêne'),
+      false
+    );
+  });
+});
+
+describe('cleanTaskTitle', () => {
+  it('retire le préfixe « crée une tâche »', () => {
+    assert.equal(cleanTaskTitle('crée une tâche appeler James demain'), 'Appeler James demain');
+  });
+
+  it('coupe une phrase trop longue', () => {
+    const long = `ajoute ${'x'.repeat(120)}`;
+    assert.ok(cleanTaskTitle(long).length <= 90);
+  });
+});
+
 describe('isDayPlanMessage', () => {
   it('refuse la prose dictée multi-intentions', () => {
     assert.equal(isDayPlanMessage(PROSE_BUG), false);
@@ -39,7 +76,7 @@ describe('isDayPlanMessage', () => {
 
   it('accepte « planifie ma journée demain … »', () => {
     assert.equal(
-      isDayPlanMessage('Planifie ma journée demain : finition ETEL, assemblage cadres'),
+      isDayPlanMessage('planifie ma journée demain : finition olive puis débitage NNS'),
       true
     );
   });
