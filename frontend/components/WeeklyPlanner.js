@@ -8,7 +8,13 @@ import interactionPlugin, { Draggable } from '@fullcalendar/interaction';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
 import { hasPermission, isAdmin } from '../lib/permissions';
-import CalendarTaskModal, { toDatetimeLocal, fromDatetimeLocal } from './CalendarTaskModal';
+import CalendarTaskModal, {
+  toDatetimeLocal,
+  fromDatetimeLocal,
+  shiftEndKeepingDuration,
+  addMsToDatetimeLocal,
+  durationBetweenLocal,
+} from './CalendarTaskModal';
 
 const TIME_OFF_TYPES = [
   { value: 'vacation', label: 'Vacances' },
@@ -301,7 +307,16 @@ function ShiftEventModal({
                 type="datetime-local"
                 className="input"
                 value={form.start_at || ''}
-                onChange={e => setForm({ ...form, start_at: e.target.value })}
+                onChange={e => {
+                  const nextStart = e.target.value;
+                  const { start, end } = shiftEndKeepingDuration(
+                    form.start_at,
+                    form.end_at,
+                    nextStart,
+                    DEFAULT_SHIFT_MS,
+                  );
+                  setForm({ ...form, start_at: start, end_at: end });
+                }}
               />
             </div>
             <div>
@@ -310,7 +325,24 @@ function ShiftEventModal({
                 type="datetime-local"
                 className="input"
                 value={form.end_at || ''}
-                onChange={e => setForm({ ...form, end_at: e.target.value })}
+                onChange={e => {
+                  const nextEnd = e.target.value;
+                  if (
+                    form.start_at
+                    && nextEnd
+                    && new Date(nextEnd).getTime() <= new Date(form.start_at).getTime()
+                  ) {
+                    setForm({
+                      ...form,
+                      end_at: addMsToDatetimeLocal(
+                        form.start_at,
+                        durationBetweenLocal(form.start_at, form.end_at, DEFAULT_SHIFT_MS),
+                      ),
+                    });
+                    return;
+                  }
+                  setForm({ ...form, end_at: nextEnd });
+                }}
               />
             </div>
           </div>
