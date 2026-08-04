@@ -62,9 +62,20 @@ async function nextNumber(type) {
     const base = rows[0] ? parseInt(rows[0].invoice_number, 10) : 1026;
     return String(base + 1);
   }
-  const { rows } = await pool.query('SELECT COUNT(*)::int as c FROM quotes');
   const year = new Date().getFullYear();
-  return `Q-${year}-${String(rows[0].c + 1).padStart(3, '0')}`;
+  const { rows } = await pool.query(
+    `SELECT quote_number FROM quotes
+     WHERE quote_number LIKE $1
+     ORDER BY quote_number DESC
+     LIMIT 1`,
+    [`Q-${year}-%`]
+  );
+  let next = 1;
+  if (rows[0]?.quote_number) {
+    const m = String(rows[0].quote_number).match(/Q-\d{4}-(\d+)$/);
+    if (m) next = parseInt(m[1], 10) + 1;
+  }
+  return `Q-${year}-${String(next).padStart(3, '0')}`;
 }
 
 // QUOTES
