@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
 import InvoicePaymentModal from '../../components/InvoicePaymentModal';
@@ -12,6 +13,7 @@ import {
 } from '../../lib/api';
 import DocRowMenu from '../../components/DocRowMenu';
 import SendDocumentModal from '../../components/SendDocumentModal';
+import { isMeaningfulLine } from '../../lib/quote-document';
 
 const EMPTY_FORM = {
   client_id: '',
@@ -26,12 +28,14 @@ const EMPTY_FORM = {
 };
 
 export default function InvoicesPage() {
+  const router = useRouter();
   const [invoices, setInvoices] = useState([]);
   const [quotes, setQuotes] = useState([]);
   const [clients, setClients] = useState([]);
   const [tab, setTab] = useState('quotes');
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [creating, setCreating] = useState(false);
   const [paymentForm, setPaymentForm] = useState(null);
   const [convertForm, setConvertForm] = useState(null);
   const [sendDoc, setSendDoc] = useState(null); // { type, id }
@@ -57,12 +61,65 @@ export default function InvoicesPage() {
 
   async function createDoc(e) {
     e.preventDefault();
-    const endpoint = tab === 'quotes' ? '/invoices/quotes' : '/invoices';
-    await api(endpoint, { method: 'POST', body: JSON.stringify(form) });
-    setShowForm(false);
-    setForm({ ...EMPTY_FORM });
-    showToast(tab === 'quotes' ? 'Devis créé' : 'Facture créée');
-    load();
+    if (creating) return;
+    if (!form.client_id) {
+      showToast('Sélectionnez un client');
+      return;
+    }
+    if (!String(form.title || '').trim()) {
+      showToast('Indiquez un titre de projet');
+      return;
+    }
+
+    const lines = (form.lines || [])
+      .map(l => ({
+        description: String(l.description || '').trim(),
+        qty: Number(l.qty) || 0,
+        price: Number(l.price) || 0,
+      }))
+      .filter(isMeaningfulLine);
+
+    setCreating(true);
+    try {
+      const endpoint = tab === 'quotes' ? '/invoices/quotes' : '/invoices';
+      const payload = tab === 'quotes'
+        ? {
+            client_id: form.client_id,
+            title: form.title.trim(),
+            reference: form.reference || null,
+            notes: form.notes || '',
+            lines: lines.length ? lines : [{ description: '', qty: 1, price: 0 }],
+          }
+        : {
+            client_id: form.client_id,
+            title: form.title.trim(),
+            subtitle: form.subtitle || null,
+            reference: form.reference || null,
+            order_summary: form.order_summary || '',
+            notes: form.notes || form.order_summary || '',
+            due_date: form.due_date || null,
+            terms: form.terms || 'Net 30',
+            lines: lines.length ? lines : [{ description: '', qty: 1, price: 0 }],
+          };
+
+      const created = await api(endpoint, { method: 'POST', body: JSON.stringify(payload) });
+      setShowForm(false);
+      setForm({ ...EMPTY_FORM });
+      showToast(tab === 'quotes' ? 'Devis créé' : 'Facture créée');
+      if (tab === 'quotes' && created?.id) {
+        router.push(`/invoices/quotes/${created.id}`);
+        return;
+      }
+      if (tab === 'invoices' && created?.id) {
+        router.push(`/invoices/${created.id}`);
+        return;
+      }
+      load();
+    } catch (err) {
+      showToast(err.message || 'Création impossible');
+    } finally {
+      setCreating(false);
+    }
   }
 
   async function updateQuoteStatus(id, status) {
@@ -231,8 +288,12 @@ export default function InvoicesPage() {
             </div>
 
             <div className="flex gap-2">
-              <button type="submit" className="btn-primary">Créer le {tab === 'quotes' ? 'devis' : 'facture'}</button>
-              <button type="button" onClick={() => setShowForm(false)} className="btn-secondary">Annuler</button>
+              <button type="submit" className="btn-primary" disabled={creating}>
+                {creating ? 'Création…' : `Créer le ${tab === 'quotes' ? 'devis' : 'facture'}`}
+              </button>
+              <button type="button" onClick={() => setShowForm(false)} className="btn-secondary" disabled={creating}>
+                Annuler
+              </button>
             </div>
           </form>
         )}

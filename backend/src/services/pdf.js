@@ -166,28 +166,41 @@ function tableHeader(doc, y) {
   doc.roundedRect(M, y, W, 20, 4).fillColor(C.green).fill();
   doc.fillColor(C.white).font('Helvetica-Bold').fontSize(8);
   const ty = y + 6;
-  doc.text('DESCRIPTION', COL.desc.x, ty, { width: COL.desc.w, characterSpacing: 0.5 });
-  doc.text('QTÉ', COL.qty.x, ty, { width: COL.qty.w, align: 'right' });
-  doc.text('PRIX UNIT.', COL.price.x, ty, { width: COL.price.w, align: 'right' });
-  doc.text('MONTANT', COL.amount.x, ty, { width: COL.amount.w, align: 'right' });
+  doc.text('Description', COL.desc.x, ty, { width: COL.desc.w });
+  doc.text('Qty', COL.qty.x, ty, { width: COL.qty.w, align: 'right' });
+  doc.text('Unit price', COL.price.x, ty, { width: COL.price.w, align: 'right' });
+  doc.text('Amount', COL.amount.x, ty, { width: COL.amount.w, align: 'right' });
   return y + 26;
+}
+
+function fmtDateShort(d) {
+  if (!d) return '—';
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return '—';
+  const dd = String(dt.getDate()).padStart(2, '0');
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const yyyy = dt.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
 }
 
 function linesTable(doc, lines, startY, ctx) {
   let y = startY;
+  const visible = parseLines(lines).filter((line) => String(line?.description || '').trim());
+  if (!visible.length) return y;
+
   y = ensureSpace(doc, y, 60, ctx);
   y = tableHeader(doc, y);
 
   let i = 0;
-  for (const line of parseLines(lines)) {
+  for (const line of visible) {
     const qty = Number(line.qty) || 0;
     const price = Number(line.price) || 0;
     const amount = qty * price;
-    const desc = line.description || '';
+    const desc = String(line.description || '').trim();
 
     doc.font('Helvetica').fontSize(9);
     const descH = doc.heightOfString(desc, { width: COL.desc.w });
-    const rowH = Math.max(descH, 11) + 9;
+    const rowH = Math.max(descH, 11) + 10;
 
     if (y + rowH >= BODY_LIMIT) {
       y = ensureSpace(doc, y, rowH + 30, ctx);
@@ -200,7 +213,7 @@ function linesTable(doc, lines, startY, ctx) {
     doc.fillColor(C.black).font('Helvetica').fontSize(9);
     doc.text(desc, COL.desc.x, y, { width: COL.desc.w });
     doc.fillColor(C.muted);
-    doc.text(String(line.qty ?? qty), COL.qty.x, y, { width: COL.qty.w, align: 'right' });
+    doc.text(String(qty), COL.qty.x, y, { width: COL.qty.w, align: 'right' });
     doc.text(money(price), COL.price.x, y, { width: COL.price.w, align: 'right' });
     doc.fillColor(C.black).font('Helvetica-Bold');
     doc.text(money(amount), COL.amount.x, y, { width: COL.amount.w, align: 'right' });
@@ -208,7 +221,7 @@ function linesTable(doc, lines, startY, ctx) {
     i += 1;
   }
   doc.moveTo(M, y).lineTo(R, y).strokeColor(C.line).lineWidth(0.6).stroke();
-  return y + 8;
+  return y + 10;
 }
 
 /**
@@ -295,7 +308,7 @@ function stampFooters(doc, co, footerLeft) {
 
 function paymentBlock(doc, y, co, ctx, { compact = false } = {}) {
   y = ensureSpace(doc, y, 120, ctx);
-  y = sectionTitle(doc, 'Paiement', y);
+  y = sectionTitle(doc, 'Payment instructions', y);
   y = paragraph(doc, co.payment.intro, y, { size: compact ? 8 : 9 });
 
   const gap = 12;
@@ -328,45 +341,48 @@ function paymentBlock(doc, y, co, ctx, { compact = false } = {}) {
 
 export async function generateInvoicePdf(invoice, res) {
   const COMPANY = await getCompanyConfig();
-  const ctx = { co: COMPANY, docType: 'Facture', number: invoice.invoice_number };
+  const ctx = { co: COMPANY, docType: 'Invoice', number: invoice.invoice_number };
   const doc = new PDFDocument({ margin: M, size: 'LETTER', bufferPages: true });
   doc.pipe(res);
 
   const subtotal = Number(invoice.subtotal) || 0;
-  const subtitle = invoice.subtitle || invoice.notes?.split('\n')[0] || '';
+  const subtitle = invoice.subtitle || '';
+  const title = invoice.title || '';
 
   let y = docHeader(doc, COMPANY, ctx);
 
-  if (subtitle) {
-    doc.font('Helvetica').fontSize(10).fillColor(C.muted).text(subtitle, M, y, { width: W });
-    y += doc.heightOfString(subtitle, { width: W }) + 10;
+  if (title || subtitle) {
+    const headline = [subtitle, title].filter(Boolean).join(subtitle && title ? ' · ' : '') || subtitle || title;
+    doc.font('Helvetica').fontSize(11).fillColor(C.black).text(headline, M, y, { width: W });
+    y += doc.heightOfString(headline, { width: W }) + 10;
   }
 
   const clientLines = [
     { text: invoice.client_name || '—', strong: true },
-    invoice.contact && { text: `Attn : ${invoice.contact}` },
+    invoice.contact && { text: `Attn: ${invoice.contact}` },
     invoice.client_address && { text: invoice.client_address },
     invoice.client_city && { text: invoice.client_city },
     invoice.email && { text: invoice.email },
+    invoice.client_phone && { text: invoice.client_phone },
   ].filter(Boolean);
 
   const detailRows = [
-    ['Numéro', invoice.invoice_number],
-    ['Date', fmtDate(invoice.created_at)],
-    ['Modalités', invoice.terms || COMPANY.defaultTerms],
-    invoice.due_date && ['Échéance', fmtDate(invoice.due_date)],
-    invoice.reference && ['Référence', invoice.reference],
+    ['Invoice #', invoice.invoice_number],
+    ['Date', fmtDateShort(invoice.created_at)],
+    ['Terms', invoice.terms || COMPANY.defaultTerms],
+    invoice.due_date && ['Due date', fmtDateShort(invoice.due_date)],
+    invoice.reference && ['Reference', invoice.reference],
   ].filter(Boolean);
 
-  y = metaCards(doc, y, 'Facturé à', clientLines, 'Détails', detailRows);
+  y = metaCards(doc, y, 'Bill to', clientLines, 'Invoice details', detailRows);
 
-  if (invoice.order_summary || (invoice.notes && !subtitle)) {
-    y = sectionTitle(doc, 'Résumé de commande', y);
+  if (invoice.order_summary || invoice.notes) {
+    y = sectionTitle(doc, 'Order summary', y);
     y = paragraph(doc, invoice.order_summary || invoice.notes, y);
   }
 
   y = linesTable(doc, invoice.lines, y, ctx);
-  let totals = totalsBlock(doc, subtotal, y, COMPANY, 'Solde à payer', ctx);
+  let totals = totalsBlock(doc, subtotal, y, COMPANY, 'Amount due', ctx);
   y = totals.y;
 
   if (Number(invoice.amount_paid) > 0) {
@@ -397,7 +413,7 @@ export async function generateInvoicePdf(invoice, res) {
 
 export async function generateQuotePdf(quote, res) {
   const COMPANY = await getCompanyConfig();
-  const ctx = { co: COMPANY, docType: 'Devis', number: quote.quote_number };
+  const ctx = { co: COMPANY, docType: 'Quote', number: quote.quote_number };
   const doc = new PDFDocument({ margin: M, size: 'LETTER', bufferPages: true });
   doc.pipe(res);
 
@@ -420,7 +436,7 @@ export async function generateQuotePdf(quote, res) {
   const clientLines = quote.client_name
     ? [
       { text: quote.client_name, strong: true },
-      quote.contact && { text: `Attn : ${quote.contact}` },
+      quote.contact && { text: `Attn: ${quote.contact}` },
       quote.client_address && { text: quote.client_address },
       quote.client_city && { text: quote.client_city },
       quote.email && { text: quote.email },
@@ -429,30 +445,32 @@ export async function generateQuotePdf(quote, res) {
     : [{ text: '—' }];
 
   const detailRows = [
-    quote.quote_number && ['Numéro', quote.quote_number],
-    ['Émis le', fmtDate(quote.created_at)],
-    ['Valide jusqu’au', fmtDate(validUntil)],
-    quote.reference && ['Référence', quote.reference],
+    quote.quote_number && ['Quote #', quote.quote_number],
+    ['Date', fmtDateShort(quote.created_at)],
+    ['Valid until', fmtDateShort(validUntil)],
+    quote.reference && ['Reference', quote.reference],
   ].filter(Boolean);
 
-  y = metaCards(doc, y, 'Préparé pour', clientLines, 'Détails', detailRows);
+  y = metaCards(doc, y, 'Bill to', clientLines, 'Quote details', detailRows);
 
   if (quote.notes) {
-    y = sectionTitle(doc, 'Portée des travaux', y);
+    y = sectionTitle(doc, 'Order summary', y);
     y = paragraph(doc, quote.notes, y);
   }
 
   for (const section of document.sections) {
+    const sectionLines = (section.lines || []).filter((l) => String(l?.description || '').trim());
+    if (!sectionLines.length) continue;
     y = ensureSpace(doc, y, 100, ctx);
     if (section.title) {
       doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(9)
         .text(section.title.toUpperCase(), M, y, { characterSpacing: 0.8 });
       y += 15;
     }
-    y = linesTable(doc, section.lines, y, ctx) + 4;
+    y = linesTable(doc, sectionLines, y, ctx) + 4;
   }
 
-  const { y: yAfterTotals } = totalsBlock(doc, subtotal, y, COMPANY, 'Total TTC', ctx, { depositNote: true });
+  const { y: yAfterTotals } = totalsBlock(doc, subtotal, y, COMPANY, 'Amount due', ctx, { depositNote: true });
   y = yAfterTotals + 4;
 
   const addNotes = quote.additional_notes || document.additional_notes;

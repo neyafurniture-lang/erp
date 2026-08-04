@@ -9,7 +9,15 @@ import {
   normalizeQuoteDocument,
   flattenQuoteLines,
   serializeQuoteDocument,
+  isMeaningfulLine,
 } from '../lib/quote-document';
+import EasyTable from './EasyTable';
+
+const LINE_COLS = [
+  { key: 'description', label: 'Description', type: 'text', placeholder: 'Description…', flex: true },
+  { key: 'qty', label: 'Qty', type: 'number', width: 'w-20', step: 'any', min: '0' },
+  { key: 'price', label: 'Unit price', type: 'number', width: 'w-28', step: '0.01', min: '0' },
+];
 
 function normalizeInvoiceLines(lines) {
   if (!lines?.length) return [emptyLine()];
@@ -18,6 +26,16 @@ function normalizeInvoiceLines(lines) {
     qty: l.qty ?? 1,
     price: l.price ?? 0,
   }));
+}
+
+/** Lignes pour EasyTable : au moins une ligne éditable. */
+function editorRows(lines) {
+  const list = Array.isArray(lines) ? lines.map(l => ({
+    description: l.description || '',
+    qty: l.qty ?? 1,
+    price: l.price ?? 0,
+  })) : [];
+  return list.length ? list : [emptyLine()];
 }
 
 /**
@@ -70,51 +88,46 @@ export default function DocumentVisualEditor({
     });
   }
 
-  function updateLine(sectionId, index, partial) {
-    const sections = draft.sections.map(s => {
-      if (s.id !== sectionId) return s;
-      return {
-        ...s,
-        lines: s.lines.map((l, i) => (i === index ? { ...l, ...partial } : l)),
-      };
-    });
-    patch({ sections });
+  function setSectionLines(sectionId, rows) {
+    const next = (Array.isArray(rows) ? rows : []).map(l => ({
+      description: String(l?.description || ''),
+      qty: l?.qty === '' || l?.qty == null ? 1 : Number(l.qty) || 0,
+      price: l?.price === '' || l?.price == null ? 0 : Number(l.price) || 0,
+    }));
+    patchSection(sectionId, { lines: next.length ? next : [emptyLine()] });
   }
 
-  function addLine(sectionId) {
-    const sections = draft.sections.map(s => (
-      s.id === sectionId ? { ...s, lines: [...s.lines, emptyLine()] } : s
-    ));
-    patch({ sections });
-  }
-
-  function removeLine(sectionId, index) {
-    const sections = draft.sections.map(s => {
-      if (s.id !== sectionId) return s;
-      const lines = s.lines.filter((_, i) => i !== index);
-      return { ...s, lines: lines.length ? lines : [emptyLine()] };
-    });
-    patch({ sections });
+  function setInvoiceLines(rows) {
+    const next = (Array.isArray(rows) ? rows : []).map(l => ({
+      description: String(l?.description || ''),
+      qty: l?.qty === '' || l?.qty == null ? 1 : Number(l.qty) || 0,
+      price: l?.price === '' || l?.price == null ? 0 : Number(l.price) || 0,
+    }));
+    patch({ lines: next.length ? next : [emptyLine()] });
   }
 
   function addSection() {
+    if (readOnly) return;
     patch({ sections: [...draft.sections, emptySection(`Tableau ${draft.sections.length + 1}`)] });
   }
 
   function removeSection(sectionId) {
-    if (draft.sections.length <= 1) return;
+    if (readOnly) return;
+    if (draft.sections.length <= 1) {
+      patchSection(sectionId, { title: '', lines: [emptyLine()] });
+      return;
+    }
     patch({ sections: draft.sections.filter(s => s.id !== sectionId) });
-  }
-
-  function updateInvoiceLine(index, partial) {
-    const lines = draft.lines.map((l, i) => (i === index ? { ...l, ...partial } : l));
-    patch({ lines });
   }
 
   async function handleSave() {
     if (!onSave || readOnly) return;
-    await onSave(draft);
-    setDirty(false);
+    try {
+      await onSave(draft);
+      setDirty(false);
+    } catch {
+      /* toast géré par la page parent */
+    }
   }
 
   async function handleFiles(fileList) {
@@ -141,13 +154,15 @@ export default function DocumentVisualEditor({
     ? flattenQuoteLines({ sections: draft.sections })
     : draft.lines;
   const taxes = calcTaxes(calcLineSubtotal(lineSource));
-  const notesLabel = isQuote ? 'Portée des travaux' : 'Résumé / notes';
+  const notesLabel = 'Order summary';
 
   return (
     <div className="doc-visual">
       <div className="doc-visual-toolbar">
         <p className="text-xs text-neya-muted">
-          {readOnly ? 'Aperçu' : 'Cliquez un champ pour modifier'}
+          {readOnly
+            ? 'Aperçu'
+            : 'Cliquez un champ pour modifier · Tableaux : Entrée = ligne · Tab = cellule · Coller Excel'}
           {dirty && !readOnly ? ' · non enregistré' : ''}
         </p>
         {!readOnly && (
@@ -165,7 +180,7 @@ export default function DocumentVisualEditor({
       <article className="doc-sheet">
         <header className="doc-sheet-head">
           <div>
-            <p className="doc-kicker">{isQuote ? 'Devis' : 'Facture'} {numberLabel}</p>
+            <p className="doc-kicker">{isQuote ? 'Quote' : 'Invoice'} {numberLabel}</p>
             {focusKey === 'title' && !readOnly ? (
               <input
                 autoFocus
@@ -245,13 +260,13 @@ export default function DocumentVisualEditor({
 
         <div className="doc-client-grid">
           <div>
-            <p className="doc-label">Client</p>
+            <p className="doc-label">Bill to</p>
             <p className="font-medium text-neya-ink">
               {clientHref ? (
                 <Link href={clientHref} className="hover:underline">{clientName || '—'}</Link>
               ) : (clientName || '—')}
             </p>
-            {client?.contact && <p className="text-sm text-neya-muted mt-1">Attn : {client.contact}</p>}
+            {client?.contact && <p className="text-sm text-neya-muted mt-1">Attn: {client.contact}</p>}
             {client?.address && <p className="text-sm text-neya-muted">{client.address}</p>}
             {client?.city && <p className="text-sm text-neya-muted">{client.city}</p>}
             {client?.email && <p className="text-sm text-neya-muted">{client.email}</p>}
@@ -262,25 +277,51 @@ export default function DocumentVisualEditor({
               </p>
             )}
           </div>
-          {isQuote && !readOnly && (
-            <div className="doc-options">
-              <p className="doc-label">Options document</p>
-              {[
-                ['show_signature', 'Zone signature'],
-                ['show_acceptance_date', 'Date d’acceptation'],
-                ['show_payment', 'Informations de paiement'],
-              ].map(([key, label]) => (
-                <label key={key} className="flex items-center gap-2 text-sm text-neya-ink py-0.5">
-                  <input
-                    type="checkbox"
-                    checked={draft.options?.[key] !== false}
-                    onChange={e => patch({ options: { ...draft.options, [key]: e.target.checked } })}
-                  />
-                  {label}
-                </label>
-              ))}
+          <div className="doc-details-card">
+            <p className="doc-label">{isQuote ? 'Quote details' : 'Invoice details'}</p>
+            <div className="doc-details-rows text-sm space-y-1">
+              <div className="flex justify-between gap-3">
+                <span className="text-neya-muted">{isQuote ? 'Quote #' : 'Invoice #'}</span>
+                <span className="font-medium">{numberLabel || '—'}</span>
+              </div>
+              {isQuote ? (
+                <div className="flex justify-between gap-3">
+                  <span className="text-neya-muted">Valid until</span>
+                  <span className="font-medium">{draft.valid_until || '—'}</span>
+                </div>
+              ) : (
+                <div className="flex justify-between gap-3">
+                  <span className="text-neya-muted">Due date</span>
+                  <span className="font-medium">{draft.due_date || '—'}</span>
+                </div>
+              )}
+              {statusLabel && (
+                <div className="flex justify-between gap-3">
+                  <span className="text-neya-muted">Status</span>
+                  <span className="font-medium">{statusLabel}</span>
+                </div>
+              )}
             </div>
-          )}
+            {isQuote && !readOnly && (
+              <div className="doc-options mt-4">
+                <p className="doc-label">Options document</p>
+                {[
+                  ['show_signature', 'Zone signature'],
+                  ['show_acceptance_date', 'Date d’acceptation'],
+                  ['show_payment', 'Informations de paiement'],
+                ].map(([key, label]) => (
+                  <label key={key} className="flex items-center gap-2 text-sm text-neya-ink py-0.5">
+                    <input
+                      type="checkbox"
+                      checked={draft.options?.[key] !== false}
+                      onChange={e => patch({ options: { ...draft.options, [key]: e.target.checked } })}
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="doc-notes-block">
@@ -305,148 +346,100 @@ export default function DocumentVisualEditor({
           )}
         </div>
 
-        {(isQuote ? draft.sections : [{ id: 'inv', title: null, lines: draft.lines }]).map((section) => (
-          <div key={section.id} className="doc-section">
-            {isQuote && (
-              <div className="doc-section-head">
-                {focusKey === `title-${section.id}` && !readOnly ? (
-                  <input
-                    autoFocus
-                    className="doc-input font-medium"
-                    value={section.title}
-                    onChange={e => patchSection(section.id, { title: e.target.value })}
-                    onBlur={() => setFocusKey(null)}
-                    placeholder="Titre du tableau"
-                  />
-                ) : (
-                  <h3
-                    className={`doc-section-title ${readOnly ? '' : 'doc-editable'}`}
-                    onClick={() => !readOnly && setFocusKey(`title-${section.id}`)}
-                  >
-                    {section.title || 'Sans titre'}
-                  </h3>
-                )}
-                {!readOnly && draft.sections.length > 1 && (
-                  <button type="button" className="text-xs text-neya-muted hover:text-neya-error" onClick={() => removeSection(section.id)}>
-                    Retirer tableau
-                  </button>
-                )}
-              </div>
-            )}
-
-            <table className="doc-lines">
-              <thead>
-                <tr>
-                  <th>Description</th>
-                  <th className="text-right w-16">Qté</th>
-                  <th className="text-right w-24">Prix</th>
-                  <th className="text-right w-28">Total</th>
-                  {!readOnly && <th className="w-8" />}
-                </tr>
-              </thead>
-              <tbody>
-                {section.lines.map((line, i) => {
-                  const lineTotal = (Number(line.qty) || 0) * (Number(line.price) || 0);
-                  const editing = focusKey === `line-${section.id}-${i}` && !readOnly;
-                  return (
-                    <tr
-                      key={i}
-                      className={readOnly ? '' : 'doc-line-row'}
-                      onClick={() => !readOnly && !editing && setFocusKey(`line-${section.id}-${i}`)}
+        {(isQuote ? draft.sections : [{ id: 'inv', title: null, lines: draft.lines }]).map((section) => {
+          const meaningful = (section.lines || []).filter(isMeaningfulLine);
+          if (readOnly && !meaningful.length && !(isQuote && String(section.title || '').trim())) {
+            return null;
+          }
+          return (
+            <div key={section.id} className="doc-section">
+              {isQuote && (
+                <div className="doc-section-head">
+                  {focusKey === `title-${section.id}` && !readOnly ? (
+                    <input
+                      autoFocus
+                      className="doc-input font-medium"
+                      value={section.title}
+                      onChange={e => patchSection(section.id, { title: e.target.value })}
+                      onBlur={() => setFocusKey(null)}
+                      placeholder="Titre du tableau (optionnel)"
+                    />
+                  ) : (
+                    <h3
+                      className={`doc-section-title ${readOnly ? '' : 'doc-editable'}`}
+                      onClick={() => !readOnly && setFocusKey(`title-${section.id}`)}
                     >
-                      {editing ? (
-                        <>
-                          <td>
-                            <input
-                              autoFocus
-                              className="doc-input"
-                              value={line.description}
-                              onChange={e => (isQuote
-                                ? updateLine(section.id, i, { description: e.target.value })
-                                : updateInvoiceLine(i, { description: e.target.value }))}
-                              placeholder="Description"
-                            />
-                          </td>
-                          <td>
-                            <input
-                              type="number"
-                              step="any"
-                              min="0"
-                              className="doc-input text-right"
-                              value={line.qty}
-                              onChange={e => (isQuote
-                                ? updateLine(section.id, i, { qty: e.target.value })
-                                : updateInvoiceLine(i, { qty: e.target.value }))}
-                            />
-                          </td>
-                          <td>
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              className="doc-input text-right"
-                              value={line.price}
-                              onChange={e => (isQuote
-                                ? updateLine(section.id, i, { price: e.target.value })
-                                : updateInvoiceLine(i, { price: e.target.value }))}
-                            />
-                          </td>
-                          <td className="text-right text-sm tabular-nums">{formatMoney(lineTotal)}</td>
-                          <td>
-                            <button
-                              type="button"
-                              className="text-neya-muted hover:text-neya-error text-xs"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (isQuote) removeLine(section.id, i);
-                                else {
-                                  const lines = draft.lines.filter((_, idx) => idx !== i);
-                                  patch({ lines: lines.length ? lines : [emptyLine()] });
-                                }
-                              }}
-                            >
-                              ✕
-                            </button>
-                          </td>
-                        </>
-                      ) : (
-                        <>
-                          <td className="doc-editable">{line.description || '—'}</td>
-                          <td className="text-right text-neya-muted tabular-nums">{line.qty}</td>
-                          <td className="text-right tabular-nums">{formatMoney(line.price)}</td>
-                          <td className="text-right font-medium tabular-nums">{formatMoney(lineTotal)}</td>
-                          {!readOnly && <td />}
-                        </>
-                      )}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                      {section.title || (readOnly ? '' : 'Titre du tableau…')}
+                    </h3>
+                  )}
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      className="text-xs text-neya-muted hover:text-neya-error"
+                      onClick={() => removeSection(section.id)}
+                    >
+                      Supprimer tableau
+                    </button>
+                  )}
+                </div>
+              )}
 
-            {!readOnly && (
-              <button
-                type="button"
-                onClick={() => (isQuote ? addLine(section.id) : patch({ lines: [...draft.lines, emptyLine()] }))}
-                className="doc-add-line"
-              >
-                + Ajouter une ligne
-              </button>
-            )}
+              {readOnly ? (
+                meaningful.length ? (
+                  <table className="doc-lines">
+                    <thead>
+                      <tr>
+                        <th>Description</th>
+                        <th className="text-right w-16">Qty</th>
+                        <th className="text-right w-24">Unit price</th>
+                        <th className="text-right w-28">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {meaningful.map((line, i) => {
+                        const lineTotal = (Number(line.qty) || 0) * (Number(line.price) || 0);
+                        return (
+                          <tr key={i}>
+                            <td>{line.description}</td>
+                            <td className="text-right text-neya-muted tabular-nums">{line.qty}</td>
+                            <td className="text-right tabular-nums">{formatMoney(line.price)}</td>
+                            <td className="text-right font-medium tabular-nums">{formatMoney(lineTotal)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                ) : (
+                  <p className="text-sm text-neya-muted py-2">Aucune ligne</p>
+                )
+              ) : (
+                <EasyTable
+                  columns={LINE_COLS}
+                  rows={editorRows(section.lines)}
+                  onChange={(rows) => (
+                    isQuote ? setSectionLines(section.id, rows) : setInvoiceLines(rows)
+                  )}
+                  minRows={1}
+                  showLineTotal
+                />
+              )}
+            </div>
+          );
+        })}
+
+        {!readOnly && isQuote && (
+          <div className="doc-add-section">
+            <button type="button" onClick={addSection} className="btn-secondary text-sm min-h-[36px]">
+              + Ajouter un tableau
+            </button>
           </div>
-        ))}
-
-        {isQuote && !readOnly && (
-          <button type="button" onClick={addSection} className="doc-add-line mt-2">
-            + Ajouter un tableau
-          </button>
         )}
 
         <footer className="doc-totals">
-          <div className="doc-totals-row"><span>Sous-total</span><span className="tabular-nums">{formatMoney(taxes.subtotal)}</span></div>
-          <div className="doc-totals-row"><span>TPS 5 %</span><span className="tabular-nums">{formatMoney(taxes.gst)}</span></div>
-          <div className="doc-totals-row"><span>TVQ 9,975 %</span><span className="tabular-nums">{formatMoney(taxes.qst)}</span></div>
-          <div className="doc-totals-row doc-totals-total"><span>Total</span><span className="tabular-nums">{formatMoney(taxes.total)}</span></div>
+          <div className="doc-totals-row"><span>Subtotal</span><span className="tabular-nums">{formatMoney(taxes.subtotal)}</span></div>
+          <div className="doc-totals-row"><span>GST 5 %</span><span className="tabular-nums">{formatMoney(taxes.gst)}</span></div>
+          <div className="doc-totals-row"><span>QST 9.975 %</span><span className="tabular-nums">{formatMoney(taxes.qst)}</span></div>
+          <div className="doc-totals-row doc-totals-total"><span>Amount due</span><span className="tabular-nums">{formatMoney(taxes.total)}</span></div>
         </footer>
 
         {isQuote && (

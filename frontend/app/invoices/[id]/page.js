@@ -110,7 +110,7 @@ export default function InvoiceDetailPage() {
           qty: Number(l.qty) || 0,
           price: Number(l.price) || 0,
         }))
-        .filter(l => l.description || l.qty || l.price);
+        .filter(l => l.description);
       await api(`/invoices/${id}`, {
         method: 'PUT',
         body: JSON.stringify({

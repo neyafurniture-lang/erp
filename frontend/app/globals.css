@@ -1708,6 +1708,18 @@ h1, h2, h3, h4, h5, h6 {
   @apply mt-3 text-sm text-neya-muted hover:text-neya-ink transition-colors;
 }
 
+.doc-add-section {
+  @apply mt-2 mb-6;
+}
+
+.doc-details-card {
+  @apply space-y-1;
+}
+
+.doc-details-rows {
+  @apply text-neya-ink;
+}
+
 .doc-totals {
   @apply mt-6 pt-4 border-t border-neya-border max-w-xs ml-auto space-y-1.5;
 }

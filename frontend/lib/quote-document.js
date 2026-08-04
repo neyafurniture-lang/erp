@@ -12,6 +12,11 @@ export function emptySection(title = 'Tableau') {
   return { id: uid('sec'), title, lines: [emptyLine()] };
 }
 
+/** Une ligne compte seulement si elle a une description (évite les « — / 1 / $0 » vides). */
+export function isMeaningfulLine(line) {
+  return String(line?.description || '').trim().length > 0;
+}
+
 export function parseRawLines(raw) {
   if (!raw) return [];
   if (typeof raw === 'string') {
@@ -73,16 +78,20 @@ export function normalizeQuoteDocument(raw) {
 
 export function flattenQuoteLines(raw) {
   const doc = normalizeQuoteDocument(raw);
-  return doc.sections.flatMap(s => (s.lines || []).filter(l =>
-    String(l.description || '').trim() || Number(l.qty) || Number(l.price)
-  ));
+  return doc.sections.flatMap(s => (s.lines || []).filter(isMeaningfulLine));
 }
 
 export function serializeQuoteDocument(doc) {
   const normalized = normalizeQuoteDocument(doc);
   return {
     version: 2,
-    sections: normalized.sections,
+    sections: normalized.sections.map(s => ({
+      ...s,
+      lines: (() => {
+        const meaningful = (s.lines || []).filter(isMeaningfulLine);
+        return meaningful.length ? meaningful : [emptyLine()];
+      })(),
+    })),
     photos: normalized.photos || [],
     additional_notes: normalized.additional_notes || '',
     options: normalized.options,

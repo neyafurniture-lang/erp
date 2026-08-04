@@ -266,7 +266,8 @@ router.post('/quotes/:id/photos', quoteUpload.single('photo'), async (req, res) 
 router.get('/quotes/:id/pdf', async (req, res) => {
   try {
     const { rows } = await pool.query(`
-      SELECT q.*, c.name as client_name, c.contact, c.email, c.address as client_address, c.city as client_city,
+      SELECT q.*, c.name as client_name, c.contact, c.email, c.phone as client_phone,
+             c.address as client_address, c.city as client_city,
              p.name as project_name
       FROM quotes q
       LEFT JOIN clients c ON c.id = q.client_id
@@ -397,7 +398,8 @@ router.post('/from-quote/:quoteId', async (req, res) => {
 router.get('/:id/pdf', async (req, res) => {
   try {
     const { rows } = await pool.query(`
-      SELECT i.*, c.name as client_name, c.contact, c.email, c.address as client_address, c.city as client_city,
+      SELECT i.*, c.name as client_name, c.contact, c.email, c.phone as client_phone,
+             c.address as client_address, c.city as client_city,
              p.name as project_name
       FROM invoices i
       LEFT JOIN clients c ON c.id = i.client_id
