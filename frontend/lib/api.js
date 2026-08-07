@@ -375,11 +375,10 @@ export const QUOTE_STATUS = {
 
 export function calcLineSubtotal(lines) {
   return (lines || []).reduce((s, l) => {
-    const qty = typeof l.qty === 'number' ? l.qty : Number(String(l.qty ?? '').replace(',', '.'));
-    const price = typeof l.price === 'number' ? l.price : Number(String(l.price ?? '').replace(',', '.'));
-    const q = Number.isFinite(qty) ? qty : 0;
-    const p = Number.isFinite(price) ? price : 0;
-    return s + q * p;
+    // Accepte "12,5" / "12," (saisie FR) sans NaN
+    const q = Number(String(l?.qty ?? '').replace(',', '.'));
+    const p = Number(String(l?.price ?? '').replace(',', '.'));
+    return s + (Number.isFinite(q) ? q : 0) * (Number.isFinite(p) ? p : 0);
   }, 0);
 }
 
