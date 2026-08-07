@@ -13,6 +13,7 @@ import {
 } from '../../lib/api';
 import DocRowMenu from '../../components/DocRowMenu';
 import SendDocumentModal from '../../components/SendDocumentModal';
+import DocumentPdfPreviewModal from '../../components/DocumentPdfPreviewModal';
 import { isMeaningfulLine } from '../../lib/quote-document';
 
 const EMPTY_FORM = {
@@ -39,6 +40,7 @@ export default function InvoicesPage() {
   const [paymentForm, setPaymentForm] = useState(null);
   const [convertForm, setConvertForm] = useState(null);
   const [sendDoc, setSendDoc] = useState(null); // { type, id }
+  const [previewDoc, setPreviewDoc] = useState(null); // { type, id, title, filename }
   const [toast, setToast] = useState('');
 
   const load = () => {
@@ -340,6 +342,16 @@ export default function InvoicesPage() {
                     onClick: () => { window.location.href = detailHref; },
                   },
                   {
+                    id: 'preview',
+                    label: 'Prévisualiser le PDF',
+                    onClick: () => setPreviewDoc({
+                      type: tab === 'quotes' ? 'quote' : 'invoice',
+                      id: item.id,
+                      title: `${tab === 'quotes' ? 'Devis' : 'Facture'} ${num}${item.client_name ? ` · ${item.client_name}` : ''}`,
+                      filename: `${tab === 'quotes' ? 'devis' : 'facture'}-${num}.pdf`,
+                    }),
+                  },
+                  {
                     id: 'send',
                     label: 'Envoyer par courriel…',
                     onClick: () => setSendDoc({
@@ -402,6 +414,18 @@ export default function InvoicesPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-2 flex-wrap items-center">
+                        <button
+                          type="button"
+                          onClick={() => setPreviewDoc({
+                            type: tab === 'quotes' ? 'quote' : 'invoice',
+                            id: item.id,
+                            title: `${tab === 'quotes' ? 'Devis' : 'Facture'} ${num}${item.client_name ? ` · ${item.client_name}` : ''}`,
+                            filename: `${tab === 'quotes' ? 'devis' : 'facture'}-${num}.pdf`,
+                          })}
+                          className="text-xs bg-neya-cream hover:bg-neya-cream-dark px-2 py-1 rounded-lg text-neya-ink"
+                        >
+                          Aperçu
+                        </button>
                         <button
                           type="button"
                           onClick={() => setSendDoc({

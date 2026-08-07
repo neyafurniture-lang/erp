@@ -7,6 +7,7 @@ import AppShell from '../../../../components/AppShell';
 import AuthGuard from '../../../../components/AuthGuard';
 import DocumentVisualEditor, { serializeQuoteDocument } from '../../../../components/DocumentVisualEditor';
 import SendDocumentModal from '../../../../components/SendDocumentModal';
+import DocumentPdfPreviewModal from '../../../../components/DocumentPdfPreviewModal';
 import {
   api, formatMoney, QUOTE_STATUS, downloadPdf, getToken, getApiUrl,
 } from '../../../../lib/api';
@@ -19,6 +20,7 @@ export default function QuoteDetailPage() {
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
   const [showSend, setShowSend] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [convertForm, setConvertForm] = useState(null);
   const [converting, setConverting] = useState(false);
@@ -194,6 +196,9 @@ export default function QuoteDetailPage() {
               <option value="accepted">Accepté</option>
               <option value="rejected">Refusé</option>
             </select>
+            <button type="button" onClick={() => setShowPreview(true)} className="btn-secondary text-sm min-h-[36px]">
+              Prévisualiser
+            </button>
             <button type="button" onClick={handlePdf} disabled={pdfLoading} className="btn-secondary text-sm min-h-[36px]">
               {pdfLoading ? 'PDF…' : 'Télécharger PDF'}
             </button>
@@ -303,6 +308,16 @@ export default function QuoteDetailPage() {
               showToast('Devis envoyé par courriel');
               load();
             }}
+          />
+        )}
+
+        {showPreview && (
+          <DocumentPdfPreviewModal
+            type="quote"
+            docId={id}
+            title={`Devis ${quote.quote_number}${quote.client_name ? ` · ${quote.client_name}` : ''}`}
+            filename={`devis-${quote.quote_number}.pdf`}
+            onClose={() => setShowPreview(false)}
           />
         )}
       </AppShell>

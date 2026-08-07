@@ -8,6 +8,7 @@ import AuthGuard from '../../../components/AuthGuard';
 import InvoicePaymentModal, { paymentMethodLabel } from '../../../components/InvoicePaymentModal';
 import DocumentVisualEditor, { serializeQuoteDocument } from '../../../components/DocumentVisualEditor';
 import SendDocumentModal from '../../../components/SendDocumentModal';
+import DocumentPdfPreviewModal from '../../../components/DocumentPdfPreviewModal';
 import {
   api, formatMoney, formatDate, INVOICE_STATUS, downloadPdf,
 } from '../../../lib/api';
@@ -30,6 +31,7 @@ export default function InvoiceDetailPage() {
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
   const [showSend, setShowSend] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -193,6 +195,9 @@ export default function InvoiceDetailPage() {
             ← Facturation
           </Link>
           <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => setShowPreview(true)} className="btn-secondary text-sm min-h-[36px]">
+              Prévisualiser
+            </button>
             <button type="button" onClick={handlePdf} disabled={pdfLoading} className="btn-secondary text-sm min-h-[36px]">
               {pdfLoading ? 'PDF…' : 'Télécharger PDF'}
             </button>
@@ -274,6 +279,16 @@ export default function InvoiceDetailPage() {
               showToast('Facture envoyée par courriel');
               load();
             }}
+          />
+        )}
+
+        {showPreview && (
+          <DocumentPdfPreviewModal
+            type="invoice"
+            docId={id}
+            title={`Facture ${invoice.invoice_number}${invoice.client_name ? ` · ${invoice.client_name}` : ''}`}
+            filename={`facture-${invoice.invoice_number}.pdf`}
+            onClose={() => setShowPreview(false)}
           />
         )}
       </AppShell>
