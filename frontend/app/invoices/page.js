@@ -204,7 +204,7 @@ export default function InvoicesPage() {
         )}
 
         {/* Workflow guide */}
-        <div className="card rounded-2xl mb-6 bg-neya-cream/50 border-neya-orange/30">
+        <div className="card rounded-none mb-6 bg-neya-cream/50 border-neya-orange/30">
           <p className="text-sm text-neya-muted">
             <span className="font-medium text-neya-orange">1. Devis</span> → créer et envoyer au client
             <span className="mx-2">→</span>
@@ -238,7 +238,7 @@ export default function InvoicesPage() {
         </div>
 
         {showForm && (
-          <form onSubmit={createDoc} className="card rounded-2xl mb-6 space-y-4">
+          <form onSubmit={createDoc} className="card rounded-none mb-6 space-y-4">
             <h3 className="font-display font-semibold text-lg">{tab === 'quotes' ? 'Nouveau devis' : 'Nouvelle facture'}</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -280,7 +280,7 @@ export default function InvoicesPage() {
               />
             </div>
 
-            <div className="bg-neya-cream rounded-lg p-4 text-sm grid grid-cols-2 md:grid-cols-4 gap-2">
+            <div className="bg-neya-cream rounded-none p-4 text-sm grid grid-cols-2 md:grid-cols-4 gap-2">
               <div><span className="text-neya-muted">Sous-total</span><p className="font-medium">{formatMoney(preview.subtotal)}</p></div>
               <div><span className="text-neya-muted">TPS 5%</span><p className="font-medium">{formatMoney(preview.gst)}</p></div>
               <div><span className="text-neya-muted">TVQ 9,975%</span><p className="font-medium">{formatMoney(preview.qst)}</p></div>
