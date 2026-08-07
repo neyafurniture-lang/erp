@@ -378,9 +378,10 @@ export function calcLineSubtotal(lines) {
 }
 
 export function calcTaxes(subtotal) {
-  const gst = subtotal * 0.05;
-  const qst = subtotal * 0.09975;
-  return { subtotal, gst, qst, total: subtotal + gst + qst };
+  const base = Math.round((Number(subtotal) || 0) * 100) / 100;
+  const gst = Math.round(base * 0.05 * 100) / 100;
+  const qst = Math.round(base * 0.09975 * 100) / 100;
+  return { subtotal: base, gst, qst, total: Math.round((base + gst + qst) * 100) / 100 };
 }
 
 export const INVOICE_STATUS = {

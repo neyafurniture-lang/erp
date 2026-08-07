@@ -15,8 +15,8 @@ import EasyTable from './EasyTable';
 
 const LINE_COLS = [
   { key: 'description', label: 'Description', type: 'text', placeholder: 'Description…', flex: true },
-  { key: 'qty', label: 'Qty', type: 'number', width: 'w-20', step: 'any', min: '0' },
-  { key: 'price', label: 'Unit price', type: 'number', width: 'w-28', step: '0.01', min: '0' },
+  { key: 'qty', label: 'Qté', type: 'number', width: 'w-20', step: 'any', min: '0' },
+  { key: 'price', label: 'Prix unit.', type: 'number', width: 'w-28', step: '0.01', min: '0' },
 ];
 
 function normalizeInvoiceLines(lines) {
@@ -154,7 +154,7 @@ export default function DocumentVisualEditor({
     ? flattenQuoteLines({ sections: draft.sections })
     : draft.lines;
   const taxes = calcTaxes(calcLineSubtotal(lineSource));
-  const notesLabel = 'Order summary';
+  const notesLabel = isQuote ? 'Portée des travaux' : 'Résumé';
 
   return (
     <div className="doc-visual">
@@ -162,7 +162,7 @@ export default function DocumentVisualEditor({
         <p className="text-xs text-neya-muted">
           {readOnly
             ? 'Aperçu'
-            : 'Cliquez un champ pour modifier · Tableaux : Entrée = ligne · Tab = cellule · Coller Excel'}
+            : 'Cliquez un champ pour modifier · Tableaux : Entrée = ligne · Tab = cellule · Coller Excel · Montants hors taxes'}
           {dirty && !readOnly ? ' · non enregistré' : ''}
         </p>
         {!readOnly && (
@@ -180,7 +180,7 @@ export default function DocumentVisualEditor({
       <article className="doc-sheet">
         <header className="doc-sheet-head">
           <div>
-            <p className="doc-kicker">{isQuote ? 'Quote' : 'Invoice'} {numberLabel}</p>
+            <p className="doc-kicker">{isQuote ? 'Devis' : 'Facture'} {numberLabel}</p>
             {focusKey === 'title' && !readOnly ? (
               <input
                 autoFocus
@@ -260,13 +260,13 @@ export default function DocumentVisualEditor({
 
         <div className="doc-client-grid">
           <div>
-            <p className="doc-label">Bill to</p>
+            <p className="doc-label">Facturé à</p>
             <p className="font-medium text-neya-ink">
               {clientHref ? (
                 <Link href={clientHref} className="hover:underline">{clientName || '—'}</Link>
               ) : (clientName || '—')}
             </p>
-            {client?.contact && <p className="text-sm text-neya-muted mt-1">Attn: {client.contact}</p>}
+            {client?.contact && <p className="text-sm text-neya-muted mt-1">Attn : {client.contact}</p>}
             {client?.address && <p className="text-sm text-neya-muted">{client.address}</p>}
             {client?.city && <p className="text-sm text-neya-muted">{client.city}</p>}
             {client?.email && <p className="text-sm text-neya-muted">{client.email}</p>}
@@ -278,26 +278,26 @@ export default function DocumentVisualEditor({
             )}
           </div>
           <div className="doc-details-card">
-            <p className="doc-label">{isQuote ? 'Quote details' : 'Invoice details'}</p>
+            <p className="doc-label">{isQuote ? 'Détails du devis' : 'Détails de la facture'}</p>
             <div className="doc-details-rows text-sm space-y-1">
               <div className="flex justify-between gap-3">
-                <span className="text-neya-muted">{isQuote ? 'Quote #' : 'Invoice #'}</span>
+                <span className="text-neya-muted">{isQuote ? 'Nº devis' : 'Nº facture'}</span>
                 <span className="font-medium">{numberLabel || '—'}</span>
               </div>
               {isQuote ? (
                 <div className="flex justify-between gap-3">
-                  <span className="text-neya-muted">Valid until</span>
+                  <span className="text-neya-muted">Valide jusqu’au</span>
                   <span className="font-medium">{draft.valid_until || '—'}</span>
                 </div>
               ) : (
                 <div className="flex justify-between gap-3">
-                  <span className="text-neya-muted">Due date</span>
+                  <span className="text-neya-muted">Échéance</span>
                   <span className="font-medium">{draft.due_date || '—'}</span>
                 </div>
               )}
               {statusLabel && (
                 <div className="flex justify-between gap-3">
-                  <span className="text-neya-muted">Status</span>
+                  <span className="text-neya-muted">Statut</span>
                   <span className="font-medium">{statusLabel}</span>
                 </div>
               )}
@@ -390,9 +390,9 @@ export default function DocumentVisualEditor({
                     <thead>
                       <tr>
                         <th>Description</th>
-                        <th className="text-right w-16">Qty</th>
-                        <th className="text-right w-24">Unit price</th>
-                        <th className="text-right w-28">Amount</th>
+                        <th className="text-right w-16">Qté</th>
+                        <th className="text-right w-24">Prix unit.</th>
+                        <th className="text-right w-28">Montant</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -436,11 +436,19 @@ export default function DocumentVisualEditor({
         )}
 
         <footer className="doc-totals">
-          <div className="doc-totals-row"><span>Subtotal</span><span className="tabular-nums">{formatMoney(taxes.subtotal)}</span></div>
-          <div className="doc-totals-row"><span>GST 5 %</span><span className="tabular-nums">{formatMoney(taxes.gst)}</span></div>
-          <div className="doc-totals-row"><span>QST 9.975 %</span><span className="tabular-nums">{formatMoney(taxes.qst)}</span></div>
-          <div className="doc-totals-row doc-totals-total"><span>Amount due</span><span className="tabular-nums">{formatMoney(taxes.total)}</span></div>
+          <div className="doc-totals-row"><span>Sous-total</span><span className="tabular-nums">{formatMoney(taxes.subtotal)}</span></div>
+          <div className="doc-totals-row"><span>TPS 5 %</span><span className="tabular-nums">{formatMoney(taxes.gst)}</span></div>
+          <div className="doc-totals-row"><span>TVQ 9,975 %</span><span className="tabular-nums">{formatMoney(taxes.qst)}</span></div>
+          <div className="doc-totals-row doc-totals-total"><span>Solde à payer</span><span className="tabular-nums">{formatMoney(taxes.total)}</span></div>
         </footer>
+
+        {!readOnly && (
+          <p className="text-[11px] text-neya-muted mt-3 leading-relaxed">
+            Les prix sont hors taxes. Pour une dépense refacturée (magasin, quincaillerie), saisissez le montant
+            <strong> avant taxes</strong> — sinon TPS/TVQ seraient ajoutées une seconde fois. Réclamez les CTI/RTI
+            sur vos achats.
+          </p>
+        )}
 
         {isQuote && (
           <>

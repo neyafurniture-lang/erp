@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import { getCompanyConfig } from './company-config.js';
 import { normalizeQuoteDocument, flattenQuoteLines } from './quote-document.js';
+import { calcDocTaxes, roundMoney } from './tax.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -46,9 +47,10 @@ function parseLines(lines) {
 }
 
 function calcTaxes(subtotal, co) {
-  const gst = subtotal * co.tax.gstRate;
-  const qst = subtotal * co.tax.qstRate;
-  return { gst, qst, total: subtotal + gst + qst };
+  return calcDocTaxes(subtotal, {
+    gstRate: co?.tax?.gstRate ?? 0.05,
+    qstRate: co?.tax?.qstRate ?? 0.09975,
+  });
 }
 
 /**
@@ -168,9 +170,9 @@ function tableHeader(doc, y) {
   doc.fillColor(C.white).font('Helvetica-Bold').fontSize(8);
   const ty = y + 6;
   doc.text('Description', COL.desc.x, ty, { width: COL.desc.w });
-  doc.text('Qty', COL.qty.x, ty, { width: COL.qty.w, align: 'right' });
-  doc.text('Unit price', COL.price.x, ty, { width: COL.price.w, align: 'right' });
-  doc.text('Amount', COL.amount.x, ty, { width: COL.amount.w, align: 'right' });
+  doc.text('Qté', COL.qty.x, ty, { width: COL.qty.w, align: 'right' });
+  doc.text('Prix unit.', COL.price.x, ty, { width: COL.price.w, align: 'right' });
+  doc.text('Montant', COL.amount.x, ty, { width: COL.amount.w, align: 'right' });
   return y + 26;
 }
 
@@ -307,10 +309,12 @@ function stampFooters(doc, co, footerLeft) {
   }
 }
 
-function paymentBlock(doc, y, co, ctx, { compact = false } = {}) {
+function paymentBlock(doc, y, co, ctx, { compact = false, intro } = {}) {
   y = ensureSpace(doc, y, 120, ctx);
-  y = sectionTitle(doc, 'Payment instructions', y);
-  y = paragraph(doc, co.payment.intro, y, { size: compact ? 8 : 9 });
+  y = sectionTitle(doc, 'Instructions de paiement', y);
+  const introText = intro
+    || (ctx?.docType === 'Devis' ? (co.payment.introQuote || co.payment.intro) : co.payment.intro);
+  y = paragraph(doc, introText, y, { size: compact ? 8 : 9 });
 
   const gap = 12;
   const cw = (W - gap) / 2;
@@ -342,7 +346,7 @@ function paymentBlock(doc, y, co, ctx, { compact = false } = {}) {
 
 export async function generateInvoicePdf(invoice, res) {
   const COMPANY = await getCompanyConfig();
-  const ctx = { co: COMPANY, docType: 'Invoice', number: invoice.invoice_number };
+  const ctx = { co: COMPANY, docType: 'Facture', number: invoice.invoice_number };
   const doc = new PDFDocument({ margin: M, size: 'LETTER', bufferPages: true });
   doc.pipe(res);
 
@@ -360,7 +364,7 @@ export async function generateInvoicePdf(invoice, res) {
 
   const clientLines = [
     { text: invoice.client_name || '—', strong: true },
-    invoice.contact && { text: `Attn: ${invoice.contact}` },
+    invoice.contact && { text: `Attn : ${invoice.contact}` },
     invoice.client_address && { text: invoice.client_address },
     invoice.client_city && { text: invoice.client_city },
     invoice.email && { text: invoice.email },
@@ -368,27 +372,27 @@ export async function generateInvoicePdf(invoice, res) {
   ].filter(Boolean);
 
   const detailRows = [
-    ['Invoice #', invoice.invoice_number],
+    ['Nº facture', invoice.invoice_number],
     ['Date', fmtDateShort(invoice.created_at)],
-    ['Terms', invoice.terms || COMPANY.defaultTerms],
-    invoice.due_date && ['Due date', fmtDateShort(invoice.due_date)],
-    invoice.reference && ['Reference', invoice.reference],
+    ['Modalités', invoice.terms || COMPANY.defaultTerms],
+    invoice.due_date && ['Échéance', fmtDateShort(invoice.due_date)],
+    invoice.reference && ['Référence', invoice.reference],
   ].filter(Boolean);
 
-  y = metaCards(doc, y, 'Bill to', clientLines, 'Invoice details', detailRows);
+  y = metaCards(doc, y, 'Facturé à', clientLines, 'Détails', detailRows);
 
   if (invoice.order_summary || invoice.notes) {
-    y = sectionTitle(doc, 'Order summary', y);
+    y = sectionTitle(doc, 'Résumé', y);
     y = paragraph(doc, invoice.order_summary || invoice.notes, y);
   }
 
   y = linesTable(doc, invoice.lines, y, ctx);
-  let totals = totalsBlock(doc, subtotal, y, COMPANY, 'Amount due', ctx);
+  let totals = totalsBlock(doc, subtotal, y, COMPANY, 'Solde à payer', ctx);
   y = totals.y;
 
   if (Number(invoice.amount_paid) > 0) {
     const paid = Number(invoice.amount_paid) || 0;
-    const due = Math.max(0, (Number(invoice.total) || totals.total) - paid);
+    const due = Math.max(0, roundMoney(totals.total - paid));
     doc.font('Helvetica').fontSize(8.5).fillColor(C.muted)
       .text(`Déjà payé : ${money(paid)}`, M, y, { width: W, align: 'right' });
     y += 12;
@@ -400,13 +404,19 @@ export async function generateInvoicePdf(invoice, res) {
   }
 
   y += 6;
-  y = paymentBlock(doc, y, COMPANY, ctx);
+  y = paymentBlock(doc, y, COMPANY, ctx, { intro: COMPANY.payment.intro });
   y = ensureSpace(doc, y, 30, ctx);
   doc.font('Helvetica-Oblique').fontSize(8).fillColor(C.muted)
-    .text(COMPANY.payment.referenceNote.replace('invoice number', `nº ${invoice.invoice_number}`), M, y, { width: W });
+    .text(
+      String(COMPANY.payment.referenceNote || '').replace(
+        /numéro de facture|invoice number/gi,
+        `nº ${invoice.invoice_number}`
+      ),
+      M, y, { width: W }
+    );
   y += 20;
   doc.font('Helvetica-Bold').fontSize(10).fillColor(C.orange)
-    .text('Merci pour votre commande.', M, y);
+    .text('Merci.', M, y);
 
   stampFooters(doc, COMPANY, `Facture ${invoice.invoice_number} · ${COMPANY.tradeName}`);
   doc.end();
@@ -414,7 +424,7 @@ export async function generateInvoicePdf(invoice, res) {
 
 export async function generateQuotePdf(quote, res) {
   const COMPANY = await getCompanyConfig();
-  const ctx = { co: COMPANY, docType: 'Quote', number: quote.quote_number };
+  const ctx = { co: COMPANY, docType: 'Devis', number: quote.quote_number };
   const doc = new PDFDocument({ margin: M, size: 'LETTER', bufferPages: true });
   doc.pipe(res);
 
@@ -437,7 +447,7 @@ export async function generateQuotePdf(quote, res) {
   const clientLines = quote.client_name
     ? [
       { text: quote.client_name, strong: true },
-      quote.contact && { text: `Attn: ${quote.contact}` },
+      quote.contact && { text: `Attn : ${quote.contact}` },
       quote.client_address && { text: quote.client_address },
       quote.client_city && { text: quote.client_city },
       quote.email && { text: quote.email },
@@ -446,16 +456,16 @@ export async function generateQuotePdf(quote, res) {
     : [{ text: '—' }];
 
   const detailRows = [
-    quote.quote_number && ['Quote #', quote.quote_number],
+    quote.quote_number && ['Nº devis', quote.quote_number],
     ['Date', fmtDateShort(quote.created_at)],
-    ['Valid until', fmtDateShort(validUntil)],
-    quote.reference && ['Reference', quote.reference],
+    ['Valide jusqu’au', fmtDateShort(validUntil)],
+    quote.reference && ['Référence', quote.reference],
   ].filter(Boolean);
 
-  y = metaCards(doc, y, 'Bill to', clientLines, 'Quote details', detailRows);
+  y = metaCards(doc, y, 'Préparé pour', clientLines, 'Détails', detailRows);
 
   if (quote.notes) {
-    y = sectionTitle(doc, 'Order summary', y);
+    y = sectionTitle(doc, 'Portée des travaux', y);
     y = paragraph(doc, quote.notes, y);
   }
 
@@ -471,7 +481,7 @@ export async function generateQuotePdf(quote, res) {
     y = linesTable(doc, sectionLines, y, ctx) + 4;
   }
 
-  const { y: yAfterTotals } = totalsBlock(doc, subtotal, y, COMPANY, 'Amount due', ctx, { depositNote: true });
+  const { y: yAfterTotals } = totalsBlock(doc, subtotal, y, COMPANY, 'Total TTC', ctx, { depositNote: true });
   y = yAfterTotals + 4;
 
   const addNotes = quote.additional_notes || document.additional_notes;
@@ -513,7 +523,10 @@ export async function generateQuotePdf(quote, res) {
   y += 10;
 
   if (document.options?.show_payment !== false) {
-    y = paymentBlock(doc, y, COMPANY, ctx, { compact: true });
+    y = paymentBlock(doc, y, COMPANY, ctx, {
+      compact: true,
+      intro: COMPANY.payment.introQuote || COMPANY.payment.intro,
+    });
   }
 
   if (document.options?.show_signature !== false) {

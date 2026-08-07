@@ -21,14 +21,15 @@
   "defaultTerms": "Net 30",
   "quoteValidityDays": 30,
   "payment": {
-    "intro": "Production will be scheduled once the deposit is received. We will follow up with the production timeline and logistics.",
+    "intro": "Paiement dû dans les 30 jours.",
+    "introQuote": "La production sera planifiée dès réception de l’acompte. Nous vous confirmerons ensuite le calendrier et la logistique.",
     "interac": {
-      "label": "Interac e-Transfer",
+      "label": "Virement Interac",
       "email": "contact@neyafurniture.ca",
-      "note": "No security question required (auto-deposit enabled)"
+      "note": "Aucune question de sécurité requise (dépôt automatique)"
     },
     "bank": {
-      "label": "Direct deposit / Bank transfer",
+      "label": "Dépôt direct / Virement bancaire",
       "institution": "Desjardins — Plateau-Mont-Royal",
       "address": "435 Ave. Mont-Royal Est, Montréal QC H2J 1W2",
       "transit": "30197",
@@ -36,7 +37,7 @@
       "account": "650-712-3",
       "beneficiary": "9511-9319 Quebec Inc."
     },
-    "referenceNote": "Please include the invoice number with your payment so we can match it to your order."
+    "referenceNote": "Veuillez indiquer le numéro de facture avec votre paiement afin que nous puissions l’associer à votre dossier."
   },
   "quoteTerms": [
     "Les prix unitaires sont hors taxes ; le total TTC inclut TPS 5 % + TVQ 9,975 %.",
