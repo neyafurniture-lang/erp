@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { formatMoney } from '../lib/api';
 
 const DEFAULT_COLS = [
@@ -8,6 +8,8 @@ const DEFAULT_COLS = [
   { key: 'qty', label: 'Qté', type: 'number', width: 'w-20', step: 'any', min: '0' },
   { key: 'price', label: 'Prix $', type: 'number', width: 'w-28', step: '0.01', min: '0' },
 ];
+
+const DND_MIME = 'application/x-neya-line';
 
 function emptyRow(cols = DEFAULT_COLS) {
   const row = {};
@@ -30,11 +32,23 @@ function parsePaste(text) {
   return rows;
 }
 
+function parseDragPayload(e) {
+  try {
+    const raw = e.dataTransfer?.getData(DND_MIME) || e.dataTransfer?.getData('text/plain');
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data || data.type !== 'neya-line') return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Tableau éditable simple (devis / factures / matériaux).
  * - Tab / Entrée pour naviguer
  * - Coller depuis Excel / Sheets (Ctrl+V)
- * - Boutons + ligne, dupliquer, supprimer, monter / descendre
+ * - Monter / descendre, glisser-déposer (y compris entre tableaux)
  */
 export default function EasyTable({
   rows = [],
@@ -44,8 +58,14 @@ export default function EasyTable({
   minRows = 1,
   className = '',
   allowReorder = true,
+  /** Identifiant du tableau (requis pour DnD inter-tableaux) */
+  sectionId = null,
+  /** Déposer une ligne venant d’un autre tableau : (payload, toIndex) => void */
+  onReceiveRow = null,
 }) {
   const tableRef = useRef(null);
+  const [dropIndex, setDropIndex] = useState(null);
+  const [draggingIndex, setDraggingIndex] = useState(null);
 
   const setRows = useCallback((next) => {
     onChange(next.length ? next : [emptyRow(columns)]);
@@ -85,6 +105,15 @@ export default function EasyTable({
     const next = [...rows];
     const [row] = next.splice(ri, 1);
     next.splice(target, 0, row);
+    setRows(next);
+  }
+
+  function reorderLocal(fromIndex, toIndex) {
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
+    const next = [...rows];
+    const [row] = next.splice(fromIndex, 1);
+    const insertAt = fromIndex < toIndex ? toIndex - 1 : toIndex;
+    next.splice(Math.max(0, insertAt), 0, row);
     setRows(next);
   }
 
@@ -166,12 +195,79 @@ export default function EasyTable({
     setRows(next);
   }
 
+  function handleDragStart(e, ri) {
+    if (!allowReorder || !sectionId) return;
+    const payload = {
+      type: 'neya-line',
+      sectionId,
+      index: ri,
+      row: { ...rows[ri] },
+    };
+    e.dataTransfer.setData(DND_MIME, JSON.stringify(payload));
+    e.dataTransfer.setData('text/plain', JSON.stringify(payload));
+    e.dataTransfer.effectAllowed = 'move';
+    setDraggingIndex(ri);
+  }
+
+  function handleDragEnd() {
+    setDraggingIndex(null);
+    setDropIndex(null);
+  }
+
+  function handleDragOverRow(e, ri) {
+    if (!allowReorder) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const rect = e.currentTarget.getBoundingClientRect();
+    const before = e.clientY < rect.top + rect.height / 2;
+    setDropIndex(before ? ri : ri + 1);
+  }
+
+  function handleDragOverEnd(e) {
+    if (!allowReorder) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDropIndex(rows.length);
+  }
+
+  function handleDropAt(e, toIndex) {
+    if (!allowReorder) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setDropIndex(null);
+    setDraggingIndex(null);
+    const payload = parseDragPayload(e);
+    if (!payload) return;
+
+    if (payload.sectionId === sectionId) {
+      reorderLocal(payload.index, toIndex);
+      return;
+    }
+    if (typeof onReceiveRow === 'function') {
+      onReceiveRow(payload, toIndex);
+    }
+  }
+
+  function handleDragLeaveTable(e) {
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      setDropIndex(null);
+    }
+  }
+
+  const canDrag = allowReorder && !!sectionId;
+
   return (
     <div className={className}>
-      <div className="overflow-x-auto border border-neya-border rounded-none">
+      <div
+        className={`overflow-x-auto border border-neya-border rounded-none ${dropIndex != null ? 'ring-1 ring-neya-orange/40' : ''}`}
+        onDragLeave={handleDragLeaveTable}
+        onDragOver={handleDragOverEnd}
+        onDrop={(e) => handleDropAt(e, dropIndex ?? rows.length)}
+      >
         <table ref={tableRef} className="w-full text-sm min-w-[480px]">
           <thead>
             <tr className="bg-neya-cream/70 text-left text-neya-muted border-b border-neya-border">
+              {canDrag && <th className="px-1 py-2 w-6" />}
               <th className="px-2 py-2 w-8 text-center text-[10px] font-normal">#</th>
               {columns.map(col => (
                 <th key={col.key} className={`px-2 py-2 font-medium text-xs ${col.width || ''}`}>
@@ -187,8 +283,32 @@ export default function EasyTable({
           <tbody>
             {rows.map((row, ri) => {
               const lineTotal = (Number(row.qty) || 0) * (Number(row.price) || 0);
+              const showDropBefore = dropIndex === ri;
               return (
-                <tr key={ri} className="border-b border-neya-border last:border-0 hover:bg-neya-cream/20">
+                <tr
+                  key={ri}
+                  draggable={false}
+                  onDragOver={(e) => handleDragOverRow(e, ri)}
+                  onDrop={(e) => handleDropAt(e, dropIndex ?? ri)}
+                  className={`border-b border-neya-border last:border-0 hover:bg-neya-cream/20 ${
+                    draggingIndex === ri ? 'opacity-40' : ''
+                  } ${showDropBefore ? 'shadow-[inset_0_2px_0_0_#D86B30]' : ''}`}
+                >
+                  {canDrag && (
+                    <td className="px-0.5 py-1 align-middle">
+                      <button
+                        type="button"
+                        draggable
+                        title="Glisser vers un autre tableau ou réordonner"
+                        onDragStart={(e) => handleDragStart(e, ri)}
+                        onDragEnd={handleDragEnd}
+                        className="cursor-grab active:cursor-grabbing text-neya-muted hover:text-neya-ink px-1 py-2 text-sm leading-none select-none"
+                        aria-label="Déplacer la ligne"
+                      >
+                        ⠿
+                      </button>
+                    </td>
+                  )}
                   <td className="px-2 py-1 text-center text-neya-muted text-xs">{ri + 1}</td>
                   {columns.map((col, ci) => (
                     <td key={col.key} className={`px-1 py-1 ${col.flex ? '' : col.width || ''}`}>
@@ -257,6 +377,14 @@ export default function EasyTable({
                 </tr>
               );
             })}
+            {dropIndex === rows.length && (
+              <tr className="pointer-events-none">
+                <td
+                  colSpan={(canDrag ? 1 : 0) + 2 + columns.length + (showLineTotal ? 1 : 0)}
+                  className="h-1 bg-neya-orange/80 p-0"
+                />
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -265,11 +393,11 @@ export default function EasyTable({
           + Ajouter une ligne
         </button>
         <span className="text-[11px] text-neya-muted">
-          Entrée = ligne suivante · Alt↑↓ = déplacer · Coller depuis Excel / Sheets
+          ⠿ = glisser (entre tableaux) · Alt↑↓ = déplacer · Entrée = ligne suivante
         </span>
       </div>
     </div>
   );
 }
 
-export { emptyRow, DEFAULT_COLS as LINE_TABLE_COLS };
+export { emptyRow, DEFAULT_COLS as LINE_TABLE_COLS, DND_MIME };

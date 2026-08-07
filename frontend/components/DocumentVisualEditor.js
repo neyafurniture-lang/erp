@@ -115,6 +115,33 @@ export default function DocumentVisualEditor({
     patch({ sections });
   }
 
+  /** Glisser une ligne d’un tableau vers un autre (ou réordonner via EasyTable en interne). */
+  function receiveRowFromOtherSection(toSectionId, payload, toIndex) {
+    if (readOnly || !payload?.row) return;
+    const fromId = payload.sectionId;
+    const fromIndex = Number(payload.index);
+    if (!fromId || fromId === toSectionId || Number.isNaN(fromIndex)) return;
+
+    const sections = (draft.sections || []).map(s => ({
+      ...s,
+      lines: [...(s.lines || [])],
+    }));
+    const fromSec = sections.find(s => s.id === fromId);
+    const toSec = sections.find(s => s.id === toSectionId);
+    if (!fromSec || !toSec) return;
+    if (fromIndex < 0 || fromIndex >= fromSec.lines.length) return;
+
+    const [row] = fromSec.lines.splice(fromIndex, 1);
+    const insertAt = Math.max(0, Math.min(toIndex ?? toSec.lines.length, toSec.lines.length));
+    toSec.lines.splice(insertAt, 0, {
+      description: String(row.description || ''),
+      qty: Number(row.qty) || 0,
+      price: Number(row.price) || 0,
+    });
+    if (!fromSec.lines.length) fromSec.lines = [emptyLine()];
+    patch({ sections });
+  }
+
   async function handleSave() {
     if (!onSave || readOnly) return;
     try {
@@ -156,7 +183,7 @@ export default function DocumentVisualEditor({
         <p className="text-xs text-neya-muted">
           {readOnly
             ? 'Aperçu'
-            : 'Tableaux : Entrée = ligne · Alt↑↓ = déplacer · + Ajouter un tableau · Montants hors taxes'}
+            : 'Tableaux : ⠿ glisser entre tableaux · Alt↑↓ · + Ajouter un tableau · HT'}
           {dirty && !readOnly ? ' · non enregistré' : ''}
         </p>
         {!readOnly && (
@@ -432,6 +459,8 @@ export default function DocumentVisualEditor({
                   minRows={1}
                   showLineTotal
                   allowReorder
+                  sectionId={section.id}
+                  onReceiveRow={(payload, toIndex) => receiveRowFromOtherSection(section.id, payload, toIndex)}
                 />
               )}
             </div>
