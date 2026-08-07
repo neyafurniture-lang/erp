@@ -6,19 +6,20 @@ import Link from 'next/link';
 import AppShell from '../../../components/AppShell';
 import AuthGuard from '../../../components/AuthGuard';
 import InvoicePaymentModal, { paymentMethodLabel } from '../../../components/InvoicePaymentModal';
-import DocumentVisualEditor from '../../../components/DocumentVisualEditor';
+import DocumentVisualEditor, { serializeQuoteDocument } from '../../../components/DocumentVisualEditor';
 import SendDocumentModal from '../../../components/SendDocumentModal';
 import {
   api, formatMoney, formatDate, INVOICE_STATUS, downloadPdf,
 } from '../../../lib/api';
 import { useRegisterChatContext } from '../../../lib/chat-context';
+import { flattenQuoteLines } from '../../../lib/quote-document';
 
 function parseLines(lines) {
   if (!lines) return [];
   if (typeof lines === 'string') {
     try { return JSON.parse(lines); } catch { return []; }
   }
-  return Array.isArray(lines) ? lines : [];
+  return lines;
 }
 
 export default function InvoiceDetailPage() {
@@ -104,13 +105,22 @@ export default function InvoiceDetailPage() {
   async function saveDocument(draft) {
     setSaving(true);
     try {
-      const cleaned = (draft.lines || [])
-        .map(l => ({
+      const document = serializeQuoteDocument({
+        sections: draft.sections,
+      });
+      // Une seule section sans titre → tableau plat (compat installation-billing / anciennes factures)
+      const multi = (document.sections || []).length > 1
+        || (document.sections || []).some(s => String(s.title || '').trim());
+      const lines = multi
+        ? document
+        : flattenQuoteLines(document).map(l => ({
           description: String(l.description || '').trim(),
           qty: Number(l.qty) || 0,
           price: Number(l.price) || 0,
-        }))
-        .filter(l => l.description);
+        }));
+      const payloadLines = Array.isArray(lines) && !lines.length
+        ? [{ description: '', qty: 1, price: 0 }]
+        : lines;
       await api(`/invoices/${id}`, {
         method: 'PUT',
         body: JSON.stringify({
@@ -119,7 +129,7 @@ export default function InvoiceDetailPage() {
           notes: draft.notes,
           order_summary: draft.notes,
           due_date: draft.due_date || null,
-          lines: cleaned.length ? cleaned : [{ description: '', qty: 1, price: 0 }],
+          lines: payloadLines,
         }),
       });
       load();

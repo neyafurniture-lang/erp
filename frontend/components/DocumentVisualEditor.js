@@ -19,15 +19,6 @@ const LINE_COLS = [
   { key: 'price', label: 'Prix unit.', type: 'number', width: 'w-28', step: '0.01', min: '0' },
 ];
 
-function normalizeInvoiceLines(lines) {
-  if (!lines?.length) return [emptyLine()];
-  return lines.map(l => ({
-    description: l.description || '',
-    qty: l.qty ?? 1,
-    price: l.price ?? 0,
-  }));
-}
-
 /** Lignes pour EasyTable : au moins une ligne éditable. */
 function editorRows(lines) {
   const list = Array.isArray(lines) ? lines.map(l => ({
@@ -97,27 +88,31 @@ export default function DocumentVisualEditor({
     patchSection(sectionId, { lines: next.length ? next : [emptyLine()] });
   }
 
-  function setInvoiceLines(rows) {
-    const next = (Array.isArray(rows) ? rows : []).map(l => ({
-      description: String(l?.description || ''),
-      qty: l?.qty === '' || l?.qty == null ? 1 : Number(l.qty) || 0,
-      price: l?.price === '' || l?.price == null ? 0 : Number(l.price) || 0,
-    }));
-    patch({ lines: next.length ? next : [emptyLine()] });
-  }
-
   function addSection() {
     if (readOnly) return;
-    patch({ sections: [...draft.sections, emptySection(`Tableau ${draft.sections.length + 1}`)] });
+    const sections = draft.sections || [];
+    patch({ sections: [...sections, emptySection(`Tableau ${sections.length + 1}`)] });
   }
 
   function removeSection(sectionId) {
     if (readOnly) return;
-    if (draft.sections.length <= 1) {
+    const sections = draft.sections || [];
+    if (sections.length <= 1) {
       patchSection(sectionId, { title: '', lines: [emptyLine()] });
       return;
     }
-    patch({ sections: draft.sections.filter(s => s.id !== sectionId) });
+    patch({ sections: sections.filter(s => s.id !== sectionId) });
+  }
+
+  function moveSection(sectionId, dir) {
+    if (readOnly) return;
+    const sections = [...(draft.sections || [])];
+    const idx = sections.findIndex(s => s.id === sectionId);
+    const target = idx + dir;
+    if (idx < 0 || target < 0 || target >= sections.length) return;
+    const [sec] = sections.splice(idx, 1);
+    sections.splice(target, 0, sec);
+    patch({ sections });
   }
 
   async function handleSave() {
@@ -150,11 +145,10 @@ export default function DocumentVisualEditor({
     patch({ photos: (draft.photos || []).filter((_, i) => i !== index) });
   }
 
-  const lineSource = isQuote
-    ? flattenQuoteLines({ sections: draft.sections })
-    : draft.lines;
+  const lineSource = flattenQuoteLines({ sections: draft.sections });
   const taxes = calcTaxes(calcLineSubtotal(lineSource));
   const notesLabel = isQuote ? 'Portée des travaux' : 'Résumé';
+  const sections = draft.sections || [];
 
   return (
     <div className="doc-visual">
@@ -162,7 +156,7 @@ export default function DocumentVisualEditor({
         <p className="text-xs text-neya-muted">
           {readOnly
             ? 'Aperçu'
-            : 'Cliquez un champ pour modifier · Tableaux : Entrée = ligne · Tab = cellule · Coller Excel · Montants hors taxes'}
+            : 'Tableaux : Entrée = ligne · Alt↑↓ = déplacer · + Ajouter un tableau · Montants hors taxes'}
           {dirty && !readOnly ? ' · non enregistré' : ''}
         </p>
         {!readOnly && (
@@ -346,33 +340,51 @@ export default function DocumentVisualEditor({
           )}
         </div>
 
-        {(isQuote ? draft.sections : [{ id: 'inv', title: null, lines: draft.lines }]).map((section) => {
+        {sections.map((section, sIdx) => {
           const meaningful = (section.lines || []).filter(isMeaningfulLine);
-          if (readOnly && !meaningful.length && !(isQuote && String(section.title || '').trim())) {
+          if (readOnly && !meaningful.length && !String(section.title || '').trim()) {
             return null;
           }
           return (
             <div key={section.id} className="doc-section">
-              {isQuote && (
-                <div className="doc-section-head">
-                  {focusKey === `title-${section.id}` && !readOnly ? (
-                    <input
-                      autoFocus
-                      className="doc-input font-medium"
-                      value={section.title}
-                      onChange={e => patchSection(section.id, { title: e.target.value })}
-                      onBlur={() => setFocusKey(null)}
-                      placeholder="Titre du tableau (optionnel)"
-                    />
-                  ) : (
-                    <h3
-                      className={`doc-section-title ${readOnly ? '' : 'doc-editable'}`}
-                      onClick={() => !readOnly && setFocusKey(`title-${section.id}`)}
+              <div className="doc-section-head">
+                {focusKey === `title-${section.id}` && !readOnly ? (
+                  <input
+                    autoFocus
+                    className="doc-input font-medium"
+                    value={section.title}
+                    onChange={e => patchSection(section.id, { title: e.target.value })}
+                    onBlur={() => setFocusKey(null)}
+                    placeholder="Titre du tableau (optionnel)"
+                  />
+                ) : (
+                  <h3
+                    className={`doc-section-title ${readOnly ? '' : 'doc-editable'}`}
+                    onClick={() => !readOnly && setFocusKey(`title-${section.id}`)}
+                  >
+                    {section.title || (readOnly ? '' : 'Titre du tableau…')}
+                  </h3>
+                )}
+                {!readOnly && (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      className="text-xs text-neya-muted hover:text-neya-ink disabled:opacity-25"
+                      title="Monter le tableau"
+                      disabled={sIdx === 0}
+                      onClick={() => moveSection(section.id, -1)}
                     >
-                      {section.title || (readOnly ? '' : 'Titre du tableau…')}
-                    </h3>
-                  )}
-                  {!readOnly && (
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      className="text-xs text-neya-muted hover:text-neya-ink disabled:opacity-25"
+                      title="Descendre le tableau"
+                      disabled={sIdx === sections.length - 1}
+                      onClick={() => moveSection(section.id, 1)}
+                    >
+                      ↓
+                    </button>
                     <button
                       type="button"
                       className="text-xs text-neya-muted hover:text-neya-error"
@@ -380,9 +392,9 @@ export default function DocumentVisualEditor({
                     >
                       Supprimer tableau
                     </button>
-                  )}
-                </div>
-              )}
+                  </div>
+                )}
+              </div>
 
               {readOnly ? (
                 meaningful.length ? (
@@ -416,18 +428,17 @@ export default function DocumentVisualEditor({
                 <EasyTable
                   columns={LINE_COLS}
                   rows={editorRows(section.lines)}
-                  onChange={(rows) => (
-                    isQuote ? setSectionLines(section.id, rows) : setInvoiceLines(rows)
-                  )}
+                  onChange={(rows) => setSectionLines(section.id, rows)}
                   minRows={1}
                   showLineTotal
+                  allowReorder
                 />
               )}
             </div>
           );
         })}
 
-        {!readOnly && isQuote && (
+        {!readOnly && (
           <div className="doc-add-section">
             <button type="button" onClick={addSection} className="btn-secondary text-sm min-h-[36px]">
               + Ajouter un tableau
@@ -606,12 +617,20 @@ function buildDraft(value, isQuote) {
       options: doc.options,
     };
   }
+  const doc = normalizeQuoteDocument(value?.lines);
+  const sections = (doc.sections || []).map((s, i) => ({
+    ...s,
+    // Anciennes factures plates : pas de titre de section forcé
+    title: (doc.sections.length === 1 && /^(Travaux|Travaux \/ produit)$/i.test(String(s.title || '')))
+      ? ''
+      : (s.title || ''),
+  }));
   return {
     title: value?.title || '',
     subtitle: value?.subtitle || '',
     notes: value?.notes || value?.order_summary || '',
     due_date: value?.due_date ? String(value.due_date).slice(0, 10) : '',
-    lines: normalizeInvoiceLines(value?.lines),
+    sections: sections.length ? sections : [emptySection('')],
   };
 }
 

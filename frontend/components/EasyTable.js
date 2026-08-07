@@ -34,7 +34,7 @@ function parsePaste(text) {
  * Tableau éditable simple (devis / factures / matériaux).
  * - Tab / Entrée pour naviguer
  * - Coller depuis Excel / Sheets (Ctrl+V)
- * - Boutons + ligne, dupliquer, supprimer
+ * - Boutons + ligne, dupliquer, supprimer, monter / descendre
  */
 export default function EasyTable({
   rows = [],
@@ -43,6 +43,7 @@ export default function EasyTable({
   showLineTotal = true,
   minRows = 1,
   className = '',
+  allowReorder = true,
 }) {
   const tableRef = useRef(null);
 
@@ -78,6 +79,15 @@ export default function EasyTable({
     setRows(rows.filter((_, i) => i !== ri));
   }
 
+  function moveRow(ri, dir) {
+    const target = ri + dir;
+    if (target < 0 || target >= rows.length) return;
+    const next = [...rows];
+    const [row] = next.splice(ri, 1);
+    next.splice(target, 0, row);
+    setRows(next);
+  }
+
   function focusCell(ri, ci) {
     requestAnimationFrame(() => {
       const el = tableRef.current?.querySelector(`[data-cell="${ri}-${ci}"]`);
@@ -88,6 +98,18 @@ export default function EasyTable({
 
   function handleKeyDown(e, ri, ci) {
     const colCount = columns.length;
+    if (allowReorder && e.altKey && e.key === 'ArrowUp') {
+      e.preventDefault();
+      moveRow(ri, -1);
+      focusCell(Math.max(0, ri - 1), ci);
+      return;
+    }
+    if (allowReorder && e.altKey && e.key === 'ArrowDown') {
+      e.preventDefault();
+      moveRow(ri, 1);
+      focusCell(Math.min(rows.length - 1, ri + 1), ci);
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (ri === rows.length - 1) {
@@ -191,6 +213,28 @@ export default function EasyTable({
                   )}
                   <td className="px-1 py-1">
                     <div className="flex items-center justify-end gap-0.5">
+                      {allowReorder && (
+                        <>
+                          <button
+                            type="button"
+                            title="Monter (Alt↑)"
+                            onClick={() => moveRow(ri, -1)}
+                            disabled={ri === 0}
+                            className="text-neya-muted hover:text-neya-ink px-1 py-1 text-xs disabled:opacity-25"
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            title="Descendre (Alt↓)"
+                            onClick={() => moveRow(ri, 1)}
+                            disabled={ri === rows.length - 1}
+                            className="text-neya-muted hover:text-neya-ink px-1 py-1 text-xs disabled:opacity-25"
+                          >
+                            ↓
+                          </button>
+                        </>
+                      )}
                       <button
                         type="button"
                         title="Dupliquer"
@@ -221,7 +265,7 @@ export default function EasyTable({
           + Ajouter une ligne
         </button>
         <span className="text-[11px] text-neya-muted">
-          Entrée = ligne suivante · Coller depuis Excel / Sheets
+          Entrée = ligne suivante · Alt↑↓ = déplacer · Coller depuis Excel / Sheets
         </span>
       </div>
     </div>

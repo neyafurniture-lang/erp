@@ -386,7 +386,24 @@ export async function generateInvoicePdf(invoice, res) {
     y = paragraph(doc, invoice.order_summary || invoice.notes, y);
   }
 
-  y = linesTable(doc, invoice.lines, y, ctx);
+  const invDoc = normalizeQuoteDocument(invoice.lines);
+  const hasNamedSections = (invDoc.sections || []).length > 1
+    || (invDoc.sections || []).some(s => String(s.title || '').trim());
+  if (hasNamedSections) {
+    for (const section of invDoc.sections) {
+      const sectionLines = (section.lines || []).filter((l) => String(l?.description || '').trim());
+      if (!sectionLines.length) continue;
+      y = ensureSpace(doc, y, 100, ctx);
+      if (section.title) {
+        doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(9)
+          .text(String(section.title).toUpperCase(), M, y, { characterSpacing: 0.8 });
+        y += 15;
+      }
+      y = linesTable(doc, sectionLines, y, ctx) + 4;
+    }
+  } else {
+    y = linesTable(doc, flattenQuoteLines(invDoc), y, ctx);
+  }
   let totals = totalsBlock(doc, subtotal, y, COMPANY, 'Solde à payer', ctx);
   y = totals.y;
 
