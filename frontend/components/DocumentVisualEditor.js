@@ -144,11 +144,7 @@ export default function DocumentVisualEditor({
   }
 
   function onSectionDragOver(e, sIdx) {
-    if (readOnly) return;
-    const types = Array.from(e.dataTransfer?.types || []);
-    // Laisser EasyTable gérer le glisser de lignes
-    if (types.includes('application/x-neya-line')) return;
-    if (!types.includes('application/x-neya-section') && !draggingSectionId) return;
+    if (readOnly || !draggingSectionId) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     const rect = e.currentTarget.getBoundingClientRect();
@@ -157,15 +153,14 @@ export default function DocumentVisualEditor({
   }
 
   function onSectionDrop(e, sIdx) {
-    if (readOnly) return;
-    const types = Array.from(e.dataTransfer?.types || []);
-    if (types.includes('application/x-neya-line')) return;
+    if (readOnly || !draggingSectionId) return;
     e.preventDefault();
     let fromId = draggingSectionId;
     try {
       const raw = e.dataTransfer.getData('application/x-neya-section') || e.dataTransfer.getData('text/plain');
       const data = JSON.parse(raw);
       if (data?.type === 'neya-section') fromId = data.sectionId;
+      if (data?.type === 'neya-line') return;
     } catch { /* ignore */ }
     const toIndex = dropSectionIndex ?? sIdx;
     setDraggingSectionId(null);
