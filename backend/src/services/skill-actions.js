@@ -1,5 +1,5 @@
 import pool from '../db/pool.js';
-import { createQuoteRecord, createInvoiceRecord, convertQuoteToInvoice } from './invoice-helpers.js';
+import { createQuoteRecord, createInvoiceRecord, convertQuoteToInvoice, calcDocTotals } from './invoice-helpers.js';
 import { sendDocumentEmail } from './document-email.js';
 import {
   stripPlanPrefix,
@@ -1765,8 +1765,7 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
         || (/refusé|refuse|rejected/i.test(msg) ? 'rejected' : null)
         || q.status;
 
-      const subtotal = lines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.price) || 0), 0);
-      const total = Math.round(subtotal * 1.14975 * 100) / 100;
+      const { subtotal, total } = calcDocTotals(lines);
 
       const { rows } = await pool.query(
         `UPDATE quotes SET
