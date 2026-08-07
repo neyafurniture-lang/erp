@@ -56,6 +56,8 @@ export default function DocumentVisualEditor({
   const [focusKey, setFocusKey] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [draggingSectionId, setDraggingSectionId] = useState(null);
+  const [dropSectionIndex, setDropSectionIndex] = useState(null);
   const fileRef = useRef(null);
 
   useEffect(() => {
@@ -113,6 +115,67 @@ export default function DocumentVisualEditor({
     const [sec] = sections.splice(idx, 1);
     sections.splice(target, 0, sec);
     patch({ sections });
+  }
+
+  function reorderSectionTo(fromId, toIndex) {
+    if (readOnly) return;
+    const sections = [...(draft.sections || [])];
+    const fromIdx = sections.findIndex(s => s.id === fromId);
+    if (fromIdx < 0) return;
+    let insertAt = toIndex;
+    if (fromIdx < insertAt) insertAt -= 1;
+    if (insertAt === fromIdx || insertAt < 0) return;
+    const [sec] = sections.splice(fromIdx, 1);
+    sections.splice(Math.min(insertAt, sections.length), 0, sec);
+    patch({ sections });
+  }
+
+  function onSectionDragStart(e, sectionId) {
+    if (readOnly) return;
+    if (e.target?.closest?.('input, textarea, button:not([data-section-drag])')) {
+      e.preventDefault();
+      return;
+    }
+    const payload = JSON.stringify({ type: 'neya-section', sectionId });
+    e.dataTransfer.setData('application/x-neya-section', payload);
+    e.dataTransfer.setData('text/plain', payload);
+    e.dataTransfer.effectAllowed = 'move';
+    setDraggingSectionId(sectionId);
+  }
+
+  function onSectionDragOver(e, sIdx) {
+    if (readOnly) return;
+    const types = Array.from(e.dataTransfer?.types || []);
+    // Laisser EasyTable gérer le glisser de lignes
+    if (types.includes('application/x-neya-line')) return;
+    if (!types.includes('application/x-neya-section') && !draggingSectionId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const rect = e.currentTarget.getBoundingClientRect();
+    const before = e.clientY < rect.top + rect.height / 2;
+    setDropSectionIndex(before ? sIdx : sIdx + 1);
+  }
+
+  function onSectionDrop(e, sIdx) {
+    if (readOnly) return;
+    const types = Array.from(e.dataTransfer?.types || []);
+    if (types.includes('application/x-neya-line')) return;
+    e.preventDefault();
+    let fromId = draggingSectionId;
+    try {
+      const raw = e.dataTransfer.getData('application/x-neya-section') || e.dataTransfer.getData('text/plain');
+      const data = JSON.parse(raw);
+      if (data?.type === 'neya-section') fromId = data.sectionId;
+    } catch { /* ignore */ }
+    const toIndex = dropSectionIndex ?? sIdx;
+    setDraggingSectionId(null);
+    setDropSectionIndex(null);
+    if (fromId) reorderSectionTo(fromId, toIndex);
+  }
+
+  function onSectionDragEnd() {
+    setDraggingSectionId(null);
+    setDropSectionIndex(null);
   }
 
   /** Glisser une ligne d’un tableau vers un autre (ou réordonner via EasyTable en interne). */
@@ -183,7 +246,7 @@ export default function DocumentVisualEditor({
         <p className="text-xs text-neya-muted">
           {readOnly
             ? 'Aperçu'
-            : 'Tableaux : ⠿ glisser entre tableaux · Alt↑↓ · + Ajouter un tableau · HT'}
+            : 'Glisser les lignes (⠿) ou les tableaux · Alt↑↓ · + Ajouter un tableau · HT'}
           {dirty && !readOnly ? ' · non enregistré' : ''}
         </p>
         {!readOnly && (
@@ -372,9 +435,32 @@ export default function DocumentVisualEditor({
           if (readOnly && !meaningful.length && !String(section.title || '').trim()) {
             return null;
           }
+          const showDropBefore = dropSectionIndex === sIdx && draggingSectionId;
           return (
-            <div key={section.id} className="doc-section">
-              <div className="doc-section-head">
+            <div
+              key={section.id}
+              className={`doc-section ${draggingSectionId === section.id ? 'opacity-50' : ''} ${
+                showDropBefore ? 'shadow-[inset_0_3px_0_0_#D86B30]' : ''
+              }`}
+              onDragOver={(e) => onSectionDragOver(e, sIdx)}
+              onDrop={(e) => onSectionDrop(e, sIdx)}
+            >
+              <div
+                className={`doc-section-head ${!readOnly ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                draggable={!readOnly}
+                onDragStart={(e) => onSectionDragStart(e, section.id)}
+                onDragEnd={onSectionDragEnd}
+              >
+                {!readOnly && (
+                  <span
+                    data-section-drag
+                    className="text-neya-muted text-sm px-1 select-none"
+                    title="Glisser le tableau"
+                    aria-hidden
+                  >
+                    ⠿
+                  </span>
+                )}
                 {focusKey === `title-${section.id}` && !readOnly ? (
                   <input
                     autoFocus
@@ -382,18 +468,23 @@ export default function DocumentVisualEditor({
                     value={section.title}
                     onChange={e => patchSection(section.id, { title: e.target.value })}
                     onBlur={() => setFocusKey(null)}
+                    onMouseDown={(e) => e.stopPropagation()}
                     placeholder="Titre du tableau (optionnel)"
                   />
                 ) : (
                   <h3
                     className={`doc-section-title ${readOnly ? '' : 'doc-editable'}`}
                     onClick={() => !readOnly && setFocusKey(`title-${section.id}`)}
+                    onMouseDown={(e) => {
+                      // Clic pour éditer le titre : ne pas démarrer un drag
+                      if (!readOnly) e.stopPropagation();
+                    }}
                   >
                     {section.title || (readOnly ? '' : 'Titre du tableau…')}
                   </h3>
                 )}
                 {!readOnly && (
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0" onMouseDown={(e) => e.stopPropagation()}>
                     <button
                       type="button"
                       className="text-xs text-neya-muted hover:text-neya-ink disabled:opacity-25"

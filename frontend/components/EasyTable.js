@@ -197,14 +197,20 @@ export default function EasyTable({
 
   function handleDragStart(e, ri) {
     if (!allowReorder || !sectionId) return;
+    // Ne pas démarrer un drag depuis un champ de saisie
+    if (e.target?.closest?.('input, textarea, select')) {
+      e.preventDefault();
+      return;
+    }
     const payload = {
       type: 'neya-line',
       sectionId,
       index: ri,
       row: { ...rows[ri] },
     };
-    e.dataTransfer.setData(DND_MIME, JSON.stringify(payload));
-    e.dataTransfer.setData('text/plain', JSON.stringify(payload));
+    const json = JSON.stringify(payload);
+    e.dataTransfer.setData(DND_MIME, json);
+    e.dataTransfer.setData('text/plain', json);
     e.dataTransfer.effectAllowed = 'move';
     setDraggingIndex(ri);
   }
@@ -217,6 +223,7 @@ export default function EasyTable({
   function handleDragOverRow(e, ri) {
     if (!allowReorder) return;
     e.preventDefault();
+    e.stopPropagation();
     e.dataTransfer.dropEffect = 'move';
     const rect = e.currentTarget.getBoundingClientRect();
     const before = e.clientY < rect.top + rect.height / 2;
@@ -234,17 +241,18 @@ export default function EasyTable({
     if (!allowReorder) return;
     e.preventDefault();
     e.stopPropagation();
+    const target = toIndex ?? dropIndex ?? rows.length;
     setDropIndex(null);
     setDraggingIndex(null);
     const payload = parseDragPayload(e);
     if (!payload) return;
 
     if (payload.sectionId === sectionId) {
-      reorderLocal(payload.index, toIndex);
+      reorderLocal(payload.index, target);
       return;
     }
     if (typeof onReceiveRow === 'function') {
-      onReceiveRow(payload, toIndex);
+      onReceiveRow(payload, target);
     }
   }
 
@@ -259,7 +267,9 @@ export default function EasyTable({
   return (
     <div className={className}>
       <div
-        className={`overflow-x-auto border border-neya-border rounded-none ${dropIndex != null ? 'ring-1 ring-neya-orange/40' : ''}`}
+        className={`overflow-x-auto border border-neya-border rounded-none transition-shadow ${
+          dropIndex != null ? 'ring-1 ring-neya-orange/50' : ''
+        }`}
         onDragLeave={handleDragLeaveTable}
         onDragOver={handleDragOverEnd}
         onDrop={(e) => handleDropAt(e, dropIndex ?? rows.length)}
@@ -267,7 +277,7 @@ export default function EasyTable({
         <table ref={tableRef} className="w-full text-sm min-w-[480px]">
           <thead>
             <tr className="bg-neya-cream/70 text-left text-neya-muted border-b border-neya-border">
-              {canDrag && <th className="px-1 py-2 w-6" />}
+              {canDrag && <th className="px-1 py-2 w-7" title="Glisser" />}
               <th className="px-2 py-2 w-8 text-center text-[10px] font-normal">#</th>
               {columns.map(col => (
                 <th key={col.key} className={`px-2 py-2 font-medium text-xs ${col.width || ''}`}>
@@ -287,29 +297,29 @@ export default function EasyTable({
               return (
                 <tr
                   key={ri}
-                  draggable={false}
+                  draggable={canDrag}
+                  onDragStart={(e) => handleDragStart(e, ri)}
+                  onDragEnd={handleDragEnd}
                   onDragOver={(e) => handleDragOverRow(e, ri)}
                   onDrop={(e) => handleDropAt(e, dropIndex ?? ri)}
                   className={`border-b border-neya-border last:border-0 hover:bg-neya-cream/20 ${
-                    draggingIndex === ri ? 'opacity-40' : ''
-                  } ${showDropBefore ? 'shadow-[inset_0_2px_0_0_#D86B30]' : ''}`}
+                    canDrag ? 'cursor-grab active:cursor-grabbing' : ''
+                  } ${draggingIndex === ri ? 'opacity-40' : ''} ${
+                    showDropBefore ? 'shadow-[inset_0_2px_0_0_#D86B30]' : ''
+                  }`}
                 >
                   {canDrag && (
-                    <td className="px-0.5 py-1 align-middle">
-                      <button
-                        type="button"
-                        draggable
-                        title="Glisser vers un autre tableau ou réordonner"
-                        onDragStart={(e) => handleDragStart(e, ri)}
-                        onDragEnd={handleDragEnd}
-                        className="cursor-grab active:cursor-grabbing text-neya-muted hover:text-neya-ink px-1 py-2 text-sm leading-none select-none"
-                        aria-label="Déplacer la ligne"
+                    <td className="px-0.5 py-1 align-middle text-center">
+                      <span
+                        className="inline-block text-neya-muted px-1 py-2 text-sm leading-none select-none"
+                        title="Glisser pour déplacer"
+                        aria-hidden
                       >
                         ⠿
-                      </button>
+                      </span>
                     </td>
                   )}
-                  <td className="px-2 py-1 text-center text-neya-muted text-xs">{ri + 1}</td>
+                  <td className="px-2 py-1 text-center text-neya-muted text-xs select-none">{ri + 1}</td>
                   {columns.map((col, ci) => (
                     <td key={col.key} className={`px-1 py-1 ${col.flex ? '' : col.width || ''}`}>
                       <input
@@ -317,7 +327,9 @@ export default function EasyTable({
                         type={col.type === 'number' ? 'number' : 'text'}
                         step={col.step}
                         min={col.min}
-                        className="input border-0 bg-transparent shadow-none focus:bg-white focus:ring-1 focus:ring-neya-orange/40 rounded-none px-2 py-1.5 text-sm w-full min-h-[36px]"
+                        draggable={false}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        className="input border-0 bg-transparent shadow-none focus:bg-white focus:ring-1 focus:ring-neya-orange/40 rounded-none px-2 py-1.5 text-sm w-full min-h-[36px] cursor-text"
                         placeholder={col.placeholder}
                         value={row[col.key] ?? ''}
                         onChange={e => updateCell(ri, col.key, col.type === 'number' ? e.target.value : e.target.value)}
@@ -331,7 +343,7 @@ export default function EasyTable({
                       {formatMoney(lineTotal)}
                     </td>
                   )}
-                  <td className="px-1 py-1">
+                  <td className="px-1 py-1" onMouseDown={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-0.5">
                       {allowReorder && (
                         <>
@@ -393,7 +405,7 @@ export default function EasyTable({
           + Ajouter une ligne
         </button>
         <span className="text-[11px] text-neya-muted">
-          ⠿ = glisser (entre tableaux) · Alt↑↓ = déplacer · Entrée = ligne suivante
+          Glisser une ligne (⠿) pour réordonner ou changer de tableau · Alt↑↓
         </span>
       </div>
     </div>
