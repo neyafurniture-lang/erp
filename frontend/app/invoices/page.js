@@ -563,6 +563,16 @@ export default function InvoicesPage() {
             }}
           />
         )}
+
+        {previewDoc && (
+          <DocumentPdfPreviewModal
+            type={previewDoc.type}
+            docId={previewDoc.id}
+            title={previewDoc.title}
+            filename={previewDoc.filename}
+            onClose={() => setPreviewDoc(null)}
+          />
+        )}
       </AppShell>
     </AuthGuard>
   );
