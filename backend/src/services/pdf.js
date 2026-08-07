@@ -98,8 +98,9 @@ function ensureSpace(doc, y, need, ctx) {
   return docHeader(doc, ctx.co, { ...ctx, compact: true });
 }
 
-function roundedCard(doc, x, y, w, h, { fill = C.cream } = {}) {
-  doc.roundedRect(x, y, w, h, 6).fillColor(fill).fill();
+/** Cartes / blocs — coins carrés (style facture plus angulaire). */
+function flatCard(doc, x, y, w, h, { fill = C.cream } = {}) {
+  doc.rect(x, y, w, h).fillColor(fill).fill();
 }
 
 /**
@@ -123,8 +124,8 @@ function metaCards(doc, y, leftTitle, leftLines, rightTitle, rightRows) {
   }
   const h = Math.max(lh, rh, 64) + pad * 1.5;
 
-  roundedCard(doc, M, y, cw, h);
-  roundedCard(doc, M + cw + gap, y, cw, h);
+  flatCard(doc, M, y, cw, h);
+  flatCard(doc, M + cw + gap, y, cw, h);
 
   // Carte gauche
   let ly = y + pad;
@@ -163,7 +164,7 @@ const COL = {
 };
 
 function tableHeader(doc, y) {
-  doc.roundedRect(M, y, W, 20, 4).fillColor(C.green).fill();
+  doc.rect(M, y, W, 20).fillColor(C.green).fill();
   doc.fillColor(C.white).font('Helvetica-Bold').fontSize(8);
   const ty = y + 6;
   doc.text('Description', COL.desc.x, ty, { width: COL.desc.w });
@@ -238,7 +239,7 @@ function totalsBlock(doc, subtotal, startY, co, label, ctx, { depositNote = fals
 
   let y = ensureSpace(doc, startY, boxH + (depositNote ? 34 : 10), ctx);
 
-  roundedCard(doc, bx, y, bw, boxH, { fill: C.cream });
+  flatCard(doc, bx, y, bw, boxH, { fill: C.cream });
   let ty = y + 10;
 
   const row = (caption, value) => {
@@ -253,7 +254,7 @@ function totalsBlock(doc, subtotal, startY, co, label, ctx, { depositNote = fals
   row(co.tax.labelQst || 'TVQ 9,975 %', qst);
 
   ty += 2;
-  doc.roundedRect(bx + 6, ty, bw - 12, 24, 5).fillColor(C.orange).fill();
+  doc.rect(bx + 6, ty, bw - 12, 24).fillColor(C.orange).fill();
   doc.fillColor(C.white).font('Helvetica-Bold').fontSize(10)
     .text(label.toUpperCase(), bx + padX, ty + 7, { width: bw - padX * 2 - 90, characterSpacing: 0.5 });
   doc.fontSize(11)
@@ -317,7 +318,7 @@ function paymentBlock(doc, y, co, ctx, { compact = false } = {}) {
   const h = 74;
   y = ensureSpace(doc, y, h + 10, ctx);
 
-  roundedCard(doc, M, y, cw, h, { fill: C.creamSoft });
+  flatCard(doc, M, y, cw, h, { fill: C.creamSoft });
   doc.fillColor(C.green).font('Helvetica-Bold').fontSize(8.5)
     .text(co.payment.interac.label, M + pad, y + pad);
   doc.fillColor(C.muted).font('Helvetica').fontSize(8);
@@ -325,7 +326,7 @@ function paymentBlock(doc, y, co, ctx, { compact = false } = {}) {
   doc.text(co.payment.interac.note, M + pad, y + pad + 27, { width: cw - pad * 2 });
 
   const rx = M + cw + gap;
-  roundedCard(doc, rx, y, cw, h, { fill: C.creamSoft });
+  flatCard(doc, rx, y, cw, h, { fill: C.creamSoft });
   doc.fillColor(C.green).font('Helvetica-Bold').fontSize(8.5)
     .text(co.payment.bank.label, rx + pad, y + pad);
   doc.fillColor(C.muted).font('Helvetica').fontSize(8);

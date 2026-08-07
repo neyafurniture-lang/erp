@@ -146,7 +146,7 @@ export default function EasyTable({
 
   return (
     <div className={className}>
-      <div className="overflow-x-auto border border-neya-border rounded-lg">
+      <div className="overflow-x-auto border border-neya-border rounded-none">
         <table ref={tableRef} className="w-full text-sm min-w-[480px]">
           <thead>
             <tr className="bg-neya-cream/70 text-left text-neya-muted border-b border-neya-border">
@@ -175,7 +175,7 @@ export default function EasyTable({
                         type={col.type === 'number' ? 'number' : 'text'}
                         step={col.step}
                         min={col.min}
-                        className="input border-0 bg-transparent shadow-none focus:bg-white focus:ring-1 focus:ring-neya-orange/40 rounded px-2 py-1.5 text-sm w-full min-h-[36px]"
+                        className="input border-0 bg-transparent shadow-none focus:bg-white focus:ring-1 focus:ring-neya-orange/40 rounded-none px-2 py-1.5 text-sm w-full min-h-[36px]"
                         placeholder={col.placeholder}
                         value={row[col.key] ?? ''}
                         onChange={e => updateCell(ri, col.key, col.type === 'number' ? e.target.value : e.target.value)}

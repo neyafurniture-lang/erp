@@ -1621,7 +1621,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .doc-sheet {
-  @apply bg-white border border-neya-border p-5 sm:p-8 shadow-sm;
+  @apply bg-white border border-neya-border p-5 sm:p-8 shadow-sm rounded-none;
   background-image: linear-gradient(180deg, #fff 0%, #fafafa 100%);
 }
 
@@ -1642,7 +1642,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .doc-status {
-  @apply text-[11px] border border-neya-border px-2 py-0.5 text-neya-muted;
+  @apply text-[11px] border border-neya-border px-2 py-0.5 text-neya-muted rounded-none;
 }
 
 .doc-client {
@@ -1662,7 +1662,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .doc-editable {
-  @apply cursor-text rounded-sm outline-none;
+  @apply cursor-text rounded-none outline-none;
   box-shadow: inset 0 0 0 0 transparent;
   transition: box-shadow 0.15s ease, background-color 0.15s ease;
 }
@@ -1673,7 +1673,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .doc-input {
-  @apply w-full border border-neya-border bg-white px-2 py-1.5 text-sm focus:outline-none focus:border-neya-ink;
+  @apply w-full border border-neya-border bg-white px-2 py-1.5 text-sm focus:outline-none focus:border-neya-ink rounded-none;
 }
 
 .doc-title-input {
@@ -1713,11 +1713,22 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .doc-details-card {
-  @apply space-y-1;
+  @apply space-y-1 border border-neya-border bg-[#FBF6F0] p-4 rounded-none;
 }
 
 .doc-details-rows {
   @apply text-neya-ink;
+}
+
+/* Éditeur devis/facture : coins carrés (y compris EasyTable / boutons imbriqués) */
+.doc-visual .rounded,
+.doc-visual .rounded-sm,
+.doc-visual .rounded-md,
+.doc-visual .rounded-lg,
+.doc-visual .rounded-xl,
+.doc-visual .rounded-2xl,
+.doc-visual .rounded-full {
+  border-radius: 0 !important;
 }
 
 .doc-totals {
@@ -1765,7 +1776,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .doc-photo {
-  @apply relative border border-neya-border bg-neya-surface overflow-hidden;
+  @apply relative border border-neya-border bg-neya-surface overflow-hidden rounded-none;
 }
 
 .doc-photo img {
@@ -1791,7 +1802,7 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Triangle actions (factures / devis) */
 .doc-row-menu__tri {
-  @apply inline-flex items-center justify-center w-7 h-7 rounded border border-neya-border bg-white text-neya-muted hover:border-neya-orange hover:text-neya-orange transition-colors;
+  @apply inline-flex items-center justify-center w-7 h-7 rounded-none border border-neya-border bg-white text-neya-muted hover:border-neya-orange hover:text-neya-orange transition-colors;
 }
 
 .doc-row-menu__tri-icon {
