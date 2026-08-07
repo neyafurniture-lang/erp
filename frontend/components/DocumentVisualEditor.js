@@ -12,6 +12,7 @@ import {
   isMeaningfulLine,
 } from '../lib/quote-document';
 import EasyTable from './EasyTable';
+import { coerceDecimalInput, finalizeDecimal, parseDecimal } from '../lib/parse-decimal';
 
 const LINE_COLS = [
   { key: 'description', label: 'Description', type: 'text', placeholder: 'Description…', flex: true },
@@ -23,10 +24,18 @@ const LINE_COLS = [
 function editorRows(lines) {
   const list = Array.isArray(lines) ? lines.map(l => ({
     description: l.description || '',
-    qty: l.qty ?? 1,
-    price: l.price ?? 0,
+    qty: l.qty ?? '',
+    price: l.price ?? '',
   })) : [];
   return list.length ? list : [emptyLine()];
+}
+
+function normalizeLineNumbers(line) {
+  return {
+    description: String(line?.description || ''),
+    qty: finalizeDecimal(line?.qty, 1),
+    price: finalizeDecimal(line?.price, 0),
+  };
 }
 
 /**
@@ -84,8 +93,8 @@ export default function DocumentVisualEditor({
   function setSectionLines(sectionId, rows) {
     const next = (Array.isArray(rows) ? rows : []).map(l => ({
       description: String(l?.description || ''),
-      qty: l?.qty === '' || l?.qty == null ? 1 : Number(l.qty) || 0,
-      price: l?.price === '' || l?.price == null ? 0 : Number(l.price) || 0,
+      qty: l?.qty === '' || l?.qty == null ? '' : coerceDecimalInput(l.qty),
+      price: l?.price === '' || l?.price == null ? '' : coerceDecimalInput(l.price),
     }));
     patchSection(sectionId, { lines: next.length ? next : [emptyLine()] });
   }
@@ -193,8 +202,8 @@ export default function DocumentVisualEditor({
     const insertAt = Math.max(0, Math.min(toIndex ?? toSec.lines.length, toSec.lines.length));
     toSec.lines.splice(insertAt, 0, {
       description: String(row.description || ''),
-      qty: Number(row.qty) || 0,
-      price: Number(row.price) || 0,
+      qty: finalizeDecimal(row.qty, 1),
+      price: finalizeDecimal(row.price, 0),
     });
     if (!fromSec.lines.length) fromSec.lines = [emptyLine()];
     patch({ sections });
@@ -230,7 +239,7 @@ export default function DocumentVisualEditor({
     patch({ photos: (draft.photos || []).filter((_, i) => i !== index) });
   }
 
-  const lineSource = flattenQuoteLines({ sections: draft.sections });
+  const lineSource = flattenQuoteLines({ sections: draft.sections }).map(normalizeLineNumbers);
   const taxes = calcTaxes(calcLineSubtotal(lineSource));
   const notesLabel = isQuote ? 'Portée des travaux' : 'Résumé';
   const sections = draft.sections || [];
@@ -522,12 +531,12 @@ export default function DocumentVisualEditor({
                     </thead>
                     <tbody>
                       {meaningful.map((line, i) => {
-                        const lineTotal = (Number(line.qty) || 0) * (Number(line.price) || 0);
+                        const lineTotal = parseDecimal(line.qty) * parseDecimal(line.price);
                         return (
                           <tr key={i}>
                             <td>{line.description}</td>
                             <td className="text-right text-neya-muted tabular-nums">{line.qty}</td>
-                            <td className="text-right tabular-nums">{formatMoney(line.price)}</td>
+                            <td className="text-right tabular-nums">{formatMoney(parseDecimal(line.price))}</td>
                             <td className="text-right font-medium tabular-nums">{formatMoney(lineTotal)}</td>
                           </tr>
                         );

@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { formatMoney } from '../lib/api';
+import { coerceDecimalInput, finalizeDecimal, parseDecimal } from '../lib/parse-decimal';
 
 const DEFAULT_COLS = [
   { key: 'description', label: 'Description', type: 'text', placeholder: 'Ex. Table chêne…', flex: true },
@@ -71,8 +72,20 @@ export default function EasyTable({
     onChange(next.length ? next : [emptyRow(columns)]);
   }, [onChange, columns]);
 
-  function updateCell(ri, key, value) {
-    const next = rows.map((r, i) => (i === ri ? { ...r, [key]: value } : r));
+  function updateCell(ri, key, value, colType) {
+    let nextVal = value;
+    if (colType === 'number') {
+      nextVal = coerceDecimalInput(value);
+    }
+    const next = rows.map((r, i) => (i === ri ? { ...r, [key]: nextVal } : r));
+    setRows(next);
+  }
+
+  function blurNumberCell(ri, key) {
+    const raw = rows[ri]?.[key];
+    const finalized = finalizeDecimal(raw, key === 'qty' ? 1 : 0);
+    if (raw === finalized) return;
+    const next = rows.map((r, i) => (i === ri ? { ...r, [key]: finalized } : r));
     setRows(next);
   }
 
@@ -185,9 +198,7 @@ export default function EasyTable({
         if (!col) return;
         let v = String(val).trim();
         if (col.type === 'number') {
-          v = v.replace(/\s/g, '').replace(',', '.').replace(/\$/g, '');
-          const n = Number(v);
-          v = Number.isFinite(n) ? n : 0;
+          v = parseDecimal(v, 0);
         }
         next[targetRi] = { ...next[targetRi], [col.key]: v };
       });
@@ -292,7 +303,7 @@ export default function EasyTable({
           </thead>
           <tbody>
             {rows.map((row, ri) => {
-              const lineTotal = (Number(row.qty) || 0) * (Number(row.price) || 0);
+              const lineTotal = parseDecimal(row.qty, 0) * parseDecimal(row.price, 0);
               const showDropBefore = dropIndex === ri;
               return (
                 <tr
@@ -324,15 +335,18 @@ export default function EasyTable({
                     <td key={col.key} className={`px-1 py-1 ${col.flex ? '' : col.width || ''}`}>
                       <input
                         data-cell={`${ri}-${ci}`}
-                        type={col.type === 'number' ? 'number' : 'text'}
-                        step={col.step}
-                        min={col.min}
+                        type="text"
+                        inputMode={col.type === 'number' ? 'decimal' : 'text'}
+                        autoComplete="off"
                         draggable={false}
                         onMouseDown={(e) => e.stopPropagation()}
                         className="input border-0 bg-transparent shadow-none focus:bg-white focus:ring-1 focus:ring-neya-orange/40 rounded-none px-2 py-1.5 text-sm w-full min-h-[36px] cursor-text"
                         placeholder={col.placeholder}
                         value={row[col.key] ?? ''}
-                        onChange={e => updateCell(ri, col.key, col.type === 'number' ? e.target.value : e.target.value)}
+                        onChange={e => updateCell(ri, col.key, e.target.value, col.type)}
+                        onBlur={() => {
+                          if (col.type === 'number') blurNumberCell(ri, col.key);
+                        }}
                         onKeyDown={e => handleKeyDown(e, ri, ci)}
                         onPaste={e => handlePaste(e, ri, ci)}
                       />

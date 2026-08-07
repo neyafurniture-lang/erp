@@ -374,7 +374,13 @@ export const QUOTE_STATUS = {
 };
 
 export function calcLineSubtotal(lines) {
-  return (lines || []).reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.price) || 0), 0);
+  return (lines || []).reduce((s, l) => {
+    const qty = typeof l.qty === 'number' ? l.qty : Number(String(l.qty ?? '').replace(',', '.'));
+    const price = typeof l.price === 'number' ? l.price : Number(String(l.price ?? '').replace(',', '.'));
+    const q = Number.isFinite(qty) ? qty : 0;
+    const p = Number.isFinite(price) ? price : 0;
+    return s + q * p;
+  }, 0);
 }
 
 export function calcTaxes(subtotal) {

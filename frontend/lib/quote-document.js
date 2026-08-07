@@ -1,5 +1,7 @@
 /** Miroir frontend de backend/src/services/quote-document.js */
 
+import { finalizeDecimal } from './parse-decimal';
+
 function uid(prefix = 's') {
   return `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
 }
@@ -88,7 +90,13 @@ export function serializeQuoteDocument(doc) {
     sections: normalized.sections.map(s => ({
       ...s,
       lines: (() => {
-        const meaningful = (s.lines || []).filter(isMeaningfulLine);
+        const meaningful = (s.lines || [])
+          .map(l => ({
+            description: String(l.description || ''),
+            qty: finalizeDecimal(l.qty, 1),
+            price: finalizeDecimal(l.price, 0),
+          }))
+          .filter(isMeaningfulLine);
         return meaningful.length ? meaningful : [emptyLine()];
       })(),
     })),

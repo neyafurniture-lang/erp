@@ -13,6 +13,7 @@ import {
 } from '../../../lib/api';
 import { useRegisterChatContext } from '../../../lib/chat-context';
 import { flattenQuoteLines } from '../../../lib/quote-document';
+import { finalizeDecimal } from '../../../lib/parse-decimal';
 
 function parseLines(lines) {
   if (!lines) return [];
@@ -115,8 +116,8 @@ export default function InvoiceDetailPage() {
         ? document
         : flattenQuoteLines(document).map(l => ({
           description: String(l.description || '').trim(),
-          qty: Number(l.qty) || 0,
-          price: Number(l.price) || 0,
+          qty: finalizeDecimal(l.qty, 1),
+          price: finalizeDecimal(l.price, 0),
         }));
       const payloadLines = Array.isArray(lines) && !lines.length
         ? [{ description: '', qty: 1, price: 0 }]
