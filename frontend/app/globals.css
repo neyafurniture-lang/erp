@@ -508,8 +508,10 @@ h1, h2, h3, h4, h5, h6 {
     position: relative;
     display: flex;
     flex-direction: column;
+    flex: 1 1 auto;
     height: 100%;
     min-height: 0;
+    overflow: hidden;
   }
 
   .mail-supplier-strip {
@@ -520,25 +522,19 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .mail-shell {
-    @apply flex flex-col overflow-hidden bg-white min-h-0 flex-1;
-    /* App mail native — flush sous le header shell */
-    height: calc(100dvh - 3.5rem - var(--mobile-nav-h, 4rem) - var(--safe-bottom, 0px));
-    max-height: calc(100dvh - 3.5rem - var(--mobile-nav-h, 4rem) - var(--safe-bottom, 0px));
+    @apply flex flex-col overflow-hidden bg-white min-h-0 flex-1 w-full;
+    /* Remplit le parent flush — pas de calc(dvh) qui déborde (bandeau factures, Safari Mac) */
     border: 0;
     border-radius: 0;
     box-shadow: none;
   }
 
-  @media (min-width: 1024px) {
-    .mail-shell {
-      height: calc(100dvh - 4rem);
-      max-height: calc(100dvh - 4rem);
-    }
-  }
-
   @media (max-width: 767px) {
     .mail-shell {
       background: #faf9f7;
+      /* Mobile : ancrer à la hauteur viewport sous header + dock */
+      height: calc(100dvh - 3.5rem - var(--mobile-nav-h, 4rem) - var(--safe-bottom, 0px));
+      max-height: calc(100dvh - 3.5rem - var(--mobile-nav-h, 4rem) - var(--safe-bottom, 0px));
     }
   }
 
@@ -633,13 +629,15 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .mail-list {
-    @apply flex flex-col w-full shrink-0 min-w-0 min-h-0;
+    @apply flex flex-col w-full shrink-0 min-w-0 min-h-0 h-full overflow-hidden;
     border-right: 1px solid rgba(10, 10, 10, 0.06);
     background: #fff;
   }
-  @media (min-width: 1024px) {
+  /* Aligné sur le panneau lecture (md) — évite liste à 100% + lecture compressée */
+  @media (min-width: 768px) {
     .mail-list {
-      width: 380px;
+      width: min(380px, 42vw);
+      max-width: 100%;
     }
   }
   @media (min-width: 1280px) {
@@ -649,14 +647,24 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .mail-list-scroll {
-    @apply flex-1 overflow-y-auto overflow-x-hidden overscroll-contain divide-y;
+    @apply flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain divide-y;
     -webkit-overflow-scrolling: touch;
     border-color: rgba(10, 10, 10, 0.06);
   }
 
+  /* Safari/macOS : flex direct sur <button> peut cacher les enfants — layout sur .mail-row-inner */
   .mail-row {
-    @apply relative flex items-start gap-3 px-4 py-3 cursor-pointer text-left w-full min-w-0 overflow-hidden;
+    @apply relative block cursor-pointer text-left w-full min-w-0 overflow-hidden p-0 border-0;
+    appearance: none;
+    -webkit-appearance: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
     transition: background 0.15s ease;
+  }
+
+  .mail-row-inner {
+    @apply flex items-start gap-3 px-4 py-3 w-full min-w-0;
   }
 
   .mail-row:hover {
@@ -664,7 +672,7 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .mail-row-active {
-    background: color-mix(in srgb, #ffeee3 55%, white);
+    background: #ffeee3;
     box-shadow: none;
   }
 

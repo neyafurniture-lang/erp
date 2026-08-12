@@ -114,6 +114,21 @@ function formatMailDate(dateStr) {
   });
 }
 
+/** Libellé lisible pour labels Tri/Gmail (ex. Tri/A_traiter → À traiter). */
+function formatGmailLabelName(name = '') {
+  const raw = String(name || '');
+  const short = raw.replace(/^Tri\//, '').replace(/^NEYA\//, '');
+  const map = {
+    A_traiter: 'À traiter',
+    a_traiter: 'À traiter',
+    Compta_Facturation: 'Compta facturation',
+    Compta_Factu: 'Compta factu',
+    Fournisseurs: 'Fournisseurs',
+  };
+  if (map[short]) return map[short];
+  return short.replace(/_/g, ' ');
+}
+
 function formatAttSize(n) {
   const size = Number(n) || 0;
   if (!size) return '';
@@ -1389,7 +1404,7 @@ export default function GmailInbox({
                   .map(label => {
                     const folderId = `gmail:${encodeURIComponent(label.name)}`;
                     const active = activeFolder === folderId;
-                    const short = String(label.name).replace(/^Tri\//, '');
+                    const short = formatGmailLabelName(label.name);
                     return (
                       <li key={label.id}>
                         <button
@@ -1493,7 +1508,7 @@ export default function GmailInbox({
                   .filter(l => l.name !== 'Tri' && l.name !== 'NEYA')
                   .map(l => (
                     <option key={l.id} value={`gmail:${encodeURIComponent(l.name)}`}>
-                      {String(l.name).replace(/^Tri\//, '')}
+                      {formatGmailLabelName(l.name)}
                       {l.messagesUnread || l.messagesTotal
                         ? ` (${l.messagesUnread || l.messagesTotal})`
                         : ''}
@@ -1547,33 +1562,35 @@ export default function GmailInbox({
                         onClick={() => openMessage(m)}
                         className={`mail-row ${active ? 'mail-row-active' : ''} ${unread ? 'mail-row-unread' : ''}`}
                       >
-                        <span className={`mail-avatar ${unread ? 'mail-avatar--unread' : 'mail-avatar--read'}`}>
-                          {getInitials(peer)}
-                        </span>
-                        <span className="mail-row-body">
-                          <span className="mail-row-top">
-                            <span className={`mail-row-from ${unread ? 'font-semibold text-neya-ink' : 'font-medium text-neya-ink-light'}`}>
-                              {isSent ? `À : ${name}` : name}
-                            </span>
-                            <span className="mail-row-date">
-                              {formatMailDate(m.date)}
-                            </span>
+                        <span className="mail-row-inner">
+                          <span className={`mail-avatar ${unread ? 'mail-avatar--unread' : 'mail-avatar--read'}`}>
+                            {getInitials(peer)}
                           </span>
-                          <span className={`mail-row-subject ${unread ? 'font-medium text-neya-ink' : 'text-neya-ink-light'}`}>
-                            {m.subject || '(sans objet)'}
-                          </span>
-                          {preview ? (
-                            <span className="mail-row-preview">{preview}</span>
-                          ) : null}
-                          {badge ? (
-                            <span className="mail-row-badges">
-                              <span className="rounded-md bg-neya-surface px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-neya-ink-light">
-                                {badge.label}
+                          <span className="mail-row-body">
+                            <span className="mail-row-top">
+                              <span className={`mail-row-from ${unread ? 'font-semibold text-neya-ink' : 'font-medium text-neya-ink-light'}`}>
+                                {isSent ? `À : ${name}` : name}
+                              </span>
+                              <span className="mail-row-date">
+                                {formatMailDate(m.date)}
                               </span>
                             </span>
-                          ) : null}
+                            <span className={`mail-row-subject ${unread ? 'font-medium text-neya-ink' : 'text-neya-ink-light'}`}>
+                              {m.subject || '(sans objet)'}
+                            </span>
+                            {preview ? (
+                              <span className="mail-row-preview">{preview}</span>
+                            ) : null}
+                            {badge ? (
+                              <span className="mail-row-badges">
+                                <span className="rounded-md bg-neya-surface px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-neya-ink-light">
+                                  {badge.label}
+                                </span>
+                              </span>
+                            ) : null}
+                          </span>
+                          {unread ? <span className="mail-unread-dot mail-unread-dot--row" aria-hidden /> : null}
                         </span>
-                        {unread ? <span className="mail-unread-dot mail-unread-dot--row" aria-hidden /> : null}
                       </button>
                     );
                   })}
