@@ -173,6 +173,22 @@ router.put('/quotes/:id', async (req, res) => {
       valid_until, additional_notes, acceptance_date, document,
     } = req.body;
 
+    const hasClientId = Object.prototype.hasOwnProperty.call(req.body, 'client_id');
+    let client_id;
+    if (hasClientId) {
+      const raw = req.body.client_id;
+      if (raw === null || raw === '') {
+        client_id = null;
+      } else {
+        client_id = Number(raw);
+        if (!Number.isFinite(client_id)) {
+          return res.status(400).json({ error: 'Client invalide' });
+        }
+        const { rows: clients } = await pool.query('SELECT id FROM clients WHERE id = $1', [client_id]);
+        if (!clients[0]) return res.status(400).json({ error: 'Client introuvable' });
+      }
+    }
+
     let storedLines = null;
     if (document) {
       storedLines = serializeQuoteDocument({
@@ -201,8 +217,9 @@ router.put('/quotes/:id', async (req, res) => {
         project_id = COALESCE($8, project_id),
         valid_until = COALESCE($9, valid_until),
         additional_notes = COALESCE($10, additional_notes),
-        acceptance_date = COALESCE($11, acceptance_date)
-       WHERE id = $12 RETURNING *`,
+        acceptance_date = COALESCE($11, acceptance_date),
+        client_id = CASE WHEN $12::boolean THEN $13 ELSE client_id END
+       WHERE id = $14 RETURNING *`,
       [
         status,
         storedLines ? JSON.stringify(storedLines) : null,
@@ -211,6 +228,8 @@ router.put('/quotes/:id', async (req, res) => {
         valid_until === undefined ? null : valid_until,
         additional_notes === undefined ? null : additional_notes,
         acceptance_date === undefined ? null : acceptance_date,
+        hasClientId,
+        hasClientId ? client_id : null,
         req.params.id,
       ]
     );

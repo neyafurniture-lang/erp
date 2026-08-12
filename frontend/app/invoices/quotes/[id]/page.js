@@ -25,6 +25,8 @@ export default function QuoteDetailPage() {
   const [convertForm, setConvertForm] = useState(null);
   const [converting, setConverting] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [clients, setClients] = useState([]);
+  const [clientSaving, setClientSaving] = useState(false);
 
   function load() {
     if (!id) return;
@@ -34,6 +36,10 @@ export default function QuoteDetailPage() {
   }
 
   useEffect(() => { load(); }, [id]);
+
+  useEffect(() => {
+    api('/clients').then(setClients).catch(() => setClients([]));
+  }, []);
 
   useRegisterChatContext(quote ? {
     type: 'quote',
@@ -67,6 +73,24 @@ export default function QuoteDetailPage() {
     await api(`/invoices/quotes/${id}`, { method: 'PUT', body: JSON.stringify({ status }) });
     load();
     showToast('Statut mis à jour');
+  }
+
+  async function updateClient(clientId) {
+    const nextId = clientId ? Number(clientId) : null;
+    if (nextId === quote?.client_id) return;
+    setClientSaving(true);
+    try {
+      const updated = await api(`/invoices/quotes/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ client_id: nextId }),
+      });
+      setQuote(updated);
+      showToast('Client mis à jour');
+    } catch (err) {
+      showToast(err.message || 'Impossible de changer le client');
+    } finally {
+      setClientSaving(false);
+    }
   }
 
   async function saveDocument(draft) {
@@ -225,26 +249,56 @@ export default function QuoteDetailPage() {
           </div>
         </div>
 
-        <DocumentVisualEditor
-          kind="quote"
-          numberLabel={quote.quote_number}
-          statusLabel={st.label}
-          clientName={quote.client_name}
-          clientHref={quote.client_id ? `/clients/${quote.client_id}` : null}
-          client={{
-            contact: quote.contact,
-            email: quote.email,
-            phone: quote.client_phone,
-            address: quote.client_address,
-            city: quote.client_city,
-          }}
-          companyPayment={quote.company_payment}
-          quoteTerms={quote.quote_terms}
-          value={quote}
-          onSave={saveDocument}
-          onUploadPhotos={uploadPhotos}
-          saving={saving}
-        />
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_280px] gap-8 items-start">
+          <DocumentVisualEditor
+            kind="quote"
+            numberLabel={quote.quote_number}
+            statusLabel={st.label}
+            clientName={quote.client_name}
+            clientHref={quote.client_id ? `/clients/${quote.client_id}` : null}
+            client={{
+              contact: quote.contact,
+              email: quote.email,
+              phone: quote.client_phone,
+              address: quote.client_address,
+              city: quote.client_city,
+            }}
+            companyPayment={quote.company_payment}
+            quoteTerms={quote.quote_terms}
+            value={quote}
+            onSave={saveDocument}
+            onUploadPhotos={uploadPhotos}
+            saving={saving}
+          />
+
+          <aside className="space-y-6">
+            <div className="border border-neya-border p-4">
+              <h2 className="text-sm font-semibold mb-3">Client</h2>
+              <select
+                className="input text-sm w-full"
+                value={quote.client_id || ''}
+                disabled={clientSaving}
+                onChange={e => updateClient(e.target.value)}
+              >
+                <option value="">— Aucun client —</option>
+                {clients.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+              {quote.client_id && (
+                <Link
+                  href={`/clients/${quote.client_id}`}
+                  className="inline-block text-xs text-neya-orange hover:underline mt-2"
+                >
+                  Voir la fiche client →
+                </Link>
+              )}
+              {clientSaving && (
+                <p className="text-xs text-neya-muted mt-2">Mise à jour…</p>
+              )}
+            </div>
+          </aside>
+        </div>
 
         {convertForm && (
           <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
