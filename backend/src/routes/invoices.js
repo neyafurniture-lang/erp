@@ -429,7 +429,9 @@ router.get('/:id/pdf', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const { rows } = await pool.query(`
-      SELECT i.*, c.name as client_name, c.email, c.phone, p.name as project_name
+      SELECT i.*, c.name as client_name, c.contact, c.email, c.phone as client_phone,
+             c.address as client_address, c.city as client_city,
+             p.name as project_name
       FROM invoices i
       LEFT JOIN clients c ON c.id = i.client_id
       LEFT JOIN projects p ON p.id = i.project_id
@@ -468,6 +470,21 @@ router.get('/:id/send-preview', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     let { status, lines, due_date, notes, title, subtitle, reference, terms, order_summary } = req.body;
+    const hasClientId = Object.prototype.hasOwnProperty.call(req.body, 'client_id');
+    let client_id;
+    if (hasClientId) {
+      const raw = req.body.client_id;
+      if (raw === null || raw === '') {
+        client_id = null;
+      } else {
+        client_id = Number(raw);
+        if (!Number.isFinite(client_id)) {
+          return res.status(400).json({ error: 'Client invalide' });
+        }
+        const { rows: clients } = await pool.query('SELECT id FROM clients WHERE id = $1', [client_id]);
+        if (!clients[0]) return res.status(400).json({ error: 'Client introuvable' });
+      }
+    }
     if (status === 'partial') status = 'partially_paid';
     const allowed = new Set(['draft', 'sent', 'partially_paid', 'paid', 'overdue', 'cancelled', 'void']);
     if (status != null && status !== '' && !allowed.has(status)) {
@@ -487,12 +504,38 @@ router.put('/:id', async (req, res) => {
         subtitle = COALESCE($8, subtitle),
         reference = COALESCE($9, reference),
         terms = COALESCE($10, terms),
-        order_summary = COALESCE($11, order_summary)
-       WHERE id = $12 RETURNING *`,
-      [status || null, lines ? JSON.stringify(lines) : null, subtotal, total, due_date, notes, title, subtitle, reference, terms, order_summary, req.params.id]
+        order_summary = COALESCE($11, order_summary),
+        client_id = CASE WHEN $12::boolean THEN $13 ELSE client_id END
+       WHERE id = $14 RETURNING *`,
+      [
+        status || null,
+        lines ? JSON.stringify(lines) : null,
+        subtotal,
+        total,
+        due_date,
+        notes,
+        title,
+        subtitle,
+        reference,
+        terms,
+        order_summary,
+        hasClientId,
+        hasClientId ? client_id : null,
+        req.params.id,
+      ]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Facture introuvable' });
-    res.json(rows[0]);
+
+    const { rows: full } = await pool.query(`
+      SELECT i.*, c.name as client_name, c.contact, c.email, c.phone as client_phone,
+             c.address as client_address, c.city as client_city,
+             p.name as project_name
+      FROM invoices i
+      LEFT JOIN clients c ON c.id = i.client_id
+      LEFT JOIN projects p ON p.id = i.project_id
+      WHERE i.id = $1
+    `, [req.params.id]);
+    res.json(full[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

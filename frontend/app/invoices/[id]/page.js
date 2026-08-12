@@ -35,6 +35,8 @@ export default function InvoiceDetailPage() {
   const [pdfLoading, setPdfLoading] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [clients, setClients] = useState([]);
+  const [clientSaving, setClientSaving] = useState(false);
 
   const load = useCallback(() => {
     if (!id) return;
@@ -47,6 +49,10 @@ export default function InvoiceDetailPage() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    api('/clients').then(setClients).catch(() => setClients([]));
+  }, []);
 
   useRegisterChatContext(invoice ? {
     type: 'invoice',
@@ -102,6 +108,24 @@ export default function InvoiceDetailPage() {
       showToast('Paiement supprimé');
     } catch (err) {
       showToast(err.message);
+    }
+  }
+
+  async function updateClient(clientId) {
+    const nextId = clientId ? Number(clientId) : null;
+    if (nextId === invoice?.client_id) return;
+    setClientSaving(true);
+    try {
+      const updated = await api(`/invoices/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ client_id: nextId }),
+      });
+      setInvoice(updated);
+      showToast('Client mis à jour');
+    } catch (err) {
+      showToast(err.message || 'Impossible de changer le client');
+    } finally {
+      setClientSaving(false);
     }
   }
 
@@ -219,12 +243,44 @@ export default function InvoiceDetailPage() {
             statusLabel={st.label}
             clientName={invoice.client_name}
             clientHref={invoice.client_id ? `/clients/${invoice.client_id}` : null}
+            client={{
+              contact: invoice.contact,
+              email: invoice.email,
+              phone: invoice.client_phone || invoice.phone,
+              address: invoice.client_address,
+              city: invoice.client_city,
+            }}
             value={editorValue}
             onSave={saveDocument}
             saving={saving}
           />
 
           <aside className="space-y-6">
+            <div className="border border-neya-border p-4">
+              <h2 className="text-sm font-semibold mb-3">Client</h2>
+              <select
+                className="input text-sm w-full"
+                value={invoice.client_id || ''}
+                disabled={clientSaving}
+                onChange={e => updateClient(e.target.value)}
+              >
+                <option value="">— Aucun client —</option>
+                {clients.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+              {invoice.client_id && (
+                <Link
+                  href={`/clients/${invoice.client_id}`}
+                  className="inline-block text-xs text-neya-orange hover:underline mt-2"
+                >
+                  Voir la fiche client →
+                </Link>
+              )}
+              {clientSaving && (
+                <p className="text-xs text-neya-muted mt-2">Mise à jour…</p>
+              )}
+            </div>
             <div className="border border-neya-border p-4">
               <h2 className="text-sm font-semibold mb-3">Paiements</h2>
               <div className="space-y-2 text-sm mb-3">
