@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { Sparkles } from 'lucide-react';
 import AppShell from '../../../../components/AppShell';
 import AuthGuard from '../../../../components/AuthGuard';
 import DocumentVisualEditor, { serializeQuoteDocument } from '../../../../components/DocumentVisualEditor';
@@ -12,6 +13,49 @@ import {
   api, formatMoney, QUOTE_STATUS, downloadPdf, getToken, getApiUrl,
 } from '../../../../lib/api';
 import { useRegisterChatContext } from '../../../../lib/chat-context';
+
+const PRICE_VERDICT = {
+  ok: { label: 'Cohérent', className: 'bg-emerald-50 text-emerald-800 border-emerald-200' },
+  low: { label: 'Trop bas', className: 'bg-amber-50 text-amber-900 border-amber-200' },
+  high: { label: 'Trop cher', className: 'bg-red-50 text-red-800 border-red-200' },
+  mixed: { label: 'Mitigé', className: 'bg-neya-cream text-neya-ink border-neya-border' },
+};
+
+function PriceReviewPanel({ review }) {
+  const overall = PRICE_VERDICT[review.overall] || PRICE_VERDICT.ok;
+  return (
+    <div className="space-y-3 mb-3">
+      <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${overall.className}`}>
+        {overall.label}
+      </span>
+      {review.summary && <p className="text-xs text-neya-ink leading-relaxed">{review.summary}</p>}
+      {review.total_comment && (
+        <p className="text-[11px] text-neya-muted">{review.total_comment}</p>
+      )}
+      <ul className="space-y-2 max-h-[320px] overflow-y-auto">
+        {(review.lines || []).map((line, i) => {
+          const st = PRICE_VERDICT[line.verdict] || PRICE_VERDICT.ok;
+          return (
+            <li key={i} className="border border-neya-border p-2 text-xs">
+              <div className="flex items-start justify-between gap-2">
+                <p className="font-medium text-neya-ink min-w-0">{line.description || '—'}</p>
+                <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${st.className}`}>
+                  {st.label}
+                </span>
+              </div>
+              <p className="text-neya-muted mt-1 tabular-nums">
+                {formatMoney(line.unit_price)}
+                {line.suggested_price != null ? ` → ${formatMoney(line.suggested_price)}` : ''}
+              </p>
+              {line.reason && <p className="mt-1 text-neya-ink-light">{line.reason}</p>}
+              {line.comparable && <p className="mt-0.5 text-[10px] text-neya-muted">{line.comparable}</p>}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
 
 export default function QuoteDetailPage() {
   const { id } = useParams();
@@ -27,6 +71,10 @@ export default function QuoteDetailPage() {
   const [saving, setSaving] = useState(false);
   const [clients, setClients] = useState([]);
   const [clientSaving, setClientSaving] = useState(false);
+  const [spellchecking, setSpellchecking] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
+  const [priceReview, setPriceReview] = useState(null);
+  const [editorRev, setEditorRev] = useState(0);
 
   function load() {
     if (!id) return;
@@ -90,6 +138,36 @@ export default function QuoteDetailPage() {
       showToast(err.message || 'Impossible de changer le client');
     } finally {
       setClientSaving(false);
+    }
+  }
+
+  async function spellcheckQuote() {
+    setSpellchecking(true);
+    try {
+      const result = await api(`/invoices/quotes/${id}/spellcheck`, { method: 'POST', timeoutMs: 90000 });
+      if (result.quote) setQuote(result.quote);
+      else load();
+      setEditorRev(n => n + 1);
+      const n = result.changes?.length || 0;
+      showToast(result.unchanged || n === 0
+        ? 'Aucune faute détectée'
+        : `${n} correction${n > 1 ? 's' : ''} appliquée${n > 1 ? 's' : ''}`);
+    } catch (err) {
+      showToast(err.message || 'Correction impossible');
+    } finally {
+      setSpellchecking(false);
+    }
+  }
+
+  async function reviewPrices() {
+    setReviewing(true);
+    try {
+      const result = await api(`/invoices/quotes/${id}/price-review`, { method: 'POST', timeoutMs: 90000 });
+      setPriceReview(result);
+    } catch (err) {
+      showToast(err.message || 'Analyse impossible');
+    } finally {
+      setReviewing(false);
     }
   }
 
@@ -220,6 +298,13 @@ export default function QuoteDetailPage() {
               <option value="accepted">Accepté</option>
               <option value="rejected">Refusé</option>
             </select>
+            <button type="button" onClick={spellcheckQuote} disabled={spellchecking} className="btn-secondary text-sm min-h-[36px] gap-1.5" title="Corrige l’orthographe du devis enregistré">
+              <Sparkles className="h-3.5 w-3.5" />
+              {spellchecking ? 'Correction…' : 'Corriger les fautes'}
+            </button>
+            <button type="button" onClick={reviewPrices} disabled={reviewing} className="btn-secondary text-sm min-h-[36px]">
+              {reviewing ? 'Analyse…' : 'Analyser les prix'}
+            </button>
             <button type="button" onClick={() => setShowPreview(true)} className="btn-secondary text-sm min-h-[36px]">
               Prévisualiser
             </button>
@@ -251,6 +336,7 @@ export default function QuoteDetailPage() {
 
         <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_280px] gap-8 items-start">
           <DocumentVisualEditor
+            key={`${quote.id}-${editorRev}`}
             kind="quote"
             numberLabel={quote.quote_number}
             statusLabel={st.label}
@@ -296,6 +382,26 @@ export default function QuoteDetailPage() {
               {clientSaving && (
                 <p className="text-xs text-neya-muted mt-2">Mise à jour…</p>
               )}
+            </div>
+
+            <div className="border border-neya-border p-4">
+              <h2 className="text-sm font-semibold mb-2">Prix (IA)</h2>
+              {!priceReview && (
+                <p className="text-xs text-neya-muted mb-3">
+                  Vérifie si les lignes sont trop basses, cohérentes ou trop chères. Les montants ne sont pas modifiés.
+                </p>
+              )}
+              {priceReview && (
+                <PriceReviewPanel review={priceReview} />
+              )}
+              <button
+                type="button"
+                onClick={reviewPrices}
+                disabled={reviewing}
+                className="btn-secondary text-sm w-full mt-2"
+              >
+                {reviewing ? 'Analyse…' : priceReview ? 'Relancer l’analyse' : 'Analyser les prix'}
+              </button>
             </div>
           </aside>
         </div>

@@ -10,6 +10,7 @@ import { calcDocTotals } from '../services/invoice-helpers.js';
 import { syncMaterialsFromQuote } from '../services/project-materials.js';
 import { getCompanyConfig } from '../services/company-config.js';
 import { flattenQuoteLines, serializeQuoteDocument, normalizeQuoteDocument } from '../services/quote-document.js';
+import { spellcheckQuote, reviewQuotePrices } from '../services/quote-ai.js';
 
 const router = Router();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -333,6 +334,29 @@ router.get('/quotes/:id/send-preview', async (req, res) => {
     res.json(await buildDocumentEmailDraft('quote', req.params.id));
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/quotes/:id/spellcheck', async (req, res) => {
+  try {
+    const result = await spellcheckQuote(req.params.id);
+    res.json({
+      unchanged: result.unchanged,
+      changes: result.changes,
+      quote: await enrichQuoteRow(result.quote),
+    });
+  } catch (err) {
+    const status = /introuvable/i.test(err.message) ? 404 : 400;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+router.post('/quotes/:id/price-review', async (req, res) => {
+  try {
+    res.json(await reviewQuotePrices(req.params.id));
+  } catch (err) {
+    const status = /introuvable/i.test(err.message) ? 404 : 400;
+    res.status(status).json({ error: err.message });
   }
 });
 
