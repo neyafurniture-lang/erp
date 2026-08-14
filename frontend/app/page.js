@@ -89,23 +89,30 @@ export default function DashboardPage() {
   const load = () => {
     Promise.all([
       api('/dashboard'),
-      api('/gmail/inbox-sorted?max=30').catch(() => null),
+      api('/gmail/inbox-sorted?max=50').catch(() => null),
     ]).then(([d, mail]) => {
       setData(d);
       setError('');
       if (mail) {
         const sections = mail.sections || [];
         const reply = sections.find(s => s.id === 'a_repondre');
-        const msgs = (mail.messages || [])
-          .filter(m => (m.erpFolder || m.folder || m.section) === 'a_repondre' || m.urgent || m.needsReply)
-          .slice(0, 4);
+        const all = mail.messages || [];
+        const msgs = all
+          .filter(m => {
+            const cat = m.mailCategory || m.erpFolder || m.folder || m.section;
+            if (cat === 'a_repondre' || m.urgent || m.needsReply) return true;
+            if ((m.isUnread || m.unread) && cat !== 'promotions') return true;
+            return false;
+          })
+          .slice(0, 6);
         const fallback = msgs.length
           ? msgs
-          : (mail.messages || []).slice(0, 4);
-        const urgent = (mail.messages || []).filter(m => m.urgent || /urgent/i.test(m.subject || '')).length;
+          : all.filter(m => (m.mailCategory || '') !== 'promotions').slice(0, 4);
+        const urgent = all.filter(m => m.urgent || /urgent/i.test(m.subject || '')).length;
+        const unreadCount = all.filter(m => m.isUnread || m.unread).length;
         setMailPreview({
           messages: fallback,
-          unread: reply?.count ?? (mail.messages || []).length,
+          unread: reply?.count ?? unreadCount,
           urgent,
         });
       }
@@ -356,7 +363,16 @@ export default function DashboardPage() {
               {mailPreview.messages.map(m => {
                 const from = m.fromName || m.from || m.sender || 'Inconnu';
                 const urgent = m.urgent || /urgent/i.test(m.subject || '');
-                const tag = m.erpFolder || m.tag || (urgent ? 'À répondre' : 'Boîte');
+                const cat = m.mailCategory || m.erpFolder || m.tag;
+                const tagLabels = {
+                  a_repondre: 'À répondre',
+                  clients: 'Clients',
+                  fournisseurs: 'Fournisseurs',
+                  projets: 'Projets',
+                  promotions: 'Promos',
+                  autres: 'Autres',
+                };
+                const tag = tagLabels[cat] || (urgent ? 'À répondre' : 'Boîte');
                 const time = m.date
                   ? new Date(m.date).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' })
                   : (m.internalDate
@@ -380,7 +396,7 @@ export default function DashboardPage() {
                       </span>
                       <span className="shrink-0 text-right pl-2">
                         <span className="block text-[11px] text-neya-muted tabular-nums">{time}</span>
-                        <span className="cf-chip mt-1 inline-block capitalize">{String(tag).replace(/_/g, ' ')}</span>
+                        <span className="cf-chip mt-1 inline-block">{tag}</span>
                       </span>
                     </Link>
                   </li>

@@ -30,9 +30,12 @@ const LIST_FILTERS = [
   { id: 'a_repondre', label: 'À répondre' },
   { id: 'clients', label: 'Clients' },
   { id: 'fournisseurs', label: 'Fournisseurs' },
+  { id: 'projets', label: 'Projets' },
   { id: 'promotions', label: 'Promos' },
   { id: 'autres', label: 'Non classés' },
 ];
+
+const INBOX_SORTED_MAX = 80;
 
 const ALL_FOLDER_LABELS = {
   inbox: 'Boîte de réception',
@@ -685,22 +688,22 @@ export default function GmailInbox({
         setSections([{ id: 'inbox', count: 0 }, ...ERP_FOLDERS.map(s => ({ ...s, count: 0 }))]);
         setSelected(null);
       } else if (folder === 'sent') {
-        const data = await api('/gmail/messages?label=SENT&max=40');
+        const data = await api(`/gmail/messages?label=SENT&max=${INBOX_SORTED_MAX}`);
         setMessages(data.messages || []);
       } else if (String(folder || '').startsWith('gmail:')) {
         const labelRef = decodeURIComponent(String(folder).slice('gmail:'.length));
         const data = await api(
-          `/gmail/messages?label=${encodeURIComponent(labelRef)}&max=50&sorted=1`
+          `/gmail/messages?label=${encodeURIComponent(labelRef)}&max=${INBOX_SORTED_MAX}&sorted=1`
         );
         setMessages(data.messages || []);
         if (data.sections) setSections(data.sections);
       } else if (folder === 'inbox' || !folder) {
-        const data = await api('/gmail/inbox-sorted?max=40');
+        const data = await api(`/gmail/inbox-sorted?max=${INBOX_SORTED_MAX}`);
         setMessages(data.messages || []);
         setSections(data.sections || [{ id: 'inbox', count: 0 }, ...ERP_FOLDERS.map(s => ({ ...s, count: 0 }))]);
       } else {
-        // Dossier ERP : inbox triée puis filtre côté client
-        const data = await api('/gmail/inbox-sorted?max=40');
+        // Dossier ERP : même pool élargi (non-lus + importants + À traiter)
+        const data = await api(`/gmail/inbox-sorted?max=${INBOX_SORTED_MAX}`);
         setMessages(data.messages || []);
         setSections(data.sections || [{ id: 'inbox', count: 0 }, ...ERP_FOLDERS.map(s => ({ ...s, count: 0 }))]);
       }
@@ -930,7 +933,8 @@ export default function GmailInbox({
     try {
       const result = await api('/gmail/sort-inbox', {
         method: 'POST',
-        body: JSON.stringify({ max: 50, includeTri: true, scanInvoices: true }),      });
+        body: JSON.stringify({ max: INBOX_SORTED_MAX, includeTri: true, scanInvoices: true }),
+      });
       setMessages(result.messages || []);
       setSections(result.sections || sections);
       await loadGmailLabels();
@@ -949,6 +953,7 @@ export default function GmailInbox({
       } else {
         showUndo(msg, null);
       }
+      // Recharger avec le même max (ne pas retomber sur 40 et perdre les importants)
       if (!search) await load('', activeFolder);
     } catch (e) {
       try {
@@ -1225,15 +1230,22 @@ export default function GmailInbox({
         items: filteredMessages,
       }];
     }
-    // Inbox « Tous » : groupes par catégorie NEYA (ops)
+    // Inbox « Tous » : groupes par catégorie NEYA (ops) + filet pour catégories inconnues
     const order = ERP_FOLDERS.map(f => f.id);
-    return order
+    const known = new Set(order);
+    const groups = order
       .map(id => ({
         id,
         label: ALL_FOLDER_LABELS[id],
-        items: sortMailItems(messages.filter(m => (m.mailCategory || 'autres') === id)),
-      }))
-      .filter(g => g.items.length > 0);
+        items: sortMailItems(filteredMessages.filter(m => (m.mailCategory || 'autres') === id)),
+      }));
+    const orphans = filteredMessages.filter(m => m.mailCategory && !known.has(m.mailCategory));
+    if (orphans.length) {
+      const autres = groups.find(g => g.id === 'autres');
+      if (autres) autres.items = sortMailItems([...autres.items, ...orphans]);
+      else groups.push({ id: 'autres', label: 'Non classés', items: sortMailItems(orphans) });
+    }
+    return groups.filter(g => g.items.length > 0);
   }, [messages, filteredMessages, activeFolder, search, listFilter]);
 
   const sectionCounts = useMemo(
@@ -1434,7 +1446,7 @@ export default function GmailInbox({
                 {inboxProcessing ? 'Tri en cours…' : 'Lancer le tri'}
               </button>
               <p className="text-[10px] text-neya-muted text-center leading-snug">
-                Classe NEYA + vide Tri/A_traiter + stocke les factures reçues
+                Classe NEYA, inclut Tri/À traiter, stocke les factures reçues
               </p>
             </div>
           )}
