@@ -102,12 +102,18 @@ export default function QuoteBriefPage() {
 
         <form onSubmit={submit} className="max-w-3xl space-y-5">
           <div className="card rounded-none space-y-4">
-            <div>
-              <h1 className="font-heading text-xl text-neya-ink">Brief projet → devis</h1>
-              <p className="text-sm text-neya-muted mt-1">
-                Remplissez les infos et photos. Lia génère le devis et les tâches atelier.
-                Ensuite vous discutez avec elle pour corriger ce qui ne va pas.
-              </p>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <h1 className="font-heading text-xl text-neya-ink">Brief projet → devis</h1>
+                <p className="text-sm text-neya-muted mt-1">
+                  Remplissez les infos et photos. Lia génère le devis et les tâches atelier.
+                  Ensuite vous discutez avec elle pour corriger ce qui ne va pas.
+                </p>
+              </div>
+              <button type="submit" disabled={busy} className="btn-primary gap-1.5 min-h-[40px] shrink-0">
+                <Sparkles className="h-4 w-4" />
+                {busy ? 'Lia prépare le devis…' : 'Générer le devis'}
+              </button>
             </div>
 
             {error && (
@@ -181,7 +187,7 @@ export default function QuoteBriefPage() {
               <label className="label">Description / portée</label>
               <textarea
                 className="input"
-                rows={5}
+                rows={3}
                 value={form.notes}
                 onChange={e => setForm({ ...form, notes: e.target.value })}
                 placeholder="Ce que le client veut, contraintes, quincaillerie, livraison…"
@@ -248,7 +254,7 @@ export default function QuoteBriefPage() {
             </label>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 sticky bottom-4 bg-[var(--background)] py-2">
             <button type="submit" disabled={busy} className="btn-primary gap-1.5 min-h-[40px]">
               <Sparkles className="h-4 w-4" />
               {busy ? 'Lia prépare le devis…' : 'Générer le devis'}
