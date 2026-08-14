@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Sparkles } from 'lucide-react';
 import AppShell from '../../../../components/AppShell';
@@ -60,9 +60,12 @@ function PriceReviewPanel({ review }) {
 export default function QuoteDetailPage() {
   const { id } = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const fromLiaBrief = searchParams.get('lia') === '1';
   const [quote, setQuote] = useState(null);
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
+  const [showLiaBanner, setShowLiaBanner] = useState(fromLiaBrief);
   const [showSend, setShowSend] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
@@ -88,6 +91,12 @@ export default function QuoteDetailPage() {
   useEffect(() => {
     api('/clients').then(setClients).catch(() => setClients([]));
   }, []);
+
+  useEffect(() => {
+    if (!fromLiaBrief) return;
+    setShowLiaBanner(true);
+    window.dispatchEvent(new CustomEvent('neya:open-lia'));
+  }, [fromLiaBrief]);
 
   useRegisterChatContext(quote ? {
     type: 'quote',
@@ -281,6 +290,15 @@ export default function QuoteDetailPage() {
           <div className="fixed top-4 right-4 z-50 bg-neya-ink text-white px-4 py-2 text-sm">
             {toast}
           </div>
+        )}
+
+        {showLiaBanner && (
+          <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
+            Lia a généré ce devis à partir de votre brief. Discutez avec elle (bulle en bas à droite) pour corriger prix, lignes, notes ou tâches atelier.
+            <button type="button" className="ml-2 underline" onClick={() => setShowLiaBanner(false)}>
+              OK
+            </button>
+          </p>
         )}
 
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">

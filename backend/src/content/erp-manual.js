@@ -146,6 +146,7 @@ export const ERP_MANUAL_SECTIONS = [
       'Assistant : « Créer devis », « Envoyer facture », « Convertir devis ».',
       'Lignes devis/facture : tableau éditable (Entrée = nouvelle ligne, coller depuis Excel/Sheets).',
       'Devis : « Corriger les fautes » (1 clic, IA) et « Analyser les prix » (trop cher / trop bas, sans modifier).',
+      'Brief + photos (IA) : Facturation → « Brief + photos (IA) » → infos + photos → Lia crée le devis et les tâches atelier. Sur la fiche, discutez avec Lia pour corriger prix / lignes.',
       'Liste factures : colonnes Déjà payé et Reste. Bouton Paiement → options rapides (solde, 50 %, 30 %, Interac…).',
       'Fiche facture : barre de progression, historique des paiements, suppression d’un paiement si erreur.',
     ],

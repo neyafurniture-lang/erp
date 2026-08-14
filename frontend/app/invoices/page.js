@@ -234,6 +234,11 @@ export default function InvoicesPage() {
             </button>
           </div>
           <div className="flex-1" />
+          {tab === 'quotes' && (
+            <Link href="/invoices/quotes/nouveau" className="btn-secondary">
+              Brief + photos (IA)
+            </Link>
+          )}
           <button type="button" onClick={openCreateForm} className="btn-primary">
             + {tab === 'quotes' ? 'Nouveau devis' : 'Nouvelle facture'}
           </button>
