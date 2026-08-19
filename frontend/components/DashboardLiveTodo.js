@@ -6,7 +6,7 @@ import { Circle, ListTodo, Plus } from 'lucide-react';
 import { api } from '../lib/api';
 
 const SOURCE_META = {
-  admin: { label: 'Admin', className: 'bg-amber-50 text-amber-800 border-amber-200/80' },
+  admin: { label: 'Bureau', className: 'bg-amber-50 text-amber-800 border-amber-200/80' },
   atelier: { label: 'Atelier', className: 'bg-orange-50 text-neya-orange border-orange-200/70' },
   rdv: { label: 'RDV', className: 'bg-sky-50 text-sky-800 border-sky-200/80' },
   todo: { label: 'Perso', className: 'bg-neya-surface text-neya-muted border-neya-border' },
@@ -30,10 +30,6 @@ export default function DashboardLiveTodo({ initial }) {
   useEffect(() => {
     setLive(initial || { items: [], open: 0, bySource: {} });
   }, [initial]);
-
-  useEffect(() => {
-    api('/admin-tasks/seed-priorities', { method: 'POST' }).catch(() => {});
-  }, []);
 
   async function toggle(item) {
     if (busyKey) return;
@@ -79,18 +75,17 @@ export default function DashboardLiveTodo({ initial }) {
         <div className="min-w-0">
           <h2 className="cf-panel-title inline-flex items-center gap-2">
             <ListTodo className="h-4 w-4 text-neya-orange" strokeWidth={2} />
-            To do live
+            À faire
           </h2>
           <p className="cf-panel-sub">
-            {open} reste{open > 1 ? 'nt' : ''} à faire
-            {by.admin || by.atelier
-              ? ` · ${by.admin || 0} admin · ${by.atelier || 0} atelier`
-              : ''}
+            {open} reste{open > 1 ? 'nt' : ''}
+            {by.admin ? ` · ${by.admin} bureau` : ''}
+            {by.atelier ? ` · ${by.atelier} atelier` : ''}
             {by.rdv ? ` · ${by.rdv} RDV` : ''}
           </p>
         </div>
         <div className="flex items-center gap-3 shrink-0">
-          <Link href="/admin" className="dash-link">Admin</Link>
+          <Link href="/admin" className="dash-link">Bureau</Link>
           <Link href="/production" className="dash-link">Atelier</Link>
         </div>
       </div>

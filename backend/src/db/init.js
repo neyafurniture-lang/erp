@@ -7,6 +7,8 @@ import pool from './pool.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export async function initDb() {
+  // Jamais de DROP / TRUNCATE ici. CREATE IF NOT EXISTS + ALTER ADD COLUMN IF NOT EXISTS seulement.
+  // Un wipe de neya_db n’existe que dans deploy/back.sh (rollback volontaire).
   const schemaPath = path.join(__dirname, 'schema.sql');
   const schema = fs.readFileSync(schemaPath, 'utf8');
   try {

@@ -14,6 +14,7 @@ import {
 import AppShell from '../components/AppShell';
 import AuthGuard from '../components/AuthGuard';
 import DashboardLiveTodo from '../components/DashboardLiveTodo';
+import DashboardFollowPanel from '../components/DashboardFollowPanel';
 import { api, formatMoney, formatDate } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
 
@@ -228,7 +229,7 @@ export default function DashboardPage() {
             href="/mail"
           />
           <KpiCard
-            label="Devis en attente"
+            label="Devis ouverts"
             value={String(s.quotesPending ?? data?.pendingQuotes?.length ?? 0)}
             delta={formatMoney(s.quotesPendingTotal || 0)}
             Icon={FileText}
@@ -236,6 +237,12 @@ export default function DashboardPage() {
             href="/invoices"
           />
         </div>
+
+        <DashboardFollowPanel
+          invoices={data?.pendingInvoices || []}
+          quotes={data?.pendingQuotes || []}
+          shifts={data?.todayShifts || []}
+        />
 
         <DashboardLiveTodo initial={data?.liveTodo} />
 

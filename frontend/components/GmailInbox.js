@@ -602,6 +602,7 @@ export default function GmailInbox({
   const [messages, setMessages] = useState([]);
   const [selected, setSelected] = useState(null);
   const deepLinkOpened = useRef(null);
+  const autoSorted = useRef(false);
   const [thread, setThread] = useState(null);
   const [loading, setLoading] = useState(true);
   const [threadLoading, setThreadLoading] = useState(false);
@@ -930,7 +931,8 @@ export default function GmailInbox({
     try {
       const result = await api('/gmail/sort-inbox', {
         method: 'POST',
-        body: JSON.stringify({ max: 50, includeTri: true, scanInvoices: true }),      });
+        body: JSON.stringify({ max: 50, includeTri: true, scanInvoices: true }),
+      });
       setMessages(result.messages || []);
       setSections(result.sections || sections);
       await loadGmailLabels();
@@ -965,6 +967,14 @@ export default function GmailInbox({
       setInboxProcessing(false);
     }
   }
+
+  useEffect(() => {
+    if (connected !== true || autoSorted.current) return;
+    autoSorted.current = true;
+    processInbox().catch(() => {});
+    // Un tri automatique à l’ouverture — les dossiers NEYA restent vides sinon.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected]);
 
   async function synthesize() {
     if (!thread?.id) return;

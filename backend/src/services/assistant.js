@@ -871,6 +871,7 @@ export async function seedDefaultSkills() {
     { name: 'create_project', description: 'Créer un projet', trigger_patterns: ['créer projet', 'nouveau projet', 'project'], action_type: 'create_project' },
     { name: 'plan_day', description: 'Planifier plusieurs étapes', trigger_patterns: ['planifier demain', 'journée de demain', 'étapes demain', 'pour demain', 'planning demain'], action_type: 'plan_day' },
     { name: 'schedule_task', description: 'Planifier au calendrier', trigger_patterns: ['planifier', 'programmer', 'calendrier', 'demain', 'lundi'], action_type: 'schedule_task' },
+    { name: 'create_shift', description: 'Créer un quart employé', trigger_patterns: ['quart', 'shift', 'horaire olive', 'horaire mehdi', 'mettre olive'], action_type: 'create_shift' },
     { name: 'create_expense', description: 'Enregistrer une dépense', trigger_patterns: ['dépense', 'acheté', 'payé pour'], action_type: 'create_expense' },
     { name: 'list_today', description: 'Tâches du jour', trigger_patterns: ["aujourd'hui", 'tâches du jour', 'planning jour'], action_type: 'list_today' },
     { name: 'list_tomorrow', description: 'Tâches de demain', trigger_patterns: ['demain matin', 'tâches demain', 'planning demain', 'voir demain'], action_type: 'list_tomorrow' },
