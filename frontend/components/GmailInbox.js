@@ -855,7 +855,7 @@ export default function GmailInbox({
     try {
       // Toujours recharger le message complet (corps + pièces jointes)
       full = await api(`/gmail/messages/${id}`);
-      setSelected(full);
+      setSelected({ ...m, ...full });
 
       // Comportement Gmail : ouvrir = marquer comme lu
       if (activeFolder !== 'sent' && (full.isUnread || m.isUnread || m.unread)) {
@@ -1574,11 +1574,18 @@ export default function GmailInbox({
                           {preview ? (
                             <span className="mail-row-preview">{preview}</span>
                           ) : null}
-                          {badge ? (
+                          {(badge || m.moneyLabel) ? (
                             <span className="mail-row-badges">
-                              <span className="rounded-md bg-neya-surface px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-neya-ink-light">
-                                {badge.label}
-                              </span>
+                              {badge ? (
+                                <span className="rounded-md bg-neya-surface px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-neya-ink-light">
+                                  {badge.label}
+                                </span>
+                              ) : null}
+                              {m.moneyLabel ? (
+                                <span className={`mail-badge ${m.paymentHint === 'paid' ? 'mail-badge--paid' : 'mail-badge--unpaid'}`}>
+                                  {m.moneyLabel}
+                                </span>
+                              ) : null}
                             </span>
                           ) : null}
                         </span>
@@ -1683,6 +1690,24 @@ export default function GmailInbox({
                     </div>
                   </div>
                 </header>
+
+                {(selected.invoiceKind || selected.expense_id || selected.moneyLabel) && (
+                  <div className="mx-4 mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
+                    <p className="font-medium">
+                      {selected.moneyLabel
+                        || (selected.invoiceKind === 'ticket' ? 'Ticket fournisseur'
+                          : selected.invoiceKind === 'facture' ? 'Facture à payer'
+                            : 'Dépense (courriel)')}
+                    </p>
+                    <p className="text-xs mt-0.5">
+                      {selected.expense_id
+                        ? 'Enregistré dans les dépenses.'
+                        : 'Sera classé dans Dépenses dès qu’un montant est lu.'}
+                      {' '}
+                      <Link href="/expenses" className="text-neya-orange hover:underline">Ouvrir Dépenses</Link>
+                    </p>
+                  </div>
+                )}
 
                 <div className={`mail-body ${selected.bodyHtml ? 'mail-body--html' : ''}`}>
                   {threadLoading && !selected.body && !selected.bodyHtml ? (

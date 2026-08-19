@@ -1,12 +1,14 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
 import { api, formatMoney, formatDate, EXPENSE_CATEGORIES, resolveUploadUrl } from '../../lib/api';
 import ReceiptScanner from '../../components/ReceiptScanner';
 import FinanceSyncPanel from '../../components/FinanceSyncPanel';
+import SupplierInvoiceQueue from '../../components/SupplierInvoiceQueue';
 
 const CATEGORY_LABELS = {
   materiaux: 'Matériaux', outils: 'Outils', transport: 'Transport', atelier: 'Atelier', admin: 'Admin',
@@ -39,11 +41,24 @@ function daysSinceCreated(createdAt) {
   return (Date.now() - t) / 86400000;
 }
 
+function expenseSourceLabel(e) {
+  const src = e.source || (e.mail_message_id ? 'email' : 'manual');
+  if (src === 'email') return 'Courriel';
+  if (src === 'receipt' || e.receipt_url || e.receipt_scan_id) return 'Photo / reçu';
+  return 'Saisie';
+}
+
+function paymentLabel(e) {
+  const st = e.payment_status || 'paid';
+  return st === 'unpaid' ? 'À payer' : 'Payé';
+}
+
 export default function ExpensesPage() {
   const [expenses, setExpenses] = useState([]);
   const [projects, setProjects] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [monthFilter, setMonthFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [loadErr, setLoadErr] = useState('');
   const [form, setForm] = useState({
     amount: '',
@@ -114,11 +129,36 @@ export default function ExpensesPage() {
   }, [expenses]);
 
   const filtered = useMemo(() => {
-    if (monthFilter === 'all') return expenses;
-    return expenses.filter(e => expenseMonthKey(e.date) === monthFilter);
-  }, [expenses, monthFilter]);
+    let rows = expenses;
+    if (monthFilter !== 'all') rows = rows.filter(e => expenseMonthKey(e.date) === monthFilter);
+    if (statusFilter === 'unpaid') rows = rows.filter(e => (e.payment_status || 'paid') === 'unpaid');
+    if (statusFilter === 'paid') rows = rows.filter(e => (e.payment_status || 'paid') !== 'unpaid');
+    if (statusFilter === 'email') rows = rows.filter(e => e.source === 'email' || e.mail_message_id);
+    return rows;
+  }, [expenses, monthFilter, statusFilter]);
 
-  const total = filtered.reduce((s, e) => s + Number(e.amount), 0);
+  const unpaidTotal = useMemo(
+    () => expenses.filter(e => (e.payment_status || 'paid') === 'unpaid').reduce((s, e) => s + Number(e.amount || 0), 0),
+    [expenses]
+  );
+  const fromMailCount = useMemo(
+    () => expenses.filter(e => e.source === 'email' || e.mail_message_id).length,
+    [expenses]
+  );
+  const total = filtered.reduce((s, e) => s + Number(e.amount || 0), 0);
+
+  async function togglePaid(e) {
+    const next = (e.payment_status || 'paid') === 'unpaid' ? 'paid' : 'unpaid';
+    try {
+      await api(`/expenses/${e.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ payment_status: next }),
+      });
+      load();
+    } catch (err) {
+      setLoadErr(err.message || 'Impossible de changer le statut');
+    }
+  }
 
   const grouped = useMemo(() => {
     const map = new Map();
@@ -131,40 +171,83 @@ export default function ExpensesPage() {
   }, [filtered]);
 
   function ExpenseRows({ rows }) {
-    return rows.map(e => (
-      <tr key={e.id}>
-        <td className="px-4 py-3">
-          <p className="tabular-nums">{formatDate(e.date)}</p>
-          {e.created_at && expenseMonthKey(e.date) !== expenseMonthKey(e.created_at) && (
-            <p className="text-[10px] text-amber-700">saisie {formatDate(e.created_at)}</p>
-          )}
-        </td>
-        <td className="px-4 py-3">{e.description || '—'}</td>
-        <td className="px-4 py-3">
-          <span className="rounded-full bg-neya-surface px-2.5 py-0.5 text-[11px] font-medium text-neya-ink-light">
-            {CATEGORY_LABELS[e.category] || e.category}
-          </span>
-        </td>
-        <td className="px-4 py-3 text-neya-muted">{e.project_name || '—'}</td>
-        <td className="px-4 py-3">
-          <div className="flex flex-col gap-0.5">
-            {e.receipt_url ? (
-              <a href={resolveUploadUrl(e.receipt_url)} target="_blank" rel="noopener noreferrer" className="text-neya-orange text-xs hover:underline">Voir</a>
-            ) : null}
-            {e.receipt_drive_link ? (
-              <a href={e.receipt_drive_link} target="_blank" rel="noopener noreferrer" className="text-neya-muted text-[10px] hover:underline">Drive</a>
-            ) : null}
-            {!e.receipt_url && !e.receipt_drive_link ? '—' : null}
-          </div>
-        </td>
-        <td className="px-4 py-3 text-right font-display font-semibold tabular-nums">{formatMoney(e.amount)}</td>
-      </tr>
-    ));
+    return rows.map(e => {
+      const unpaid = (e.payment_status || 'paid') === 'unpaid';
+      const mailId = e.mail_message_id || e.gmail_message_id;
+      return (
+        <tr key={e.id}>
+          <td className="px-4 py-3">
+            <p className="tabular-nums">{formatDate(e.date)}</p>
+            {e.created_at && expenseMonthKey(e.date) !== expenseMonthKey(e.created_at) && (
+              <p className="text-[10px] text-amber-700">saisie {formatDate(e.created_at)}</p>
+            )}
+          </td>
+          <td className="px-4 py-3">
+            <p>{e.description || '—'}</p>
+            {(e.mail_from || e.mail_from_email) && (
+              <p className="text-[11px] text-neya-muted truncate max-w-[22rem]">
+                De {e.mail_from || e.mail_from_email}
+              </p>
+            )}
+          </td>
+          <td className="px-4 py-3">
+            <div className="flex flex-wrap gap-1">
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${unpaid ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-800'}`}>
+                {paymentLabel(e)}
+              </span>
+              <span className="rounded-full bg-neya-surface px-2 py-0.5 text-[10px] font-medium text-neya-ink-light">
+                {expenseSourceLabel(e)}
+              </span>
+            </div>
+          </td>
+          <td className="px-4 py-3">
+            <span className="rounded-full bg-neya-surface px-2.5 py-0.5 text-[11px] font-medium text-neya-ink-light">
+              {CATEGORY_LABELS[e.category] || e.category}
+            </span>
+          </td>
+          <td className="px-4 py-3 text-neya-muted">{e.project_name || e.supplier_name || '—'}</td>
+          <td className="px-4 py-3">
+            <div className="flex flex-col gap-0.5">
+              {mailId ? (
+                <Link href={`/mail?message=${encodeURIComponent(mailId)}`} className="text-neya-orange text-xs hover:underline">
+                  Courriel
+                </Link>
+              ) : null}
+              {e.receipt_url ? (
+                <a href={resolveUploadUrl(e.receipt_url)} target="_blank" rel="noopener noreferrer" className="text-neya-orange text-xs hover:underline">Reçu</a>
+              ) : null}
+              {e.receipt_drive_link ? (
+                <a href={e.receipt_drive_link} target="_blank" rel="noopener noreferrer" className="text-neya-muted text-[10px] hover:underline">Drive</a>
+              ) : null}
+              {!mailId && !e.receipt_url && !e.receipt_drive_link ? '—' : null}
+            </div>
+          </td>
+          <td className="px-4 py-3 text-right">
+            <p className="font-display font-semibold tabular-nums">{formatMoney(e.amount)}</p>
+            <button type="button" onClick={() => togglePaid(e)} className="text-[10px] text-neya-muted hover:text-neya-ink">
+              {unpaid ? 'Marquer payé' : 'Marquer à payer'}
+            </button>
+          </td>
+        </tr>
+      );
+    });
   }
 
   return (
     <AuthGuard>
-      <AppShell title="Dépenses" subtitle={`${filtered.length} entrée${filtered.length > 1 ? 's' : ''} · total ${formatMoney(total)}`}>
+      <AppShell title="Dépenses" subtitle={`${filtered.length} entrée${filtered.length > 1 ? 's' : ''} · ${formatMoney(total)}${unpaidTotal > 0 ? ` · à payer ${formatMoney(unpaidTotal)}` : ''}`}>
+        <div className="rounded-2xl border border-neya-border bg-white px-4 py-3 mb-4 text-sm text-neya-ink-light">
+          <p>
+            Ici = <strong className="text-neya-ink">argent sorti</strong> (tickets magasin, factures fournisseurs).
+            L’argent gagné (vos factures clients) est dans{' '}
+            <Link href="/invoices" className="text-neya-orange hover:underline">Factures</Link>.
+            Un ticket reçu par courriel entre tout seul dès qu’un montant est lu.
+          </p>
+          <p className="text-xs text-neya-muted mt-1">
+            {fromMailCount} ligne{fromMailCount > 1 ? 's' : ''} issue{fromMailCount > 1 ? 's' : ''} du courriel.
+          </p>
+        </div>
+        <SupplierInvoiceQueue onChange={() => load()} />
         <FinanceSyncPanel year={new Date().getFullYear()} onDone={load} />
         <ReceiptScanner onChange={load} />
 
@@ -179,6 +262,17 @@ export default function ExpensesPage() {
             Total : <span className="font-display text-xl font-semibold text-neya-ink tabular-nums">{formatMoney(total)}</span>
           </p>
           <div className="flex flex-wrap items-center gap-2">
+            <select
+              className="input text-xs h-9 w-auto min-w-[8rem]"
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value)}
+              aria-label="Filtrer par statut"
+            >
+              <option value="all">Tous les statuts</option>
+              <option value="unpaid">À payer</option>
+              <option value="paid">Payé</option>
+              <option value="email">Issus du courriel</option>
+            </select>
             <select
               className="input text-xs h-9 w-auto min-w-[9rem]"
               value={monthFilter}
@@ -281,9 +375,10 @@ export default function ExpensesPage() {
                 <tr>
                   <th className="px-4 py-3">Date ticket</th>
                   <th className="px-4 py-3">Description</th>
+                  <th className="px-4 py-3">Statut</th>
                   <th className="px-4 py-3">Catégorie</th>
                   <th className="px-4 py-3">Projet</th>
-                  <th className="px-4 py-3">Reçu</th>
+                  <th className="px-4 py-3">Source</th>
                   <th className="px-4 py-3 text-right">Montant</th>
                 </tr>
               </thead>
@@ -315,9 +410,10 @@ export default function ExpensesPage() {
                     <tr>
                       <th className="px-4 py-3">Date</th>
                       <th className="px-4 py-3">Description</th>
+                      <th className="px-4 py-3">Statut</th>
                       <th className="px-4 py-3">Catégorie</th>
                       <th className="px-4 py-3">Projet</th>
-                      <th className="px-4 py-3">Reçu</th>
+                      <th className="px-4 py-3">Source</th>
                       <th className="px-4 py-3 text-right">Montant</th>
                     </tr>
                   </thead>

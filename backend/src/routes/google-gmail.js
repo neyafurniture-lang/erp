@@ -4,6 +4,7 @@ import pool from '../db/pool.js';
 import * as gmail from '../services/google-gmail.js';
 import { logAgentAction } from '../services/assistant-memory.js';
 import { enrichInboxMessages, sortInbox, sortRecentInbox, listMailFolder, MAIL_SECTIONS, ensureNeyaGmailLabels, listNeyaGmailLabels, GMAIL_CATEGORY_LABELS, setThreadMailCategory, applyGmailLabelsForMessages } from '../services/mail-sort.js';
+import { mailMoneyLabel } from '../services/mail-money.js';
 import emailThreadsRoutes from './email-threads.js';
 
 const router = Router();
@@ -178,7 +179,19 @@ router.post('/labels/neya/setup', async (_req, res) => {
 
 router.get('/messages/:id', async (req, res) => {
   try {
-    res.json(await gmail.getMessage(req.params.id));
+    const msg = await gmail.getMessage(req.params.id);
+    try {
+      const { ingestMessage } = await import('../services/invoice-email-router.js');
+      const ingested = await ingestMessage(msg);
+      if (ingested) {
+        msg.expense_id = ingested.expense_id;
+        msg.supplier_invoice_id = ingested.id;
+        msg.invoiceKind = ingested.doc_kind;
+        msg.paymentHint = ingested.payment_status;
+        msg.moneyLabel = mailMoneyLabel(msg);
+      }
+    } catch { /* ingest optionnel */ }
+    res.json(msg);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

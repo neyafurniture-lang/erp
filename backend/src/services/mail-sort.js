@@ -1,5 +1,6 @@
 import pool from '../db/pool.js';
-import { detectSupplier, looksLikeSupplierInvoice } from './invoice-email-router.js';
+import { detectSupplier, looksLikeSupplierInvoice, ingestMessage } from './invoice-email-router.js';
+import { mailDocKind, mailMoneyLabel, paymentStatusFromMail } from './mail-money.js';
 
 /** Sections affichées dans la boîte mail NEYA (ordre sidebar). */
 export const MAIL_SECTIONS = [
@@ -241,7 +242,7 @@ export function classifyMailMessage({
   const clientIntent = thread?.client_intent || thread?.latest_client_intent;
   const isSupplierInvoice = looksLikeSupplierInvoice(from, subject, snippet);
   // Facture explicite (pas juste « votre commande » dans une newsletter)
-  const hardInvoice = /\b(facture|invoice|receipt|re[cç]u|order confirmation|confirmation de commande)\b/i
+  const hardInvoice = /\b(facture|invoice|receipt|re[cç]u|ticket|order confirmation|confirmation de commande)\b/i
     .test(`${subject} ${snippet}`);
   const replyHint = !isOutbound && !promo && (
     REPLY_NEEDED_RE.test(`${subject} ${snippet}`)
@@ -425,6 +426,18 @@ export async function enrichInboxMessages(messages = []) {
       inboundNeedsReply: true,
     });
     const supplier = detectSupplier(m.from, m.subject, m.snippet);
+    const invoiceKind = mailDocKind({
+      subject: m.subject,
+      snippet: m.snippet,
+      attachments: m.attachments,
+    });
+    const paymentHint = invoiceKind
+      ? paymentStatusFromMail({ subject: m.subject, snippet: m.snippet, attachments: m.attachments })
+      : null;
+
+    if (looksLikeSupplierInvoice(m.from, m.subject, m.snippet, { attachments: m.attachments })) {
+      ingestMessage(m).catch(() => {});
+    }
 
     if (thread?.id && mailCategory && !thread.mail_category_manual && thread.mail_category !== mailCategory) {
       pool.query(
@@ -442,6 +455,9 @@ export async function enrichInboxMessages(messages = []) {
       section: mailCategory,
       supplierLabel: supplier?.label || null,
       supplierId: supplier?.id || null,
+      invoiceKind,
+      paymentHint,
+      moneyLabel: invoiceKind ? mailMoneyLabel({ subject: m.subject, snippet: m.snippet, attachments: m.attachments }) : null,
       isOutbound,
       client_id: thread?.client_id || null,
       project_id: thread?.project_id || null,
