@@ -99,7 +99,7 @@ export const ERP_MANUAL_SECTIONS = [
       'Brouillons IA et envois devis/facture utilisent la signature Mehdi (company.json → emailSignature).',
       '« Analyser (20) » : pré-traite les derniers fils (liaison auto + base conversation).',
       'Scan factures fournisseurs (Home Depot, Rona…) : file en haut de la page Courriel.',
-      'À l’ouverture, Lia retrie la boîte (À répondre / Clients / Fournisseurs). Bouton « Trier » si ça n’a pas bougé.',
+      'À l’ouverture, un tri rapide pose les labels NEYA. Dossiers À répondre / Clients / Fournisseurs = ces labels, pas les 40 derniers mails. « Lancer le tri » si un dossier est vide.',
       'Mobile : liste pleine largeur → ouvrir un mail (← retour). Contexte ERP = feuille du bas (icône), jamais une colonne étroite à côté du texte.',
       'Erreur 404 ? Le backend VPS doit être à jour (Paramètres → Déploiement VPS).',
     ],

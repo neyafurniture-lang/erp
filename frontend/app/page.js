@@ -98,15 +98,17 @@ export default function DashboardPage() {
         const sections = mail.sections || [];
         const reply = sections.find(s => s.id === 'a_repondre');
         const msgs = (mail.messages || [])
-          .filter(m => (m.erpFolder || m.folder || m.section) === 'a_repondre' || m.urgent || m.needsReply)
+          .filter(m => (
+            m.mailCategory === 'a_repondre'
+            || m.erpFolder === 'a_repondre'
+            || m.urgent
+            || m.needsReply
+          ))
           .slice(0, 4);
-        const fallback = msgs.length
-          ? msgs
-          : (mail.messages || []).slice(0, 4);
         const urgent = (mail.messages || []).filter(m => m.urgent || /urgent/i.test(m.subject || '')).length;
         setMailPreview({
-          messages: fallback,
-          unread: reply?.count ?? (mail.messages || []).length,
+          messages: msgs,
+          unread: reply?.count ?? msgs.length,
           urgent,
         });
       }
@@ -361,9 +363,19 @@ export default function DashboardPage() {
           ) : (
             <ul className="divide-y divide-neya-border/70">
               {mailPreview.messages.map(m => {
-                const from = m.fromName || m.from || m.sender || 'Inconnu';
+                const fromRaw = m.fromName || m.from || m.sender || '';
+                const fromMatch = String(fromRaw).match(/^(.+?)\s*<([^>]+)>$/);
+                const from = (fromMatch ? fromMatch[1].replace(/"/g, '').trim() : fromRaw) || 'Inconnu';
                 const urgent = m.urgent || /urgent/i.test(m.subject || '');
-                const tag = m.erpFolder || m.tag || (urgent ? 'À répondre' : 'Boîte');
+                const cat = m.mailCategory || m.erpFolder;
+                const tag = {
+                  a_repondre: 'À répondre',
+                  clients: 'Client',
+                  fournisseurs: 'Fournisseur',
+                  projets: 'Projet',
+                  promotions: 'Promo',
+                  autres: 'Autre',
+                }[cat] || (urgent ? 'À répondre' : 'Boîte');
                 const time = m.date
                   ? new Date(m.date).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' })
                   : (m.internalDate

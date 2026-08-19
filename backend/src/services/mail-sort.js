@@ -58,15 +58,33 @@ export async function listNeyaGmailLabels() {
   return labels.filter(l => l.name === 'NEYA' || l.name?.startsWith(NEYA_LABEL_PREFIX));
 }
 
+export function invertNeyaLabelMap(labelMap = {}) {
+  return Object.fromEntries(
+    Object.entries(labelMap).filter(([, id]) => id).map(([cat, id]) => [id, cat])
+  );
+}
+
+export function categoryFromLabelIds(labelIds = [], idToCategory = {}) {
+  for (const id of labelIds || []) {
+    if (idToCategory[id]) return idToCategory[id];
+  }
+  return null;
+}
+
 export async function applyGmailCategoryLabel(gmailThreadId, category) {
   if (!gmailThreadId || !GMAIL_CATEGORY_LABELS[category]) return { applied: false };
 
-  const { modifyThreadLabels } = await import('./google-gmail.js');
+  const { modifyThreadLabels, resolveLabelId } = await import('./google-gmail.js');
   const labelMap = await ensureNeyaGmailLabels();
   const addId = labelMap[category];
   const removeIds = Object.entries(labelMap)
     .filter(([cat]) => cat !== category)
     .map(([, id]) => id);
+
+  try {
+    const triId = await resolveLabelId('Tri/A_traiter');
+    if (triId) removeIds.push(triId);
+  } catch { /* Tri/ optionnel */ }
 
   await modifyThreadLabels(gmailThreadId, [addId], removeIds);
   return { applied: true, label: GMAIL_CATEGORY_LABELS[category] };
@@ -198,6 +216,8 @@ export function classifyMailMessage({
   clientEmails = null,
   ownEmails = null,
   preferStored = false,
+  gmailCategory = null,
+  inboundNeedsReply = false,
 } = {}) {
   const emails = clientEmails || new Set();
   const addresses = collectAddresses(
@@ -228,21 +248,28 @@ export function classifyMailMessage({
     || /\?\s*$/.test(String(subject || '').trim())
   );
 
-  // Catégorie verrouillée manuellement (ou preferStored)
-  if ((preferStored || thread?.mail_category_manual) && isValidMailCategory(thread?.mail_category)) {
+  // Catégorie verrouillée manuellement
+  if (thread?.mail_category_manual && isValidMailCategory(thread?.mail_category)) {
     return thread.mail_category;
   }
+
+  // Dernier message = client (lu ou non) → À répondre. Ouvert ≠ répondu.
+  if (inboundNeedsReply && !isOutbound && hasStrongClient && !promo) return 'a_repondre';
+
+  if (preferStored && isValidMailCategory(thread?.mail_category)) {
+    return thread.mail_category;
+  }
+  if (isValidMailCategory(gmailCategory)) return gmailCategory;
 
   // Newsletters / promos d’abord — sauf client ERP exact (email) ou vraie facture
   if (promo && !matchedClientEmail && !hardInvoice) return 'promotions';
   if (isSupplierInvoice) return 'fournisseurs';
-  // À répondre : synthèse needs_response, indices de réponse, ou non-lu + client fort
   if (needsResponse || replyHint) return 'a_repondre';
   if (isUnread && hasStrongClient && !isOutbound) return 'a_repondre';
   if (hasProject) return 'projets';
   if (hasClient || CLIENT_INTENTS.has(clientIntent)) return 'clients';
-  // Fournisseur connu sans facture → promotions (pas Non classés)
-  if (detectSupplier(from, subject, snippet)) return 'promotions';
+  // Home Depot / Rona / Canac → Fournisseurs (les newsletters restent promotions plus haut)
+  if (detectSupplier(from, subject, snippet)) return 'fournisseurs';
   return 'autres';
 }
 
@@ -333,6 +360,10 @@ export async function enrichInboxMessages(messages = []) {
 
   const threadIds = [...new Set(messages.map(m => m.threadId).filter(Boolean))];
   const [clientEmails, ownEmails] = await Promise.all([getClientEmailSet(), getOwnEmailSet()]);
+  let idToCategory = {};
+  try {
+    idToCategory = invertNeyaLabelMap(await ensureNeyaGmailLabels());
+  } catch { /* Gmail optionnel (tests / hors ligne) */ }
 
   let threadMap = {};
   if (threadIds.length) {
@@ -377,6 +408,7 @@ export async function enrichInboxMessages(messages = []) {
       }
     }
 
+    const gmailCategory = categoryFromLabelIds(m.labelIds || [], idToCategory);
     const mailCategory = classifyMailMessage({
       from: m.from,
       to: m.to,
@@ -388,12 +420,26 @@ export async function enrichInboxMessages(messages = []) {
       thread,
       clientEmails,
       ownEmails,
+      preferStored: true,
+      gmailCategory,
+      inboundNeedsReply: true,
     });
     const supplier = detectSupplier(m.from, m.subject, m.snippet);
+
+    if (thread?.id && mailCategory && !thread.mail_category_manual && thread.mail_category !== mailCategory) {
+      pool.query(
+        `UPDATE email_threads SET mail_category = $1, updated_at = NOW()
+         WHERE id = $2 AND COALESCE(mail_category_manual, false) = false`,
+        [mailCategory, thread.id]
+      ).catch(() => {});
+    }
 
     enriched.push({
       ...m,
       mailCategory,
+      erpFolder: mailCategory,
+      folder: mailCategory,
+      section: mailCategory,
       supplierLabel: supplier?.label || null,
       supplierId: supplier?.id || null,
       isOutbound,
@@ -428,10 +474,53 @@ export async function enrichInboxMessages(messages = []) {
   return { messages: enriched, sections };
 }
 
-export async function sortInbox({ max = 40 } = {}) {
+export async function sortInbox({ max = 40, applyLabels = true } = {}) {
   const { listMessages } = await import('./google-gmail.js');
   const { messages: raw } = await listMessages({ label: 'INBOX', max });
-  return enrichInboxMessages(raw || []);
+  const result = await enrichInboxMessages(raw || []);
+  if (applyLabels && result.messages?.length) {
+    applyGmailLabelsForMessages(result.messages).catch(err => {
+      console.warn('Gmail labels (inbox):', err.message);
+    });
+  }
+  return result;
+}
+
+/** Dossier ERP = label NEYA/ ∪ mails inbox déjà classés dans cette catégorie. */
+export async function listMailFolder(category, { max = 50 } = {}) {
+  if (!isValidMailCategory(category)) {
+    throw new Error(`Catégorie invalide : ${category}`);
+  }
+  const { listMessages } = await import('./google-gmail.js');
+  let labeled = [];
+  try {
+    await ensureNeyaGmailLabels();
+    const data = await listMessages({ label: GMAIL_CATEGORY_LABELS[category], max });
+    labeled = data.messages || [];
+  } catch { /* labels pas encore créés */ }
+
+  const inbox = await sortInbox({ max, applyLabels: false });
+  const fromInbox = (inbox.messages || []).filter(m => (m.mailCategory || 'autres') === category);
+
+  const labeledEnriched = labeled.length
+    ? await enrichInboxMessages(labeled)
+    : { messages: [] };
+
+  const seen = new Set();
+  const messages = [];
+  for (const m of [...labeledEnriched.messages, ...fromInbox]) {
+    const key = m.threadId || m.id;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    messages.push(m);
+  }
+
+  return {
+    messages,
+    sections: inbox.sections,
+    category,
+    label: GMAIL_CATEGORY_LABELS[category],
+  };
 }
 
 export async function classifyAndStoreThread(threadDbId, { force = false } = {}) {

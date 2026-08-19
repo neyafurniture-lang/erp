@@ -53,14 +53,14 @@ describe('classifyMailMessage promotions', () => {
     assert.equal(cat, 'a_repondre');
   });
 
-  it('classe un fournisseur connu sans facture en promotions', () => {
+  it('classe un fournisseur connu sans facture en fournisseurs', () => {
     const cat = classifyMailMessage({
       from: 'Home Depot <noreply@homedepot.ca>',
       subject: 'Nouveautés de la semaine',
       snippet: 'Découvrez nos outils',
       isUnread: true,
     });
-    assert.equal(cat, 'promotions');
+    assert.equal(cat, 'fournisseurs');
   });
 
   it('classe une vraie facture fournisseur en fournisseurs', () => {
@@ -84,6 +84,30 @@ describe('classifyMailMessage promotions', () => {
       },
     });
     assert.equal(cat, 'clients');
+  });
+
+  it('garde À répondre si le dernier mail vient du client (même lu)', () => {
+    const emails = new Set(['client@example.com']);
+    const cat = classifyMailMessage({
+      from: 'Client <client@example.com>',
+      subject: 'Suite devis',
+      snippet: 'On avance ?',
+      isUnread: false,
+      inboundNeedsReply: true,
+      clientEmails: emails,
+      thread: { client_id: 1, link_source: 'client_email', link_confidence: 0.95, mail_category: 'clients' },
+    });
+    assert.equal(cat, 'a_repondre');
+  });
+
+  it('suit le label Gmail NEYA si pas de signal plus fort', () => {
+    const cat = classifyMailMessage({
+      from: 'inconnu@example.net',
+      subject: 'Hello',
+      snippet: '',
+      gmailCategory: 'projets',
+    });
+    assert.equal(cat, 'projets');
   });
 });
 

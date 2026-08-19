@@ -3,7 +3,7 @@ import multer from 'multer';
 import pool from '../db/pool.js';
 import * as gmail from '../services/google-gmail.js';
 import { logAgentAction } from '../services/assistant-memory.js';
-import { enrichInboxMessages, sortInbox, sortRecentInbox, MAIL_SECTIONS, ensureNeyaGmailLabels, listNeyaGmailLabels, GMAIL_CATEGORY_LABELS, setThreadMailCategory } from '../services/mail-sort.js';
+import { enrichInboxMessages, sortInbox, sortRecentInbox, listMailFolder, MAIL_SECTIONS, ensureNeyaGmailLabels, listNeyaGmailLabels, GMAIL_CATEGORY_LABELS, setThreadMailCategory, applyGmailLabelsForMessages } from '../services/mail-sort.js';
 import emailThreadsRoutes from './email-threads.js';
 
 const router = Router();
@@ -69,6 +69,14 @@ router.get('/inbox-sorted', async (req, res) => {
   }
 });
 
+router.get('/folder/:category', async (req, res) => {
+  try {
+    res.json(await listMailFolder(req.params.category, { max: Number(req.query.max) || 50 }));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.get('/sections', (_req, res) => {
   res.json(MAIL_SECTIONS);
 });
@@ -76,6 +84,21 @@ router.get('/sections', (_req, res) => {
 router.post('/sort-inbox', async (req, res) => {
   try {
     const max = Number(req.body?.max) || 40;
+    const fast = req.body?.fast === true;
+    if (fast) {
+      const sorted = await sortInbox({ max, applyLabels: false });
+      const labelResult = await applyGmailLabelsForMessages(sorted.messages || []);
+      return res.json({
+        ...sorted,
+        processed: sorted.messages?.length || 0,
+        fast: true,
+        gmail_labels: {
+          applied: labelResult.applied,
+          errors: labelResult.errors,
+          labels: GMAIL_CATEGORY_LABELS,
+        },
+      });
+    }
     const includeTri = req.body?.includeTri !== false;
     const scanInvoices = req.body?.scanInvoices !== false;
     res.json(await sortRecentInbox(max, { includeTri, scanInvoices }));
