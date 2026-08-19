@@ -9,8 +9,10 @@ import {
   isDayPlanMessage,
   isMultiIntentErpMessage,
   wantsSmartTaskPlan,
-  runSkillAction,
   wantsUnlinkFromProject,
+  wantsCreateShift,
+  wantsScheduleOnCalendar,
+  runSkillAction,
 } from './skill-actions.js';
 
 export { ACTION_TYPES };
@@ -21,7 +23,9 @@ async function matchSkill(message) {
   let best = null;
   let bestLen = 0;
   for (const skill of skills) {
-    const patterns = skill.trigger_patterns || [];
+    const patterns = typeof skill.trigger_patterns === 'string'
+      ? (() => { try { return JSON.parse(skill.trigger_patterns); } catch { return []; } })()
+      : (skill.trigger_patterns || []);
     for (const p of patterns) {
       const pl = p.toLowerCase();
       if (lower.includes(pl) && pl.length > bestLen) {
@@ -571,6 +575,12 @@ export async function processMessage(message, attachments = [], rawContext = nul
     if (isDayPlanMessage(bare) || isDayPlanMessage(msg)) {
       return runSkillAction('plan_day', bare || msg, pageContext);
     }
+    if (wantsCreateShift(bare) || wantsCreateShift(msg)) {
+      return runSkillAction('create_shift', bare || msg, pageContext);
+    }
+    if (wantsScheduleOnCalendar(bare) || wantsScheduleOnCalendar(msg)) {
+      return runSkillAction('schedule_task', bare || msg, pageContext);
+    }
     // Multi-intent sans IA : expliquer, ne pas créer une tâche-mot
     if (isMultiIntentErpMessage(bare) || wantsSmartTaskPlan(bare)) {
       return {
@@ -1021,6 +1031,24 @@ export async function seedDefaultSkills() {
         'étapes atelier', 'à partir du fichier', 'à partir du mail', 'linker dans le projet',
       ],
       action: 'create_fabrication_plan',
+    },
+    {
+      name: 'schedule_task',
+      description: 'Planifier une tâche au calendrier (crée la tâche si besoin)',
+      triggers: [
+        'calendrier', 'mettre au calendrier', 'mets ça au calendrier', 'planifier',
+        'programmer', 'au calendrier',
+      ],
+      action: 'schedule_task',
+    },
+    {
+      name: 'create_shift',
+      description: 'Créer un quart employé (Olive / Mehdi)',
+      triggers: [
+        'quart', 'shift', 'horaire', 'mets olive', 'mettre olive', 'olive demain',
+        'mehdi demain', 'mets mehdi', 'horaire olive', 'horaire mehdi',
+      ],
+      action: 'create_shift',
     },
     {
       name: 'update_quote',

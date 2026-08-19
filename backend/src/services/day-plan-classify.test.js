@@ -6,6 +6,9 @@ import {
   splitPlanItems,
   wantsSmartTaskPlan,
   cleanTaskTitle,
+  wantsCreateShift,
+  wantsScheduleOnCalendar,
+  calendarTitleFromMessage,
 } from './day-plan-classify.js';
 
 const PROSE_BUG = `La semaine prochaine. Il faut avancer sur le projet (nom non clair.
@@ -92,5 +95,21 @@ describe('splitPlanItems', () => {
   it('découpe une liste virgule / puis', () => {
     const items = splitPlanItems('finition banc olive, mail The NNS puis débitage table');
     assert.equal(items.length, 3);
+  });
+});
+
+describe('quarts vs calendrier', () => {
+  it('Olive demain 8h = quart', () => {
+    assert.equal(wantsCreateShift('Mets Olive demain 8h'), true);
+    assert.equal(wantsScheduleOnCalendar('Mets Olive demain 8h'), false);
+  });
+
+  it('livraison au calendrier = tâche', () => {
+    assert.equal(wantsScheduleOnCalendar('Mets livraison James au calendrier demain 9h'), true);
+    assert.equal(wantsCreateShift('Mets livraison James au calendrier demain 9h'), false);
+  });
+
+  it('extrait le titre du RDV', () => {
+    assert.equal(calendarTitleFromMessage('Mets livraison James au calendrier demain 9h'), 'livraison James');
   });
 });
