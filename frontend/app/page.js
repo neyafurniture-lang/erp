@@ -17,6 +17,7 @@ import DashboardLiveTodo from '../components/DashboardLiveTodo';
 import DashboardFollowPanel from '../components/DashboardFollowPanel';
 import { api, formatMoney, formatDate } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
+import { hasPermission } from '../lib/permissions';
 
 function initials(name = '') {
   return name
@@ -82,36 +83,44 @@ function KpiCard({ label, value, delta, Icon, tone = 'neutral', href }) {
 
 export default function DashboardPage() {
   const { user } = useAuth();
+  const canMail = hasPermission(user, 'mail');
   const [data, setData] = useState(null);
-  const [mailPreview, setMailPreview] = useState({ messages: [], unread: 0, urgent: 0 });
+  const [mailPreview, setMailPreview] = useState({ messages: [], unread: 0, urgent: 0, error: '' });
   const [error, setError] = useState('');
   const firstName = (user?.name || '').split(/\s+/)[0] || 'Mehdi';
 
   const load = () => {
+    const mailReq = canMail
+      ? api('/gmail/inbox-sorted?max=30').catch(e => ({ __error: e.message || 'Gmail indisponible' }))
+      : Promise.resolve(null);
     Promise.all([
       api('/dashboard'),
-      api('/gmail/inbox-sorted?max=30').catch(() => null),
+      mailReq,
     ]).then(([d, mail]) => {
       setData(d);
       setError('');
-      if (mail) {
-        const sections = mail.sections || [];
-        const reply = sections.find(s => s.id === 'a_repondre');
-        const msgs = (mail.messages || [])
-          .filter(m => (
-            m.mailCategory === 'a_repondre'
-            || m.erpFolder === 'a_repondre'
-            || m.urgent
-            || m.needsReply
-          ))
-          .slice(0, 4);
-        const urgent = (mail.messages || []).filter(m => m.urgent || /urgent/i.test(m.subject || '')).length;
-        setMailPreview({
-          messages: msgs,
-          unread: reply?.count ?? msgs.length,
-          urgent,
-        });
+      if (!mail) {
+        setMailPreview({ messages: [], unread: 0, urgent: 0, error: '' });
+        return;
       }
+      if (mail.__error) {
+        setMailPreview({ messages: [], unread: 0, urgent: 0, error: mail.__error });
+        return;
+      }
+      const sections = mail.sections || [];
+      const reply = sections.find(s => s.id === 'a_repondre');
+      const all = mail.messages || [];
+      const msgs = all
+        .filter(m => (m.mailCategory || m.erpFolder || m.folder || m.section) === 'a_repondre' || m.urgent || m.needsReply)
+        .slice(0, 4);
+      const fallback = msgs.length ? msgs : all.slice(0, 4);
+      const urgent = all.filter(m => m.urgent || /urgent/i.test(m.subject || '')).length;
+      setMailPreview({
+        messages: fallback,
+        unread: reply?.count ?? all.length,
+        urgent,
+        error: '',
+      });
     }).catch(e => setError(e.message));
   };
 
@@ -120,7 +129,7 @@ export default function DashboardPage() {
     const handler = () => load();
     window.addEventListener('neya:assistant-action', handler);
     return () => window.removeEventListener('neya:assistant-action', handler);
-  }, []);
+  }, [canMail]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const greeting = useMemo(() => {
     const h = new Date().getHours();
@@ -222,14 +231,22 @@ export default function DashboardPage() {
             tone="primary"
             href="/production"
           />
-          <KpiCard
-            label="Mails à traiter"
-            value={String(mailPreview.unread || 0)}
-            delta={mailPreview.urgent ? `${mailPreview.urgent} urgents` : 'Boîte synchronisée'}
-            Icon={Mail}
-            tone="warning"
-            href="/mail"
-          />
+          {canMail && (
+            <KpiCard
+              label="Mails à traiter"
+              value={String(mailPreview.unread || 0)}
+              delta={
+                mailPreview.error
+                  ? 'Gmail indisponible'
+                  : mailPreview.urgent
+                    ? `${mailPreview.urgent} urgents`
+                    : 'Boîte synchronisée'
+              }
+              Icon={Mail}
+              tone="warning"
+              href="/mail"
+            />
+          )}
           <KpiCard
             label="Devis ouverts"
             value={String(s.quotesPending ?? data?.pendingQuotes?.length ?? 0)}
@@ -346,19 +363,24 @@ export default function DashboardPage() {
         </div>
 
         {/* Courriel — à répondre */}
+        {canMail && (
         <section className="cf-panel mb-6">
           <div className="cf-panel-head">
             <div>
               <h2 className="cf-panel-title">Courriel — à répondre</h2>
               <p className="cf-panel-sub">
-                {mailPreview.unread || 0} à traiter · Gmail
+                {mailPreview.error
+                  ? mailPreview.error
+                  : `${mailPreview.unread || 0} à traiter · Gmail`}
               </p>
             </div>
             <Link href="/mail" className="dash-link inline-flex items-center gap-1">
               Ouvrir la boîte <ArrowUpRight className="h-3.5 w-3.5" />
             </Link>
           </div>
-          {!mailPreview.messages?.length ? (
+          {mailPreview.error ? (
+            <p className="dash-empty">Impossible de charger Gmail — vérifie la connexion Google dans Paramètres.</p>
+          ) : !mailPreview.messages?.length ? (
             <p className="dash-empty">Aucun mail à afficher — connecte Gmail ou ouvre la boîte.</p>
           ) : (
             <ul className="divide-y divide-neya-border/70">
@@ -367,7 +389,7 @@ export default function DashboardPage() {
                 const fromMatch = String(fromRaw).match(/^(.+?)\s*<([^>]+)>$/);
                 const from = (fromMatch ? fromMatch[1].replace(/"/g, '').trim() : fromRaw) || 'Inconnu';
                 const urgent = m.urgent || /urgent/i.test(m.subject || '');
-                const cat = m.mailCategory || m.erpFolder;
+                const cat = m.mailCategory || m.erpFolder || m.tag;
                 const tag = {
                   a_repondre: 'À répondre',
                   clients: 'Client',
@@ -399,7 +421,7 @@ export default function DashboardPage() {
                       </span>
                       <span className="shrink-0 text-right pl-2">
                         <span className="block text-[11px] text-neya-muted tabular-nums">{time}</span>
-                        <span className="cf-chip mt-1 inline-block capitalize">{String(tag).replace(/_/g, ' ')}</span>
+                        <span className="cf-chip mt-1 inline-block capitalize">{tag}</span>
                       </span>
                     </Link>
                   </li>
@@ -408,6 +430,7 @@ export default function DashboardPage() {
             </ul>
           )}
         </section>
+        )}
 
         {/* Status banner */}
         <section className={`cf-status ${statusOk ? 'cf-status-ok' : 'cf-status-warn'}`}>

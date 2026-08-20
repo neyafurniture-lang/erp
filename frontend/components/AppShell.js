@@ -30,7 +30,7 @@ export default function AppShell({
 
       <main className={`lg:ml-[var(--sidebar-w)] min-h-screen min-h-[100dvh] ${
         flush || flushMobile ? 'pb-mail' : 'pb-shell'
-      } ${flush ? 'flex flex-col' : ''}`}>
+      } ${flush ? 'flex flex-col h-[100dvh] max-h-[100dvh]' : ''}`}>
         <header className="hidden lg:flex sticky top-0 z-30 bg-white/85 backdrop-blur-md border-b border-neya-border px-8 h-16 items-center gap-3 shrink-0">
           <div className="min-w-0 flex-1">
             {title && (

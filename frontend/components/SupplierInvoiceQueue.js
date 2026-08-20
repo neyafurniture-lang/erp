@@ -265,62 +265,64 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
   if (compact) {
     return (
       <>
-        <div className="border border-neya-border bg-neya-surface/40 mb-3">
-          <div className="flex items-center gap-2 px-3 py-1.5">
-            <button
-              type="button"
-              onClick={() => setExpanded(v => !v)}
-              className="flex-1 min-w-0 flex items-center gap-2 text-left"
-              aria-expanded={expanded}
-            >
-              <span className="text-neya-muted text-xs tabular-nums w-3">{expanded ? '▾' : '▸'}</span>
-              <span className="text-xs font-medium text-neya-ink truncate">
-                {pending.length > 0
-                  ? `${pending.length} facture${pending.length !== 1 ? 's' : ''} à classer`
-                  : 'Factures fournisseurs'}
-              </span>
-              {pending.length > 0 && !expanded && (
-                <span className="text-[10px] text-neya-muted shrink-0">Cliquer pour ouvrir</span>
-              )}
-            </button>
-            <button type="button" onClick={scan} disabled={scanning} className="text-[11px] text-neya-muted hover:text-neya-ink shrink-0 px-1">
-              {scanning ? '…' : 'Scanner'}
-            </button>
-          </div>
-
-          {expanded && (
-            <div className="px-3 pb-2.5 border-t border-neya-border/70">
-              {scanErr && (
-                <p className="text-xs text-red-700 bg-red-50 px-2 py-1.5 rounded mt-2">{scanErr}</p>
-              )}
-              {scanInfo && !scanErr && (
-                <p className="text-[11px] text-neya-muted mt-2">{scanInfo}</p>
-              )}
-              {pending.length === 0 ? (
-                <p className="text-xs text-neya-muted py-2">Aucune facture en attente</p>
-              ) : (
-                <div className="space-y-2 mt-2">
-                  {grouped.map(group => (
-                    <div key={group.label}>
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-neya-muted px-1 mb-1">
-                        {group.label} · {group.items.length}
-                      </p>
-                      <ul className="space-y-1">
-                        {group.items.map(item => (
-                          <li key={item.id} className="flex items-center justify-between gap-2 px-2 py-1.5 border border-neya-border bg-white">
-                            <p className="text-xs font-medium truncate min-w-0 flex-1">{item.subject}</p>
-                            <button type="button" onClick={() => setActive(item)} className="btn-primary text-[11px] shrink-0 min-h-[28px] py-0.5 px-2">
-                              Classer
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
-                </div>
-              )}
+        <div className="mail-supplier-strip px-3 pt-3 lg:px-4">
+          <div className="border border-neya-border bg-neya-surface/40 mb-0">
+            <div className="flex items-center gap-2 px-3 py-1.5">
+              <button
+                type="button"
+                onClick={() => setExpanded(v => !v)}
+                className="flex-1 min-w-0 flex items-center gap-2 text-left"
+                aria-expanded={expanded}
+              >
+                <span className="text-neya-muted text-xs tabular-nums w-3">{expanded ? '▾' : '▸'}</span>
+                <span className="text-xs font-medium text-neya-ink truncate">
+                  {pending.length > 0
+                    ? `${pending.length} facture${pending.length !== 1 ? 's' : ''} à classer`
+                    : 'Factures fournisseurs'}
+                </span>
+                {pending.length > 0 && !expanded && (
+                  <span className="text-[10px] text-neya-muted shrink-0">Cliquer pour ouvrir</span>
+                )}
+              </button>
+              <button type="button" onClick={scan} disabled={scanning} className="text-[11px] text-neya-muted hover:text-neya-ink shrink-0 px-1">
+                {scanning ? '…' : 'Scanner'}
+              </button>
             </div>
-          )}
+
+            {expanded && (
+              <div className="px-3 pb-2.5 border-t border-neya-border/70">
+                {scanErr && (
+                  <p className="text-xs text-red-700 bg-red-50 px-2 py-1.5 rounded mt-2">{scanErr}</p>
+                )}
+                {scanInfo && !scanErr && (
+                  <p className="text-[11px] text-neya-muted mt-2">{scanInfo}</p>
+                )}
+                {pending.length === 0 ? (
+                  <p className="text-xs text-neya-muted py-2">Aucune facture en attente</p>
+                ) : (
+                  <div className="space-y-2 mt-2">
+                    {grouped.map(group => (
+                      <div key={group.label}>
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-neya-muted px-1 mb-1">
+                          {group.label} · {group.items.length}
+                        </p>
+                        <ul className="space-y-1">
+                          {group.items.map(item => (
+                            <li key={item.id} className="flex items-center justify-between gap-2 px-2 py-1.5 border border-neya-border bg-white">
+                              <p className="text-xs font-medium truncate min-w-0 flex-1">{item.subject}</p>
+                              <button type="button" onClick={() => setActive(item)} className="btn-primary text-[11px] shrink-0 min-h-[28px] py-0.5 px-2">
+                                Classer
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         {active && (
