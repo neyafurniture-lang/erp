@@ -79,13 +79,6 @@ export default function DashboardLiveTodo({ initial }) {
   const by = live?.bySource || {};
   const types = live?.types?.length ? live.types : LIVE_TYPES;
 
-  const summaryBits = [
-    by.admin ? `${by.admin} admin` : null,
-    by.atelier ? `${by.atelier} atelier` : null,
-    by.rdv ? `${by.rdv} RDV` : null,
-    by.installation ? `${by.installation} installation` : null,
-  ].filter(Boolean);
-
   return (
     <section className="cf-panel mb-6">
       <div className="cf-panel-head">
