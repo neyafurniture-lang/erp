@@ -3,10 +3,14 @@ import { createQuoteRecord, createInvoiceRecord, convertQuoteToInvoice, calcDocT
 import { sendDocumentEmail } from './document-email.js';
 import {
   stripPlanPrefix,
+  stripAssistantMeta,
   isJunkPlanSegment,
   splitPlanItems,
   isMultiIntentErpMessage,
   isDayPlanMessage,
+  isClearDayIntent,
+  isDeleteTaskIntent,
+  sanitizeAssistantReply,
   wantsSmartTaskPlan,
   cleanTaskTitle,
   torontoWallTime,
@@ -16,14 +20,27 @@ import {
 } from './day-plan-classify.js';
 import { buildClientCreateFields } from './client-contact-enrich.js';
 
-export { splitPlanItems, isMultiIntentErpMessage, isDayPlanMessage, wantsSmartTaskPlan, wantsCreateShift, wantsScheduleOnCalendar, cleanTaskTitle, buildClientCreateFields };
+export {
+  splitPlanItems,
+  isMultiIntentErpMessage,
+  isDayPlanMessage,
+  isClearDayIntent,
+  isDeleteTaskIntent,
+  stripAssistantMeta,
+  sanitizeAssistantReply,
+  wantsSmartTaskPlan,
+  wantsCreateShift,
+  wantsScheduleOnCalendar,
+  cleanTaskTitle,
+  buildClientCreateFields,
+};
 
 const DAY_MAP = {
   lundi: 1, mardi: 2, mercredi: 3, jeudi: 4, vendredi: 5, samedi: 6, dimanche: 0,
 };
 
 export const ACTION_TYPES = [
-  'create_task', 'create_admin_task', 'create_dashboard_todo', 'create_project', 'create_project_from_quote_email', 'schedule_task', 'create_shift', 'plan_day', 'create_expense', 'list_today', 'list_tomorrow', 'create_client',
+  'create_task', 'create_admin_task', 'create_dashboard_todo', 'create_project', 'create_project_from_quote_email', 'schedule_task', 'create_shift', 'plan_day', 'clear_day', 'create_expense', 'list_today', 'list_tomorrow', 'create_client',
   'complete_task', 'update_task', 'delete_task', 'unlink_task', 'list_project_tasks',
   'update_project', 'update_client', 'list_projects', 'list_clients', 'list_expenses',
   'search_projects', 'search_memory', 'get_project', 'add_project_material',
@@ -547,8 +564,85 @@ async function findOrCreatePlannedTask({ segment, type, project, pageContext }) 
   return rows[0];
 }
 
+async function clearDay(message) {
+  const clean = stripAssistantMeta(message);
+  const lower = clean.toLowerCase();
+
+  let dayOffset = null; // 0 = today, 1 = tomorrow (Toronto)
+  if (/\bdemain\b/.test(lower)) dayOffset = 1;
+  else if (/aujourd/.test(lower)) dayOffset = 0;
+
+  let dayIso;
+  let planDate;
+  if (dayOffset != null) {
+    const { rows: dateRows } = await pool.query(
+      `SELECT ((CURRENT_TIMESTAMP AT TIME ZONE 'America/Toronto')::date + $1::int)::text AS d`,
+      [dayOffset]
+    );
+    dayIso = dateRows[0].d;
+    planDate = new Date(`${dayIso}T12:00:00`);
+  } else {
+    planDate = parseDateHint(clean) || (() => {
+      const d = new Date();
+      d.setDate(d.getDate() + 1);
+      return d;
+    })();
+    const y = planDate.getFullYear();
+    const mo = String(planDate.getMonth() + 1).padStart(2, '0');
+    const day = String(planDate.getDate()).padStart(2, '0');
+    dayIso = `${y}-${mo}-${day}`;
+  }
+
+  const { rows } = await pool.query(
+    `SELECT t.id, t.title, t.project_id, t.status
+     FROM tasks t
+     WHERE t.start_time IS NOT NULL
+       AND DATE(t.start_time AT TIME ZONE 'America/Toronto') = $1::date
+     ORDER BY t.start_time`,
+    [dayIso]
+  );
+
+  const dateLabel = torontoWallTime(planDate, 12, 0).toLocaleDateString('fr-CA', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    timeZone: 'America/Toronto',
+  });
+
+  if (!rows.length) {
+    return {
+      reply: `Rien de planifié pour ${dateLabel}. On peut refaire ensemble — dites par ex. « Demain finition X, mail Y ».`,
+      actions: [],
+    };
+  }
+
+  const actions = [];
+  const lines = [];
+  for (const t of rows) {
+    // Tâches hors projet (créées par un planning) → suppression ; checklist projet → désplanifier seulement
+    if (!t.project_id) {
+      await pool.query('DELETE FROM tasks WHERE id = $1', [t.id]);
+      actions.push({ type: 'clear_day', data: { id: t.id, title: t.title, deleted: true } });
+      lines.push(`• « ${t.title} » (supprimée)`);
+    } else {
+      await pool.query('UPDATE tasks SET start_time = NULL, end_time = NULL WHERE id = $1', [t.id]);
+      actions.push({ type: 'clear_day', data: { id: t.id, title: t.title, unscheduled: true, project_id: t.project_id } });
+      lines.push(`• « ${t.title} » (retirée du calendrier)`);
+    }
+  }
+
+  return {
+    reply: `Planning ${dateLabel} vidé — ${rows.length} élément(s) :\n${lines.join('\n')}\n\nOn peut refaire ensemble quand vous voulez.`,
+    actions,
+  };
+}
+
 async function planDay(message, pageContext) {
-  if (isMultiIntentErpMessage(message)) {
+  const cleanMessage = stripAssistantMeta(message);
+  if (isClearDayIntent(cleanMessage)) {
+    return clearDay(cleanMessage);
+  }
+  if (isMultiIntentErpMessage(cleanMessage)) {
     return {
       reply: 'Cette demande mélange plusieurs actions ERP (calendrier, devis, client…). '
         + 'Utilisez le micro → « Créer le plan » pour les séparer, ou envoyez une action à la fois. '
@@ -557,13 +651,13 @@ async function planDay(message, pageContext) {
     };
   }
 
-  const planDate = parseDateHint(message) || (() => {
+  const planDate = parseDateHint(cleanMessage) || (() => {
     const d = new Date();
     d.setDate(d.getDate() + 1);
     return d;
   })();
 
-  const body = stripPlanPrefix(message);
+  const body = stripPlanPrefix(cleanMessage);
   const items = splitPlanItems(body).filter(s => !isJunkPlanSegment(s));
   if (!items.length) {
     return {
@@ -572,7 +666,7 @@ async function planDay(message, pageContext) {
     };
   }
 
-  const timeMatch = String(message).match(/(\d{1,2})[h:](\d{2})?/i);
+  const timeMatch = String(cleanMessage).match(/(\d{1,2})[h:](\d{2})?/i);
   let cursor = timeMatch
     ? torontoWallTime(planDate, parseInt(timeMatch[1], 10), parseInt(timeMatch[2] || '0', 10))
     : torontoWallTime(planDate, 8, 30);
@@ -1088,6 +1182,9 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
 
     case 'plan_day':
       return planDay(message, pageContext);
+
+    case 'clear_day':
+      return clearDay(msg || message);
 
     case 'list_tomorrow':
       return listTomorrow();
