@@ -362,6 +362,8 @@ export default function WeeklyPlanner({ showTasks = true, showShifts = true, tit
   const [selectedEmployeeId, setSelectedEmployeeId] = useState(null);
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [hint, setHint] = useState('');
+  const [copying, setCopying] = useState(false);
+  const pickedDefaultEmp = useRef(false);
   const [editModal, setEditModal] = useState(null);
   const [timeOffModal, setTimeOffModal] = useState(null);
 
@@ -426,6 +428,12 @@ export default function WeeklyPlanner({ showTasks = true, showShifts = true, tit
   }, [load]);
 
   useEffect(() => {
+    if (pickedDefaultEmp.current || !employees.length) return;
+    pickedDefaultEmp.current = true;
+    setSelectedEmployeeId(employees[0].id);
+  }, [employees]);
+
+  useEffect(() => {
     const empEl = document.getElementById('planner-employees');
     const taskEl = document.getElementById('planner-tasks');
     const instances = [];
@@ -438,6 +446,22 @@ export default function WeeklyPlanner({ showTasks = true, showShifts = true, tit
     return () => instances.forEach(d => d.destroy());
   }, [employees, unscheduledTasks]);
 
+  async function copyLastWeek() {
+    if (copying) return;
+    setCopying(true);
+    try {
+      const r = await api('/shifts/copy-week', { method: 'POST', body: JSON.stringify({}) });
+      setHint(r.copied
+        ? `${r.copied} quart(s) recopiés sur la semaine en cours.`
+        : (r.message || 'Aucun quart à recopier.'));
+      await load();
+    } catch (e) {
+      setHint(e.message);
+    } finally {
+      setCopying(false);
+    }
+  }
+
   async function createShift(employeeId, start, end, projectId = null) {
     await api('/shifts', {
       method: 'POST',
@@ -448,7 +472,7 @@ export default function WeeklyPlanner({ showTasks = true, showShifts = true, tit
         end_at: toIso(end),
       }),
     });
-    setHint(`Shift créé — ${new Date(start).toLocaleString('fr-CA', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`);
+    setHint(`Quart créé — ${new Date(start).toLocaleString('fr-CA', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`);
     load();
   }
 
@@ -493,12 +517,14 @@ export default function WeeklyPlanner({ showTasks = true, showShifts = true, tit
       return;
     }
     if (!showShifts) return;
-    if (!selectedEmployeeId) {
-      setHint('Sélectionnez un employé à gauche, puis glissez sur le calendrier.');
+    const empId = selectedEmployeeId || employees[0]?.id;
+    if (!empId) {
+      setHint('Ajoutez un employé (Paramètres → Utilisateurs) avant de poser un quart.');
       calendarRef.current?.getApi()?.unselect();
       return;
     }
-    createShift(selectedEmployeeId, info.start, info.end);
+    if (!selectedEmployeeId) setSelectedEmployeeId(empId);
+    createShift(empId, info.start, info.end);
     calendarRef.current?.getApi()?.unselect();
   }
 
@@ -585,9 +611,8 @@ export default function WeeklyPlanner({ showTasks = true, showShifts = true, tit
   return (
     <div>
       <p className="text-sm text-neya-muted mb-4">
-        {title} — glissez un employé ou une tâche sur le calendrier.
-        {canAddTimeOff && <> Sélectionnez une plage en haut du calendrier pour <strong className="text-neya-ink">ajouter un congé</strong>.</>}
-        <strong className="text-neya-ink"> Glissez</strong> une tâche pour la déplacer · <strong className="text-neya-ink">cliquez</strong> pour modifier (heures, projet, notes).
+        {title} — cliquez un employé à gauche, puis glissez une plage sur le calendrier (8 h par défaut).
+        {canAddTimeOff && <> Plage journée entière = <strong className="text-neya-ink">congé</strong>.</>}
       </p>
       {hint && (
         <p className="text-xs text-neya-orange bg-neya-orange/10 px-3 py-2 rounded-lg mb-4">{hint}</p>
@@ -613,7 +638,15 @@ export default function WeeklyPlanner({ showTasks = true, showShifts = true, tit
           {showShifts && (
             <div className="card rounded-2xl">
               <h3 className="text-sm font-display font-semibold text-neya-ink mb-1">Équipe</h3>
-              <p className="text-[10px] text-neya-muted mb-3">Cliquez pour sélectionner · glissez sur le calendrier</p>
+              <p className="text-[10px] text-neya-muted mb-3">Sélectionné = quarts posés en glissant sur le calendrier</p>
+              <button
+                type="button"
+                onClick={copyLastWeek}
+                disabled={copying}
+                className="btn-secondary w-full text-sm mb-3"
+              >
+                {copying ? 'Copie…' : 'Reprendre la semaine dernière'}
+              </button>
               <div id="planner-employees" className="space-y-2">
                 {employees.map(e => {
                   const active = String(e.id) === String(selectedEmployeeId);

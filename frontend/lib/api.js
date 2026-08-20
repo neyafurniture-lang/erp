@@ -375,13 +375,19 @@ export const QUOTE_STATUS = {
 };
 
 export function calcLineSubtotal(lines) {
-  return (lines || []).reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.price) || 0), 0);
+  return (lines || []).reduce((s, l) => {
+    // Accepte "12,5" / "12," (saisie FR) sans NaN
+    const q = Number(String(l?.qty ?? '').replace(',', '.'));
+    const p = Number(String(l?.price ?? '').replace(',', '.'));
+    return s + (Number.isFinite(q) ? q : 0) * (Number.isFinite(p) ? p : 0);
+  }, 0);
 }
 
 export function calcTaxes(subtotal) {
-  const gst = subtotal * 0.05;
-  const qst = subtotal * 0.09975;
-  return { subtotal, gst, qst, total: subtotal + gst + qst };
+  const base = Math.round((Number(subtotal) || 0) * 100) / 100;
+  const gst = Math.round(base * 0.05 * 100) / 100;
+  const qst = Math.round(base * 0.09975 * 100) / 100;
+  return { subtotal: base, gst, qst, total: Math.round((base + gst + qst) * 100) / 100 };
 }
 
 export const INVOICE_STATUS = {

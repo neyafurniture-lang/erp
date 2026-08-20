@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import pool from '../db/pool.js';
+import { shiftCopyRange, mondayOf, addDaysIso } from '../services/dashboard-follow.js';
 
 const router = Router();
 
@@ -20,6 +21,51 @@ router.get('/', async (req, res) => {
     q += ' ORDER BY sh.start_at';
     const { rows } = await pool.query(q, params);
     res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Copie les quarts d’une semaine (lundi) vers la semaine suivante. */
+router.post('/copy-week', async (req, res) => {
+  try {
+    const sourceMonday = req.body?.week_start
+      ? String(req.body.week_start).slice(0, 10)
+      : mondayOf(new Date(addDaysIso(mondayOf(new Date()), -7) + 'T12:00:00'));
+    const { from, to, destFrom, destTo } = shiftCopyRange(sourceMonday);
+    const { rows: source } = await pool.query(
+      `SELECT employee_id, project_id, start_at, end_at, notes
+       FROM shifts
+       WHERE start_at >= $1::date AND start_at < $2::date
+       ORDER BY start_at`,
+      [from, to]
+    );
+    if (!source.length) {
+      return res.json({ copied: 0, from, destFrom, message: 'Aucun quart la semaine source.' });
+    }
+    let copied = 0;
+    const created = [];
+    for (const s of source) {
+      const start = new Date(s.start_at);
+      const end = new Date(s.end_at);
+      start.setDate(start.getDate() + 7);
+      end.setDate(end.getDate() + 7);
+      const { rows: exists } = await pool.query(
+        `SELECT id FROM shifts
+         WHERE employee_id = $1 AND start_at = $2 AND end_at = $3
+         LIMIT 1`,
+        [s.employee_id, start.toISOString(), end.toISOString()]
+      );
+      if (exists[0]) continue;
+      const { rows } = await pool.query(
+        `INSERT INTO shifts (employee_id, project_id, start_at, end_at, notes)
+         VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+        [s.employee_id, s.project_id, start.toISOString(), end.toISOString(), s.notes]
+      );
+      copied += 1;
+      created.push(rows[0]);
+    }
+    res.json({ copied, from, destFrom, destTo, shifts: created });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

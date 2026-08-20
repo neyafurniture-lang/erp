@@ -1,5 +1,6 @@
 import pool from '../db/pool.js';
 import { calcDocTotals } from './invoice-helpers.js';
+import { flattenQuoteLines, normalizeQuoteDocument, serializeQuoteDocument } from './quote-document.js';
 
 const FR_MONTHS = {
   janvier: 1, jan: 1,
@@ -318,17 +319,35 @@ export async function syncInstallationInvoice(projectId) {
     qty: 1,
     price: Number(d.fee),
   }));
+  const prefix = 'Installation sur place —';
+
+  function mergeInstallIntoInvoiceLines(rawLines) {
+    const doc = normalizeQuoteDocument(rawLines);
+    const hasStructure = (doc.sections || []).length > 1
+      || (doc.sections || []).some(s => String(s.title || '').trim());
+    if (hasStructure) {
+      const sections = doc.sections.map(s => ({
+        ...s,
+        lines: (s.lines || []).filter(l => !String(l.description || '').startsWith(prefix)),
+      }));
+      let target = sections.find(s => /install/i.test(String(s.title || '')));
+      if (!target) {
+        target = { id: `sec_install_${Date.now()}`, title: 'Installation', lines: [] };
+        sections.push(target);
+      }
+      target.lines = [...(target.lines || []), ...installLines];
+      return serializeQuoteDocument({ ...doc, sections });
+    }
+    const flat = flattenQuoteLines(doc)
+      .filter(l => !String(l.description || '').startsWith(prefix));
+    return [...flat, ...installLines];
+  }
 
   if (invoiceId) {
     const { rows: invRows } = await pool.query('SELECT * FROM invoices WHERE id = $1', [invoiceId]);
     if (!invRows[0]) invoiceId = null;
     else {
-      const rawLines = typeof invRows[0].lines === 'string'
-        ? JSON.parse(invRows[0].lines)
-        : (invRows[0].lines || []);
-      const prefix = 'Installation sur place —';
-      const kept = rawLines.filter(l => !String(l.description || '').startsWith(prefix));
-      const lines = [...kept, ...installLines];
+      const lines = mergeInstallIntoInvoiceLines(invRows[0].lines);
       const { subtotal, total } = calcDocTotals(lines);
       await pool.query(
         `UPDATE invoices SET lines = $1, subtotal = $2, total = $3 WHERE id = $4`,
@@ -346,12 +365,7 @@ export async function syncInstallationInvoice(projectId) {
     if (existing[0]) {
       invoiceId = existing[0].id;
       const { rows: invRows } = await pool.query('SELECT * FROM invoices WHERE id = $1', [invoiceId]);
-      const rawLines = typeof invRows[0].lines === 'string'
-        ? JSON.parse(invRows[0].lines)
-        : (invRows[0].lines || []);
-      const prefix = 'Installation sur place —';
-      const kept = rawLines.filter(l => !String(l.description || '').startsWith(prefix));
-      const lines = [...kept, ...installLines];
+      const lines = mergeInstallIntoInvoiceLines(invRows[0].lines);
       const { subtotal, total } = calcDocTotals(lines);
       await pool.query(
         `UPDATE invoices SET lines = $1, subtotal = $2, total = $3 WHERE id = $4`,

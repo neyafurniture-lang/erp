@@ -7,6 +7,15 @@ import { scanInboxForSupplierInvoices } from '../services/invoice-email-router.j
 import { syncProjectStatusFromTasks } from '../services/project-status-sync.js';
 import { cleanupClientMailPayableTodos, cleanupHandledSupplierPayableTodos } from '../services/mail-invoice-todos.js';
 import { resolveMailTaskHref } from '../services/mail-deep-link.js';
+import {
+  adminCategoryLabel,
+  isMoneyFollowSourceKey,
+  shouldShowAdminOnDashboard,
+  quoteDetailHref,
+  invoiceDetailHref,
+  formatQuoteFollowTitle,
+  formatInvoiceFollowTitle,
+} from '../services/dashboard-follow.js';
 
 const router = Router();
 
@@ -61,12 +70,16 @@ async function buildLiveTodo() {
       FROM tasks t
       INNER JOIN projects p ON p.id = t.project_id AND p.status = 'active'
       WHERE t.status != 'done'
+        AND (
+          t.status = 'doing'
+          OR (t.start_time IS NOT NULL AND t.start_time >= CURRENT_DATE AND t.start_time < CURRENT_DATE + INTERVAL '1 day')
+        )
       ORDER BY
         CASE t.status WHEN 'doing' THEN 0 WHEN 'todo' THEN 1 ELSE 2 END,
         t.start_time NULLS LAST,
         t.sort_order NULLS LAST,
         t.id ASC
-      LIMIT 12
+      LIMIT 8
     `),
     pool.query(`
       SELECT t.id, t.title, t.status, t.type, t.start_time, t.project_id, t.description,
@@ -87,6 +100,8 @@ async function buildLiveTodo() {
   const items = [];
 
   for (const t of adminOpen.rows) {
+    if (isMoneyFollowSourceKey(t.source_key)) continue;
+    if (!shouldShowAdminOnDashboard(t)) continue;
     const isOps = String(t.source_key || '').startsWith('ops_')
       || /atelier|matériel|materiel|nettoyage/i.test(`${t.title} ${t.notes || ''}`);
     const source = resolveLiveSource(t, isOps ? 'atelier' : 'admin');
@@ -97,7 +112,7 @@ async function buildLiveTodo() {
       title: t.title,
       subtitle: source === 'installation'
         ? 'Installation'
-        : (isOps ? 'Opération atelier' : (SOURCE_LABEL.admin + (t.category ? ` · ${t.category}` : ''))),
+        : (isOps ? 'Atelier' : adminCategoryLabel(t.category)),
       href: resolveMailTaskHref(t) || t.link_href || '/admin',
       priority: t.priority_tier || null,
       status: t.status,
@@ -182,7 +197,7 @@ async function buildLiveTodo() {
 
   const open = items.filter(i => !i.done).length;
   return {
-    items: items.slice(0, 24),
+    items: items.slice(0, 16),
     open,
     types: LIVE_TODO_TYPES.map(id => ({ id, label: SOURCE_LABEL[id] })),
     bySource: {
@@ -246,6 +261,7 @@ router.get('/', async (req, res) => {
       revenueMonth,
       quotesPendingTotal,
       revenuePrevMonth,
+      todayShifts,
     ] = await Promise.all([
       pool.query(`
         SELECT
@@ -382,6 +398,16 @@ router.get('/', async (req, res) => {
           AND created_at >= date_trunc('month', CURRENT_DATE::timestamp) - INTERVAL '1 month'
           AND created_at < date_trunc('month', CURRENT_DATE::timestamp)
       `).catch(() => ({ rows: [{ total: 0 }] })),
+      pool.query(`
+        SELECT sh.id, sh.start_at, sh.end_at, sh.notes, e.name AS employee_name, e.color, p.name AS project_name
+        FROM shifts sh
+        JOIN employees e ON e.id = sh.employee_id
+        LEFT JOIN projects p ON p.id = sh.project_id
+        WHERE sh.start_at >= CURRENT_DATE
+          AND sh.start_at < CURRENT_DATE + INTERVAL '1 day'
+        ORDER BY sh.start_at
+        LIMIT 12
+      `).catch(() => ({ rows: [] })),
     ]);
 
     const ps = projectStats.rows[0];
@@ -411,8 +437,8 @@ router.get('/', async (req, res) => {
     if (pendingQuotes.rows.length > 0) alerts.push({ type: 'info', text: `${pendingQuotes.rows.length} devis en cours`, href: '/invoices' });
     const adminOpen = adminTasksSummary.rows[0]?.open || 0;
     const adminOverdue = adminTasksSummary.rows[0]?.overdue || 0;
-    if (adminOverdue > 0) alerts.push({ type: 'warning', text: `${adminOverdue} tâche(s) admin en retard`, href: '/admin' });
-    else if (adminOpen > 0) alerts.push({ type: 'info', text: `${adminOpen} tâche(s) admin à faire`, href: '/admin' });
+    if (adminOverdue > 0) alerts.push({ type: 'warning', text: `${adminOverdue} tâche(s) bureau en retard`, href: '/admin' });
+    else if (adminOpen > 0) alerts.push({ type: 'info', text: `${adminOpen} tâche(s) bureau à faire`, href: '/admin' });
     const supplierPending = supplierInvoicesPending.rows[0]?.count || 0;
     if (supplierPending > 0) alerts.push({ type: 'warning', text: `${supplierPending} facture(s) fournisseur à classer`, href: '/mail' });
 
@@ -426,6 +452,18 @@ router.get('/', async (req, res) => {
     scanInboxForSupplierInvoices().catch(() => {});
 
     const liveTodo = await buildLiveTodo().catch(() => ({ items: [], open: 0, bySource: {} }));
+
+    const moneyQuotes = pendingQuotes.rows.map(q => ({
+      ...q,
+      href: quoteDetailHref(q.id),
+      label: formatQuoteFollowTitle(q),
+    }));
+    const moneyInvoices = pendingInvoices.rows.map(i => ({
+      ...i,
+      href: invoiceDetailHref(i.id),
+      remaining: Math.max(0, Number(i.total || 0) - Number(i.amount_paid || 0)),
+      label: formatInvoiceFollowTitle(i),
+    }));
 
     res.json({
       stats: {
@@ -450,8 +488,9 @@ router.get('/', async (req, res) => {
       alerts,
       tasksToday: tasksToday.rows,
       tasksWeek: tasksWeek.rows,
-      pendingInvoices: pendingInvoices.rows,
-      pendingQuotes: pendingQuotes.rows,
+      pendingInvoices: moneyInvoices,
+      pendingQuotes: moneyQuotes,
+      todayShifts: todayShifts.rows || [],
       urgentProjects: urgentProjects.rows,
       activeProjects: projectCards,
       projectCards,

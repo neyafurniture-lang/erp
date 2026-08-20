@@ -1,25 +1,28 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
 import BiweeklyTimesheet from '../../components/BiweeklyTimesheet';
 import WeeklyPlanner from '../../components/WeeklyPlanner';
 
 const TABS = [
+  { id: 'planning', label: 'Quarts' },
   { id: 'timesheet', label: 'Feuille de temps' },
-  { id: 'planning', label: 'Planning shifts' },
 ];
 
-export default function TeamPage() {
-  const [tab, setTab] = useState('timesheet');
+function TeamPageInner() {
+  const searchParams = useSearchParams();
+  const initial = searchParams.get('tab') === 'timesheet' ? 'timesheet' : 'planning';
+  const [tab, setTab] = useState(initial);
 
   return (
     <AuthGuard>
       <AppShell
-        title="Équipe"
-        subtitle="Feuille de temps quinzaine · congés · shifts"
+        title="Quarts"
+        subtitle="Cliquez un employé, puis glissez sur le calendrier — 8 h par défaut"
         wide
       >
         <div className="mb-5 flex flex-wrap items-center gap-2 justify-between">
@@ -50,16 +53,26 @@ export default function TeamPage() {
         ) : (
           <>
             <p className="mb-4 text-sm text-neya-muted">
-              Planifiez les shifts atelier. L’équipe peut aussi confirmer dans{' '}
-              <Link href="/mes-heures" className="text-neya-orange font-medium hover:underline">
-                Mes heures
-              </Link>
-              .
+              1. Cliquez <strong className="text-neya-ink">Olive</strong> ou <strong className="text-neya-ink">Mehdi</strong> à gauche.
+              2. Glissez une plage sur le calendrier (lundi 8 h → 16 h).
+              3. « Reprendre la semaine dernière » recopie les quarts.
             </p>
-            <WeeklyPlanner showTasks={false} showShifts title="Planning des shifts" />
+            <WeeklyPlanner showTasks={false} showShifts title="Planning des quarts" />
           </>
         )}
       </AppShell>
     </AuthGuard>
+  );
+}
+
+export default function TeamPage() {
+  return (
+    <Suspense fallback={
+      <AuthGuard>
+        <AppShell title="Quarts"><p className="text-sm text-neya-muted">Chargement…</p></AppShell>
+      </AuthGuard>
+    }>
+      <TeamPageInner />
+    </Suspense>
   );
 }

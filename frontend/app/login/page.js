@@ -265,7 +265,7 @@ export default function LoginPage() {
                 M
               </div>
               <div>
-                <p className="text-[13px] font-semibold">Mehdi Benali</p>
+                <p className="text-[13px] font-semibold">Mehdi Aarab</p>
                 <p className="text-[12px] text-white/70">Fondateur · Neya Furniture</p>
               </div>
             </footer>

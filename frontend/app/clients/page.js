@@ -121,6 +121,26 @@ function ClientsContent() {
     setShowForm(true);
   }
 
+  async function deleteClient(c) {
+    const name = c?.name || 'ce client';
+    const projects = Number(c?.project_count || 0);
+    const msg = projects
+      ? `Supprimer « ${name} » ?\n\nLa fiche sera effacée. Les ${projects} projet(s), devis et factures liés resteront (sans client).`
+      : `Supprimer définitivement « ${name} » ?`;
+    if (!window.confirm(msg)) return;
+    try {
+      await api(`/clients/${c.id}`, { method: 'DELETE' });
+      if (editId === c.id) {
+        setShowForm(false);
+        setEditId(null);
+        setForm({ name: '', contact: '', email: '', phone: '', address: '', city: '', notes: '' });
+      }
+      load();
+    } catch (err) {
+      window.alert(err.message || 'Suppression impossible');
+    }
+  }
+
   async function openMailImport() {
     setImportOpen(true);
     setImportError('');
@@ -392,9 +412,18 @@ function ClientsContent() {
             <label className="label">Notes</label>
             <textarea className="input" rows={2} value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
           </div>
-          <div className="md:col-span-2 flex gap-2">
+          <div className="md:col-span-2 flex flex-wrap gap-2">
             <button type="submit" className="btn-primary">{editId ? 'Modifier' : 'Créer'}</button>
             <button type="button" onClick={() => setShowForm(false)} className="btn-secondary">Annuler</button>
+            {editId && (
+              <button
+                type="button"
+                onClick={() => deleteClient(clients.find(x => x.id === editId))}
+                className="btn-secondary text-red-600 hover:bg-red-50 ml-auto"
+              >
+                Supprimer
+              </button>
+            )}
           </div>
         </form>
       )}
@@ -489,13 +518,22 @@ function ClientsContent() {
                     {c.open_quotes > 0 && !c.last_activity_at ? 'Devis' : relativeLast(c.last_activity_at)}
                   </td>
                   <td className="px-5 py-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() => startEdit(c)}
-                      className="text-xs font-medium text-neya-orange hover:underline"
-                    >
-                      Modifier
-                    </button>
+                    <div className="flex items-center justify-end gap-3">
+                      <button
+                        type="button"
+                        onClick={() => startEdit(c)}
+                        className="text-xs font-medium text-neya-orange hover:underline"
+                      >
+                        Modifier
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteClient(c)}
+                        className="text-xs font-medium text-red-600 hover:underline"
+                      >
+                        Supprimer
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );
