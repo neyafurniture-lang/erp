@@ -325,7 +325,8 @@ export async function listMessages({ label = 'INBOX', max = 30, pageToken = null
   const params = new URLSearchParams({ maxResults: String(max) });
   if (label) {
     const labelId = await resolveLabelId(label);
-    if (labelId) params.set('labelIds', labelId);
+    if (!labelId) return { messages: [], nextPageToken: null };
+    params.set('labelIds', labelId);
   }
   if (pageToken) params.set('pageToken', pageToken);
   if (q) params.set('q', q);

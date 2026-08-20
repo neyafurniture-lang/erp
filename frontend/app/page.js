@@ -111,9 +111,16 @@ export default function DashboardPage() {
       const reply = sections.find(s => s.id === 'a_repondre');
       const all = mail.messages || [];
       const msgs = all
-        .filter(m => (m.mailCategory || m.erpFolder || m.folder || m.section) === 'a_repondre' || m.urgent || m.needsReply)
-        .slice(0, 4);
-      const fallback = msgs.length ? msgs : all.slice(0, 4);
+        .filter(m => {
+          const cat = m.mailCategory || m.erpFolder || m.folder || m.section;
+          if (cat === 'a_repondre' || m.urgent || m.needsReply) return true;
+          if ((m.isUnread || m.unread) && cat !== 'promotions') return true;
+          return false;
+        })
+        .slice(0, 6);
+      const fallback = msgs.length
+        ? msgs
+        : all.filter(m => (m.mailCategory || '') !== 'promotions').slice(0, 4);
       const urgent = all.filter(m => m.urgent || /urgent/i.test(m.subject || '')).length;
       setMailPreview({
         messages: fallback,

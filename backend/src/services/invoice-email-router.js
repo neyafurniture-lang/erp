@@ -38,10 +38,15 @@ function norm(text) {
 }
 
 export function detectSupplier(from, subject, snippet) {
-  const hay = norm(`${from} ${subject}`);
+  const hay = ` ${norm(`${from} ${subject}`)} `;
   for (const s of SUPPLIERS) {
     if (s.id === 'other') continue;
-    if (s.patterns.some(p => hay.includes(norm(p)))) return s;
+    if (s.patterns.some(p => {
+      const n = norm(p);
+      if (!n) return false;
+      const token = n.split(/\s+/).filter(Boolean).join('\\s+');
+      return new RegExp(`(?:^|[^a-z0-9])${token}(?:[^a-z0-9]|$)`).test(hay);
+    })) return s;
   }
   return null;
 }

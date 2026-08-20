@@ -110,13 +110,17 @@ export async function applyGmailLabelsForMessages(messages = []) {
   return { applied, errors };
 }
 
-// Newsletters / marketing — suffisamment précis pour éviter GitHub/banques
-const PROMO_RE = /unsubscribe|d[ée]sinscription|newsletter|infolettre|promotions?\b|marketing|mailchimp|klaviyo|sendgrid|hubspot|beehiiv|constant.?contact|info@shop|deals@|offres@|soldes?@|updates@|newsletter@|noreply@.*news|no-?reply@.*mail|livraison\s+gratuite|free\s+shipping|last\s+chance|derni[eè]re\s+chance|%\s*off|rabais|promo\b|ne\s+manquez\s+pas|flash\s+sale|black\s+friday|cyber\s+monday|code\s+promo| exclusive\s+offer/i;
+// Newsletters / marketing — assez strict pour ne pas enterrer un vrai client
+const PROMO_FROM_RE = /newsletter@|infolettre@|deals@|offres@|soldes?@|updates@|info@shop|noreply@.*news|mailchimp|klaviyo|sendgrid|hubspotemail|beehiiv|constant.?contact/i;
+const PROMO_STRONG_RE = /livraison\s+gratuite|free\s+shipping|last\s+chance|derni[eè]re\s+chance|%\s*off|flash\s+sale|black\s+friday|cyber\s+monday|code\s+promo|exclusive\s+offer|ne\s+manquez\s+pas/i;
+const PROMO_WEAK_RE = /\bunsubscribe\b|d[ée]sinscription|\bnewsletter\b|\binfolettre\b|\bpromotions?\b|\bmarketing\b|\brabais\b|\bpromo\b/i;
 const PROMO_DOMAIN_RE = /\b(leevalley|leevalleynews|mailchimp|klaviyo|sendgrid|shopifyemail|exacttarget|cmail|campaign-archive|list-manage|hubspotemail|beehiiv|mailgun|postmarkapp|createsend|constantcontact)\b/i;
 const NOT_PROMO_FROM_RE = /github\.com|gitlab\.com|bitbucket\.org|cursor\.com|google\.com|accounts\.google/i;
+const GMAIL_PROMO_LABELS = new Set(['CATEGORY_PROMOTIONS', 'CATEGORY_SOCIAL', 'CATEGORY_FORUMS']);
+const GMAIL_NOISE_LABELS = new Set([...GMAIL_PROMO_LABELS, 'CATEGORY_UPDATES']);
 const CLIENT_INTENTS = new Set(['devis', 'suivi', 'plainte', 'confirmation']);
 /** Indices qu’un humain doit répondre (sans synthèse IA). */
-const REPLY_NEEDED_RE = /\b(urgent|asap|rappel|relance|merci\s+de\s+(me\s+)?(rappeler|confirmer|r[ée]pondre)|pouvez[- ]vous|can\s+you|please\s+confirm|besoin\s+de\s+votre|attente\s+de\s+votre|r[ée]ponse\s+souhait)\b/i;
+const REPLY_NEEDED_RE = /\b(urgent|asap|rappel|relance|merci\s+de\s+(me\s+)?(rappeler|confirmer|r[ée]pondre)|pouvez[- ]vous|can\s+you|please\s+confirm|besoin\s+de\s+votre|attente\s+de\s+votre|r[ée]ponse\s+souhait|je\s+voudrais|j[’']aimerais|devis|soumission)\b/i;
 const WEAK_LINK_SOURCES = new Set([
   'client_name',
   'client_name_parts',
@@ -129,10 +133,18 @@ const WEAK_LINK_SOURCES = new Set([
 ]);
 const VALID_CATEGORIES = new Set(MAIL_SECTIONS.map(s => s.id).filter(id => id !== 'inbox'));
 
-export function isPromotion(from, subject, snippet) {
+export function isPromotion(from, subject, snippet, { labelIds } = {}) {
   if (NOT_PROMO_FROM_RE.test(String(from || ''))) return false;
+  const labels = Array.isArray(labelIds) ? labelIds : [];
+  if (labels.includes('IMPORTANT') || labels.includes('STARRED')) return false;
+  if (labels.includes('CATEGORY_PROMOTIONS')) return true;
+  const fromStr = String(from || '');
   const hay = `${from} ${subject} ${snippet}`;
-  return PROMO_RE.test(hay) || PROMO_DOMAIN_RE.test(hay);
+  if (PROMO_DOMAIN_RE.test(hay) || PROMO_FROM_RE.test(fromStr)) return true;
+  if (PROMO_STRONG_RE.test(`${subject} ${snippet}`)) return true;
+  // Pied « unsubscribe » seul (GitHub, banques, clients) ≠ newsletter
+  const weakHits = (hay.match(PROMO_WEAK_RE) || []).length;
+  return weakHits >= 2;
 }
 
 function isWeakAutoLink(thread) {
@@ -154,10 +166,23 @@ let ownEmailCacheAt = 0;
 
 async function getClientEmailSet() {
   if (clientEmailCache && Date.now() - clientEmailCacheAt < 60_000) return clientEmailCache;
-  const { rows } = await pool.query(
-    'SELECT LOWER(TRIM(email)) AS email FROM clients WHERE email IS NOT NULL AND TRIM(email) <> \'\''
-  );
-  clientEmailCache = new Set(rows.map(r => r.email));
+  let rows = [];
+  try {
+    const r = await pool.query(
+      `SELECT LOWER(TRIM(email)) AS email FROM clients WHERE email IS NOT NULL AND TRIM(email) <> ''
+       UNION
+       SELECT LOWER(TRIM(m[1])) AS email
+       FROM clients,
+            LATERAL regexp_matches(COALESCE(contact, ''), '([\\w.+-]+@[\\w.-]+\\.\\w+)', 'gi') AS m`
+    );
+    rows = r.rows;
+  } catch {
+    const r = await pool.query(
+      `SELECT LOWER(TRIM(email)) AS email FROM clients WHERE email IS NOT NULL AND TRIM(email) <> ''`
+    );
+    rows = r.rows;
+  }
+  clientEmailCache = new Set(rows.map(r => r.email).filter(Boolean));
   clientEmailCacheAt = Date.now();
   return clientEmailCache;
 }
@@ -217,6 +242,7 @@ export function classifyMailMessage({
   clientEmails = null,
   ownEmails = null,
   preferStored = false,
+  labelIds = null,
   gmailCategory = null,
   inboundNeedsReply = false,
 } = {}) {
@@ -226,7 +252,10 @@ export function classifyMailMessage({
     ownEmails
   );
   const matchedClientEmail = addresses.some(e => emails.has(e));
-  const promo = isPromotion(from, subject, snippet);
+  const labels = Array.isArray(labelIds) ? labelIds : [];
+  const gmailImportant = labels.includes('IMPORTANT') || labels.includes('STARRED');
+  const gmailNoise = labels.some(id => GMAIL_NOISE_LABELS.has(id));
+  const promo = isPromotion(from, subject, snippet, { labelIds: labels });
   const weakLink = isWeakAutoLink(thread);
   // Lien client « réel » : email ERP exact, ou lien manuel / haute confiance — pas un faux positif « Son »
   const hasStrongClient = matchedClientEmail || (
@@ -262,15 +291,15 @@ export function classifyMailMessage({
   }
   if (isValidMailCategory(gmailCategory)) return gmailCategory;
 
-  // Newsletters / promos d’abord — sauf client ERP exact (email) ou vraie facture
-  if (promo && !matchedClientEmail && !hardInvoice) return 'promotions';
+  // Newsletters : Gmail Promotions / domaines marketing — jamais un mail marqué important
+  if (promo && !matchedClientEmail && !hardInvoice && !gmailImportant) return 'promotions';
   if (isSupplierInvoice) return 'fournisseurs';
   if (needsResponse || replyHint) return 'a_repondre';
   if (isUnread && hasStrongClient && !isOutbound) return 'a_repondre';
+  if (detectSupplier(from, subject, snippet)) return 'fournisseurs';
+  if (isUnread && !isOutbound && !promo && (gmailImportant || !gmailNoise)) return 'a_repondre';
   if (hasProject) return 'projets';
   if (hasClient || CLIENT_INTENTS.has(clientIntent)) return 'clients';
-  // Home Depot / Rona / Canac → Fournisseurs (les newsletters restent promotions plus haut)
-  if (detectSupplier(from, subject, snippet)) return 'fournisseurs';
   return 'autres';
 }
 
@@ -299,8 +328,8 @@ export function computeMailCategoryForThread(threadRow, synthesis = null, { ownE
     from: fromHint,
     to: participants.join(', '),
     subject: threadRow.subject || '',
-    snippet: '',
-    isUnread: false,
+    snippet: synthesis?.summary || threadRow.snippet || '',
+    isUnread: Boolean(synthesis?.needs_response || threadRow.needs_response),
     isOutbound: false,
     thread: {
       client_id: threadRow.client_id,
@@ -421,6 +450,7 @@ export async function enrichInboxMessages(messages = []) {
       thread,
       clientEmails,
       ownEmails,
+      labelIds: m.labelIds || [],
       preferStored: true,
       gmailCategory,
       inboundNeedsReply: true,
@@ -490,10 +520,66 @@ export async function enrichInboxMessages(messages = []) {
   return { messages: enriched, sections };
 }
 
-export async function sortInbox({ max = 40, applyLabels = true } = {}) {
-  const { listMessages } = await import('./google-gmail.js');
-  const { messages: raw } = await listMessages({ label: 'INBOX', max });
-  const result = await enrichInboxMessages(raw || []);
+export const INBOX_SORTED_MAX = 80;
+
+/** Garde un message par fil : non-lu prioritaire, sinon le plus récent. */
+export function mergeMailThreads(messageLists = []) {
+  const byThread = new Map();
+  for (const list of messageLists) {
+    for (const m of list || []) {
+      if (!m) continue;
+      const key = m.threadId || m.id;
+      if (!key) continue;
+      const prev = byThread.get(key);
+      if (!prev) {
+        byThread.set(key, m);
+        continue;
+      }
+      const prevUnread = Boolean(prev.isUnread || prev.unread);
+      const nextUnread = Boolean(m.isUnread || m.unread);
+      if (nextUnread && !prevUnread) {
+        byThread.set(key, m);
+        continue;
+      }
+      if (prevUnread && !nextUnread) continue;
+      if (new Date(m.date || 0).getTime() > new Date(prev.date || 0).getTime()) {
+        byThread.set(key, m);
+      }
+    }
+  }
+  return [...byThread.values()];
+}
+
+async function listMailSafe(gmail, opts) {
+  try {
+    const { messages } = await gmail.listMessages(opts);
+    return messages || [];
+  } catch {
+    return [];
+  }
+}
+
+export async function sortInbox({ max = INBOX_SORTED_MAX, applyLabels = true } = {}) {
+  const gmail = await import('./google-gmail.js');
+  const cap = Math.min(Math.max(Number(max) || INBOX_SORTED_MAX, 20), 120);
+  const recentCap = Math.min(cap, 80);
+  const extraCap = Math.min(40, cap);
+
+  const [inboxPriority, triQueue, neyaReply] = await Promise.all([
+    listMailSafe(gmail, {
+      q: 'in:inbox (is:unread OR is:important OR is:starred OR newer_than:21d)',
+      max: recentCap,
+    }),
+    listMailSafe(gmail, { label: 'Tri/A_traiter', max: extraCap }),
+    listMailSafe(gmail, { label: GMAIL_CATEGORY_LABELS.a_repondre, max: extraCap }),
+  ]);
+
+  let raw = mergeMailThreads([inboxPriority, triQueue, neyaReply]);
+  if (raw.length < 15) {
+    const fallback = await listMailSafe(gmail, { label: 'INBOX', max: recentCap });
+    raw = mergeMailThreads([raw, fallback]);
+  }
+  const result = await enrichInboxMessages(raw);
   if (applyLabels && result.messages?.length) {
     applyGmailLabelsForMessages(result.messages).catch(err => {
       console.warn('Gmail labels (inbox):', err.message);
@@ -638,7 +724,7 @@ export async function setThreadMailCategory(threadDbId, category) {
   return rows[0];
 }
 
-export async function sortRecentInbox(max = 40, {
+export async function sortRecentInbox(max = INBOX_SORTED_MAX, {
   includeTri = true,
   scanInvoices = true,
 } = {}) {

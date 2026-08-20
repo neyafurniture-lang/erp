@@ -64,7 +64,7 @@ router.get('/messages', async (req, res) => {
 
 router.get('/inbox-sorted', async (req, res) => {
   try {
-    res.json(await sortInbox({ max: Number(req.query.max) || 40 }));
+    res.json(await sortInbox({ max: Number(req.query.max) || 80 }));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
