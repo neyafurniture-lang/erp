@@ -3,6 +3,7 @@
 ## Cursor Cloud specific instructions
 
 - **Design reference :** https://github.com/neyafurniture-lang/neya-craft-flow (public) + preview https://neya-craft-flow.lovable.app — tokens/shell déjà portés dans `frontend/` (voir `docs/design-craft-flow.md`).
+- **Grille éditoriale Müller-Brockmann :** skill `.cursor/skills/muller-brockmann-grid/` — appliquée à `/marches` (rapport marchés). Overlay grille (touche `G`), baseline 8 px, accent rouge suisse. Scripts : `scripts/grid_tokens.py`, `scripts/verify_grid.js`.
 - **Ne pas** démarrer les services dans le script d’update : seulement `npm install` frontend + backend.
 - Frontend : `cd frontend && npm run dev` · Backend : `cd backend && npm run dev` (ou scripts documentés dans le README / docker-compose).
 - Auth locale typique : `admin@neya.local` / voir secrets ou seed DB.
