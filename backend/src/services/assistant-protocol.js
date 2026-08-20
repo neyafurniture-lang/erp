@@ -10,7 +10,9 @@ export const PROTOCOL_VERSION = '1.2.0';
 
 /** Métadonnées stables des actions (indépendantes du seed DB). */
 export const ACTION_CATALOG = [
-  { type: 'create_task', usage: 'Créer une tâche (project_id null = hors checklist ; garder client_id + related_project_id pour l\'historique)', params: { title: 'string', type: 'debitage|usinage|assemblage|finition|admin', project_name: 'string?', project_id: 'number|null?', client_id: 'number?', related_project_id: 'number?' } },
+  { type: 'create_task', usage: 'Créer une tâche checklist/calendrier (project_id null = hors checklist ; day/start_hour/calendar pour le calendrier ; garder client_id + related_project_id)', params: { title: 'string', type: 'debitage|usinage|assemblage|finition|admin', project_name: 'string?', project_id: 'number|null?', client_id: 'number?', related_project_id: 'number?', day: 'string?', start_hour: 'number?', calendar: 'boolean?' } },
+  { type: 'create_admin_task', usage: 'Todo panel /admin (à payer, à recevoir, gestion…)', params: { title: 'string', category: 'a_payer|a_recevoir|facturation|gestion|marche|site_web|marketing?', notes: 'string?' } },
+  { type: 'create_dashboard_todo', usage: 'Todo live du tableau de bord', params: { title: 'string', list_key: 'string?' } },
   { type: 'create_project', usage: 'Créer un projet simple', params: { name: 'string', client_id: 'number?' } },
   { type: 'create_project_from_quote_email', usage: 'Devis Gmail/PDF → client + projet(s) + devis + tâches', params: { query: 'string (ex. Alexandra, The NNS)', message_id: 'string?', max: 'number?' } },
   { type: 'complete_task', usage: 'Cocher une tâche', params: { task_title: 'string', project_name: 'string?', project_id: 'number?' } },
@@ -43,7 +45,8 @@ export const ACTION_CATALOG = [
   { type: 'plan_day', usage: 'Planifier plusieurs tâches demain', params: {} },
   { type: 'list_today', usage: 'Tâches du jour', params: {} },
   { type: 'list_tomorrow', usage: 'Tâches demain', params: {} },
-  { type: 'schedule_task', usage: 'Planifier une tâche', params: { task_title: 'string?' } },
+  { type: 'schedule_task', usage: 'Planifier une tâche au calendrier (crée la tâche si elle n’existe pas)', params: { task_title: 'string?', day: 'string?', start_hour: 'number?', task_id: 'number?' } },
+  { type: 'create_shift', usage: 'Créer un quart employé (Olive demain 8h–16h)', params: { employee_name: 'string?', day: 'string?', start_hour: 'number?', hours: 'number?' } },
   { type: 'create_expense', usage: 'Créer dépense', params: { amount: 'number?', category: 'string?' } },
   { type: 'list_expenses', usage: 'Lister dépenses', params: {} },
   { type: 'search_memory', usage: 'Mémoire atelier', params: { query: 'string' } },

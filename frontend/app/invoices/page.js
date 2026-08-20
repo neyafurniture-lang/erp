@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
 import InvoicePaymentModal from '../../components/InvoicePaymentModal';
@@ -12,6 +13,8 @@ import {
 } from '../../lib/api';
 import DocRowMenu from '../../components/DocRowMenu';
 import SendDocumentModal from '../../components/SendDocumentModal';
+import DocumentPdfPreviewModal from '../../components/DocumentPdfPreviewModal';
+import { isMeaningfulLine } from '../../lib/quote-document';
 
 const EMPTY_FORM = {
   client_id: '',
@@ -25,16 +28,20 @@ const EMPTY_FORM = {
   lines: [{ description: '', qty: 1, price: 0 }],
 };
 
-export default function InvoicesPage() {
+function InvoicesPageInner() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [invoices, setInvoices] = useState([]);
   const [quotes, setQuotes] = useState([]);
   const [clients, setClients] = useState([]);
   const [tab, setTab] = useState('quotes');
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [creating, setCreating] = useState(false);
   const [paymentForm, setPaymentForm] = useState(null);
   const [convertForm, setConvertForm] = useState(null);
   const [sendDoc, setSendDoc] = useState(null); // { type, id }
+  const [previewDoc, setPreviewDoc] = useState(null); // { type, id, title, filename }
   const [toast, setToast] = useState('');
 
   const load = () => {
@@ -44,6 +51,20 @@ export default function InvoicesPage() {
   };
 
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    const q = searchParams.get('quote');
+    if (q) {
+      router.replace(`/invoices/quotes/${q}`);
+      return;
+    }
+    const inv = searchParams.get('invoice');
+    if (inv) {
+      router.replace(`/invoices/${inv}`);
+      return;
+    }
+    if (searchParams.get('tab') === 'invoices') setTab('invoices');
+  }, [searchParams, router]);
 
   function showToast(msg) {
     setToast(msg);
@@ -57,12 +78,65 @@ export default function InvoicesPage() {
 
   async function createDoc(e) {
     e.preventDefault();
-    const endpoint = tab === 'quotes' ? '/invoices/quotes' : '/invoices';
-    await api(endpoint, { method: 'POST', body: JSON.stringify(form) });
-    setShowForm(false);
-    setForm({ ...EMPTY_FORM });
-    showToast(tab === 'quotes' ? 'Devis créé' : 'Facture créée');
-    load();
+    if (creating) return;
+    if (!form.client_id) {
+      showToast('Sélectionnez un client');
+      return;
+    }
+    if (!String(form.title || '').trim()) {
+      showToast('Indiquez un titre de projet');
+      return;
+    }
+
+    const lines = (form.lines || [])
+      .map(l => ({
+        description: String(l.description || '').trim(),
+        qty: Number(l.qty) || 0,
+        price: Number(l.price) || 0,
+      }))
+      .filter(isMeaningfulLine);
+
+    setCreating(true);
+    try {
+      const endpoint = tab === 'quotes' ? '/invoices/quotes' : '/invoices';
+      const payload = tab === 'quotes'
+        ? {
+            client_id: form.client_id,
+            title: form.title.trim(),
+            reference: form.reference || null,
+            notes: form.notes || '',
+            lines: lines.length ? lines : [{ description: '', qty: 1, price: 0 }],
+          }
+        : {
+            client_id: form.client_id,
+            title: form.title.trim(),
+            subtitle: form.subtitle || null,
+            reference: form.reference || null,
+            order_summary: form.order_summary || '',
+            notes: form.notes || form.order_summary || '',
+            due_date: form.due_date || null,
+            terms: form.terms || 'Net 30',
+            lines: lines.length ? lines : [{ description: '', qty: 1, price: 0 }],
+          };
+
+      const created = await api(endpoint, { method: 'POST', body: JSON.stringify(payload) });
+      setShowForm(false);
+      setForm({ ...EMPTY_FORM });
+      showToast(tab === 'quotes' ? 'Devis créé' : 'Facture créée');
+      if (tab === 'quotes' && created?.id) {
+        router.push(`/invoices/quotes/${created.id}`);
+        return;
+      }
+      if (tab === 'invoices' && created?.id) {
+        router.push(`/invoices/${created.id}`);
+        return;
+      }
+      load();
+    } catch (err) {
+      showToast(err.message || 'Création impossible');
+    } finally {
+      setCreating(false);
+    }
   }
 
   async function updateQuoteStatus(id, status) {
@@ -147,7 +221,7 @@ export default function InvoicesPage() {
         )}
 
         {/* Workflow guide */}
-        <div className="card rounded-2xl mb-6 bg-neya-cream/50 border-neya-orange/30">
+        <div className="card rounded-none mb-6 bg-neya-cream/50 border-neya-orange/30">
           <p className="text-sm text-neya-muted">
             <span className="font-medium text-neya-orange">1. Devis</span> → créer et envoyer au client
             <span className="mx-2">→</span>
@@ -175,13 +249,18 @@ export default function InvoicesPage() {
             </button>
           </div>
           <div className="flex-1" />
+          {tab === 'quotes' && (
+            <Link href="/invoices/quotes/nouveau" className="btn-secondary">
+              Brief + photos (IA)
+            </Link>
+          )}
           <button type="button" onClick={openCreateForm} className="btn-primary">
             + {tab === 'quotes' ? 'Nouveau devis' : 'Nouvelle facture'}
           </button>
         </div>
 
         {showForm && (
-          <form onSubmit={createDoc} className="card rounded-2xl mb-6 space-y-4">
+          <form onSubmit={createDoc} className="card rounded-none mb-6 space-y-4">
             <h3 className="font-display font-semibold text-lg">{tab === 'quotes' ? 'Nouveau devis' : 'Nouvelle facture'}</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -223,7 +302,7 @@ export default function InvoicesPage() {
               />
             </div>
 
-            <div className="bg-neya-cream rounded-lg p-4 text-sm grid grid-cols-2 md:grid-cols-4 gap-2">
+            <div className="bg-neya-cream rounded-none p-4 text-sm grid grid-cols-2 md:grid-cols-4 gap-2">
               <div><span className="text-neya-muted">Sous-total</span><p className="font-medium">{formatMoney(preview.subtotal)}</p></div>
               <div><span className="text-neya-muted">TPS 5%</span><p className="font-medium">{formatMoney(preview.gst)}</p></div>
               <div><span className="text-neya-muted">TVQ 9,975%</span><p className="font-medium">{formatMoney(preview.qst)}</p></div>
@@ -231,8 +310,12 @@ export default function InvoicesPage() {
             </div>
 
             <div className="flex gap-2">
-              <button type="submit" className="btn-primary">Créer le {tab === 'quotes' ? 'devis' : 'facture'}</button>
-              <button type="button" onClick={() => setShowForm(false)} className="btn-secondary">Annuler</button>
+              <button type="submit" className="btn-primary" disabled={creating}>
+                {creating ? 'Création…' : `Créer le ${tab === 'quotes' ? 'devis' : 'facture'}`}
+              </button>
+              <button type="button" onClick={() => setShowForm(false)} className="btn-secondary" disabled={creating}>
+                Annuler
+              </button>
             </div>
           </form>
         )}
@@ -277,6 +360,16 @@ export default function InvoicesPage() {
                     id: 'open',
                     label: 'Ouvrir',
                     onClick: () => { window.location.href = detailHref; },
+                  },
+                  {
+                    id: 'preview',
+                    label: 'Prévisualiser le PDF',
+                    onClick: () => setPreviewDoc({
+                      type: tab === 'quotes' ? 'quote' : 'invoice',
+                      id: item.id,
+                      title: `${tab === 'quotes' ? 'Devis' : 'Facture'} ${num}${item.client_name ? ` · ${item.client_name}` : ''}`,
+                      filename: `${tab === 'quotes' ? 'devis' : 'facture'}-${num}.pdf`,
+                    }),
                   },
                   {
                     id: 'send',
@@ -341,6 +434,18 @@ export default function InvoicesPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-2 flex-wrap items-center">
+                        <button
+                          type="button"
+                          onClick={() => setPreviewDoc({
+                            type: tab === 'quotes' ? 'quote' : 'invoice',
+                            id: item.id,
+                            title: `${tab === 'quotes' ? 'Devis' : 'Facture'} ${num}${item.client_name ? ` · ${item.client_name}` : ''}`,
+                            filename: `${tab === 'quotes' ? 'devis' : 'facture'}-${num}.pdf`,
+                          })}
+                          className="text-xs bg-neya-cream hover:bg-neya-cream-dark px-2 py-1 rounded-lg text-neya-ink"
+                        >
+                          Aperçu
+                        </button>
                         <button
                           type="button"
                           onClick={() => setSendDoc({
@@ -478,7 +583,31 @@ export default function InvoicesPage() {
             }}
           />
         )}
+
+        {previewDoc && (
+          <DocumentPdfPreviewModal
+            type={previewDoc.type}
+            docId={previewDoc.id}
+            title={previewDoc.title}
+            filename={previewDoc.filename}
+            onClose={() => setPreviewDoc(null)}
+          />
+        )}
       </AppShell>
     </AuthGuard>
+  );
+}
+
+export default function InvoicesPage() {
+  return (
+    <Suspense fallback={
+      <AuthGuard>
+        <AppShell title="Devis & factures">
+          <p className="text-sm text-neya-muted">Chargement…</p>
+        </AppShell>
+      </AuthGuard>
+    }>
+      <InvoicesPageInner />
+    </Suspense>
   );
 }

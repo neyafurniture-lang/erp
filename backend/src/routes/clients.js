@@ -184,7 +184,8 @@ router.put('/:id', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
   try {
-    await pool.query('DELETE FROM clients WHERE id = $1', [req.params.id]);
+    const { rowCount } = await pool.query('DELETE FROM clients WHERE id = $1', [req.params.id]);
+    if (!rowCount) return res.status(404).json({ error: 'Client introuvable' });
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

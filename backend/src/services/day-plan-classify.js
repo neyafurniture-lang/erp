@@ -58,6 +58,8 @@ export function isMultiIntentErpMessage(message) {
     /créer?\s+(un\s+)?(nouveau\s+)?projet|nouveau projet/i.test(lower),
     /tâches?\s+dans\s+le\s+calendrier|créer?\s+des\s+tâches|planif\w*\s+au\s+calendrier/i.test(lower),
     /également|egalement|\baussi\b|en plus|par ailleurs/i.test(lower),
+    /\b(todo|to-?do|tableau de bord|dashboard)\b/i.test(lower) && /t[aâ]che|calendrier|admin/i.test(lower),
+    /\badmin\b/i.test(lower) && /(calendrier|projet|t[aâ]che\s+(atelier|finition|d[eé]bitage))/i.test(lower),
   ];
   const hits = intentFlags.filter(Boolean).length;
   const daysMentioned = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi']
@@ -70,6 +72,51 @@ export function isMultiIntentErpMessage(message) {
   const sentences = (text.match(/[.!?]+/g) || []).length;
   if (sentences >= 2 && text.length > 160 && !WORKSHOP_PLAN_RE.test(lower)) return true;
   return false;
+}
+
+/**
+ * Texte assez riche pour exiger un plan multi-actions (pas un simple create_task mot-clé).
+ * Couvre : multi-intent, listes, « créer des tâches depuis ce texte », prose longue.
+ */
+export function wantsSmartTaskPlan(message) {
+  const text = String(message || '').trim();
+  if (!text) return false;
+
+  // Consigne explicite d’analyse / extraction — même si ça ressemble à une liste
+  if (/cr[eé]er?\s+des\s+t[aâ]ches|extraire?\s+(les\s+)?t[aâ]ches|depuis\s+(ce\s+)?(texte|message)|analyse[rz]?\s+.+\s+(t[aâ]ches?|actions?)|d[eé]couper?\s+en\s+t[aâ]ches/i.test(text)) {
+    return true;
+  }
+
+  if (isDayPlanMessage(text)) return false;
+  if (isMultiIntentErpMessage(text)) return true;
+
+  const sentences = (text.match(/[.!?]+/g) || []).length;
+  const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean);
+  const bulletish = lines.filter(l => /^[-•*]|\d+[.)]/.test(l)).length;
+  if (bulletish >= 2) return true;
+  if (lines.length >= 3 && /t[aâ]che|calendrier|todo|admin|planif|demain|lundi|mardi/i.test(text)) return true;
+  if (text.length >= 140 && sentences >= 2 && /t[aâ]che|calendrier|todo|planif|admin|demain|mardi|mercredi|jeudi|vendredi/i.test(text)) {
+    return true;
+  }
+  return false;
+}
+
+/** Titre d’action court — évite de coller toute la phrase dictée. */
+export function cleanTaskTitle(raw, { max = 90 } = {}) {
+  let t = String(raw || '').replace(/\s+/g, ' ').trim();
+  if (!t) return '';
+  t = t
+    .replace(/^(ajoute[rz]?|cr[eé]e[rz]?|nouvelle?|créer?\s+une?|fais|faire|mettre|mets)\s+(une?\s+)?(t[aâ]che|todo|rappel)?\s*/i, '')
+    .replace(/^(t[aâ]che|todo|rappel)\s*[:\-–—]?\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const cut = t.split(/(?<=[.!?])\s+|\s+[—–]\s+/)[0] || t;
+  t = cut.trim();
+  if (t.length > max) t = `${t.slice(0, max - 1).trim()}…`;
+  if (t && /^[a-zàâäéèêëïîôùûüç]/.test(t)) {
+    t = t.charAt(0).toUpperCase() + t.slice(1);
+  }
+  return t;
 }
 
 function looksLikeListDayPlan(message) {
@@ -127,4 +174,44 @@ export function torontoWallTime(baseDate, hours, minutes) {
     Number(parts.second)
   );
   return new Date(utcGuess - (asUtc - utcGuess));
+}
+
+/** « Mets Olive demain 8h » / « quart Mehdi lundi » — pas une tâche calendrier. */
+export function wantsCreateShift(message) {
+  const t = String(message || '').toLowerCase();
+  if (!t.trim()) return false;
+  if (/\b(quart|shift|horaire)\b/.test(t)) return true;
+  if (/mett(re|s)\s+(olive|mehdi)/.test(t)) return true;
+  if (/\b(olive|mehdi)\b/.test(t) && /(\d{1,2}\s*h|\bdemain\b|\blundi\b|\bmardi\b|\bmercredi\b|\bjeudi\b|\bvendredi\b)/.test(t)) {
+    return true;
+  }
+  return false;
+}
+
+/** « Mets ça au calendrier mardi 9h » / « planifie livraison James ». */
+export function wantsScheduleOnCalendar(message) {
+  const t = String(message || '').toLowerCase();
+  if (!t.trim() || wantsCreateShift(t)) return false;
+  if (/calendrier/.test(t)) return true;
+  if (/mett(re|s)\s+(ça|ca|le|la|une?|cette)?\s*(tâche|tache|rdv|livraison)?.{0,24}(calendrier|mardi|lundi|demain)/.test(t)) {
+    return true;
+  }
+  if (/\b(planifie[rz]?|programme[rz]?)\b/.test(t) && /\b(demain|lundi|mardi|mercredi|jeudi|vendredi|\d{1,2}\s*h)\b/.test(t)) {
+    return true;
+  }
+  return false;
+}
+
+/** Titre d’un RDV : « Mets livraison James au calendrier demain 9h » → « livraison James ». */
+export function calendarTitleFromMessage(message) {
+  let t = String(message || '').trim();
+  t = t.replace(/^(mets[e]?|mettre|ajoute[rz]?|ajouter|planifie[rz]?|programme[rz]?)\s+/i, '');
+  t = t.replace(/\s+(au|dans le|sur le)\s+calendrier\b/gi, ' ');
+  t = t.replace(/\bcalendrier\b/gi, ' ');
+  t = t.replace(/\b(demain|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\b/gi, ' ');
+  t = t.replace(/\bà\s+\d{1,2}\s*h(\s*\d{2})?\b/gi, ' ');
+  t = t.replace(/\b\d{1,2}\s*h(\s*\d{2})?\b/gi, ' ');
+  t = t.replace(/\s{2,}/g, ' ').replace(/^[\s,;:.]+|[\s,;:.]+$/g, '').trim();
+  if (t.length < 2) return 'RDV atelier';
+  return t.slice(0, 200);
 }

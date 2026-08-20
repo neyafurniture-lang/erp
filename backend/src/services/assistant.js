@@ -8,8 +8,11 @@ import {
   createProjectFromStandard,
   isDayPlanMessage,
   isMultiIntentErpMessage,
-  runSkillAction,
+  wantsSmartTaskPlan,
   wantsUnlinkFromProject,
+  wantsCreateShift,
+  wantsScheduleOnCalendar,
+  runSkillAction,
 } from './skill-actions.js';
 
 export { ACTION_TYPES };
@@ -20,7 +23,9 @@ async function matchSkill(message) {
   let best = null;
   let bestLen = 0;
   for (const skill of skills) {
-    const patterns = skill.trigger_patterns || [];
+    const patterns = typeof skill.trigger_patterns === 'string'
+      ? (() => { try { return JSON.parse(skill.trigger_patterns); } catch { return []; } })()
+      : (skill.trigger_patterns || []);
     for (const p of patterns) {
       const pl = p.toLowerCase();
       if (lower.includes(pl) && pl.length > bestLen) {
@@ -529,20 +534,65 @@ export async function processMessage(message, attachments = [], rawContext = nul
     return unlinkResult;
   }
 
-  async function runKeywordActions(msg = message) {
-    if (isDayPlanMessage(msg)) {
-      return runSkillAction('plan_day', msg, pageContext);
+  // Texte riche / multi-intent → plan IA (analyse destinations calendrier / admin / todo / projet)
+  // Ne pas coller les mots en un seul create_task, ni refuser « utilisez le micro ».
+  const planSource = String(message || '')
+    .replace(/\n?\[Contexte page[\s\S]*$/i, '')
+    .replace(/\n?\[Suite de conversation[\s\S]*$/i, '')
+    .trim();
+  if (wantsSmartTaskPlan(planSource) || isMultiIntentErpMessage(planSource)) {
+    try {
+      const { getActiveAiProvider } = await import('./ai-chat.js');
+      const provider = await getActiveAiProvider();
+      if (provider) {
+        const { buildOperationPlan, executeOperationPlan } = await import('./assistant-plan.js');
+        const plan = await buildOperationPlan(planSource, pageContext);
+        const actionable = (plan.steps || []).filter(s => s?.action_type);
+        if (actionable.length) {
+          const executed = await executeOperationPlan(plan, pageContext);
+          const reply = executed.reply || plan.summary || 'Plan exécuté.';
+          await pool.query(
+            'INSERT INTO assistant_messages (role, content, actions_taken) VALUES ($1,$2,$3)',
+            ['assistant', reply, JSON.stringify(executed.actions || [])]
+          );
+          return {
+            reply,
+            actions: executed.actions || [],
+            plan,
+          };
+        }
+      }
+    } catch (err) {
+      console.warn('smart task plan:', err?.message || err);
     }
-    // Multi-intent (client + devis + calendrier…) : ne pas coller en un seul plan_day / skill
-    if (isMultiIntentErpMessage(msg)) {
+  }
+
+  async function runKeywordActions(msg = message) {
+    const bare = String(msg || '')
+      .replace(/\n?\[Contexte page[\s\S]*$/i, '')
+      .replace(/\n?\[Suite de conversation[\s\S]*$/i, '')
+      .trim();
+    if (isDayPlanMessage(bare) || isDayPlanMessage(msg)) {
+      return runSkillAction('plan_day', bare || msg, pageContext);
+    }
+    if (wantsCreateShift(bare) || wantsCreateShift(msg)) {
+      return runSkillAction('create_shift', bare || msg, pageContext);
+    }
+    if (wantsScheduleOnCalendar(bare) || wantsScheduleOnCalendar(msg)) {
+      return runSkillAction('schedule_task', bare || msg, pageContext);
+    }
+    // Multi-intent sans IA : expliquer, ne pas créer une tâche-mot
+    if (isMultiIntentErpMessage(bare) || wantsSmartTaskPlan(bare)) {
       return {
-        reply: 'Cette demande contient plusieurs actions ERP distinctes (ex. tâches calendrier, devis, client). '
-          + 'Utilisez le micro → « Créer le plan » pour les séparer et confirmer, ou envoyez une action à la fois.',
+        reply: 'Cette demande contient plusieurs actions (calendrier, admin, todo, client…). '
+          + 'Configurez une clé IA (Paramètres → Assistant) pour que Lia analyse et route chaque action, '
+          + 'ou utilisez le micro → « Créer le plan ». '
+          + 'Sinon envoyez une action à la fois.',
         actions: [],
       };
     }
-    if (wantsUnlinkFromProject(msg)) {
-      return runSkillAction('unlink_task', msg, pageContext);
+    if (wantsUnlinkFromProject(msg) || wantsUnlinkFromProject(bare)) {
+      return runSkillAction('unlink_task', bare || msg, pageContext);
     }
     const skill = await matchSkill(msg);
     if (skill) {
@@ -831,6 +881,7 @@ export async function seedDefaultSkills() {
     { name: 'create_project', description: 'Créer un projet', trigger_patterns: ['créer projet', 'nouveau projet', 'project'], action_type: 'create_project' },
     { name: 'plan_day', description: 'Planifier plusieurs étapes', trigger_patterns: ['planifier demain', 'journée de demain', 'étapes demain', 'pour demain', 'planning demain'], action_type: 'plan_day' },
     { name: 'schedule_task', description: 'Planifier au calendrier', trigger_patterns: ['planifier', 'programmer', 'calendrier', 'demain', 'lundi'], action_type: 'schedule_task' },
+    { name: 'create_shift', description: 'Créer un quart employé', trigger_patterns: ['quart', 'shift', 'horaire olive', 'horaire mehdi', 'mettre olive'], action_type: 'create_shift' },
     { name: 'create_expense', description: 'Enregistrer une dépense', trigger_patterns: ['dépense', 'acheté', 'payé pour'], action_type: 'create_expense' },
     { name: 'list_today', description: 'Tâches du jour', trigger_patterns: ["aujourd'hui", 'tâches du jour', 'planning jour'], action_type: 'list_today' },
     { name: 'list_tomorrow', description: 'Tâches de demain', trigger_patterns: ['demain matin', 'tâches demain', 'planning demain', 'voir demain'], action_type: 'list_tomorrow' },
@@ -980,6 +1031,24 @@ export async function seedDefaultSkills() {
         'étapes atelier', 'à partir du fichier', 'à partir du mail', 'linker dans le projet',
       ],
       action: 'create_fabrication_plan',
+    },
+    {
+      name: 'schedule_task',
+      description: 'Planifier une tâche au calendrier (crée la tâche si besoin)',
+      triggers: [
+        'calendrier', 'mettre au calendrier', 'mets ça au calendrier', 'planifier',
+        'programmer', 'au calendrier',
+      ],
+      action: 'schedule_task',
+    },
+    {
+      name: 'create_shift',
+      description: 'Créer un quart employé (Olive / Mehdi)',
+      triggers: [
+        'quart', 'shift', 'horaire', 'mets olive', 'mettre olive', 'olive demain',
+        'mehdi demain', 'mets mehdi', 'horaire olive', 'horaire mehdi',
+      ],
+      action: 'create_shift',
     },
     {
       name: 'update_quote',

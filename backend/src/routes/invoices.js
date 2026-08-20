@@ -10,6 +10,8 @@ import { calcDocTotals } from '../services/invoice-helpers.js';
 import { syncMaterialsFromQuote } from '../services/project-materials.js';
 import { getCompanyConfig } from '../services/company-config.js';
 import { flattenQuoteLines, serializeQuoteDocument, normalizeQuoteDocument } from '../services/quote-document.js';
+import { spellcheckQuote, reviewQuotePrices } from '../services/quote-ai.js';
+import { createQuoteFromBrief } from '../services/quote-from-brief.js';
 
 const router = Router();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -62,9 +64,20 @@ async function nextNumber(type) {
     const base = rows[0] ? parseInt(rows[0].invoice_number, 10) : 1026;
     return String(base + 1);
   }
-  const { rows } = await pool.query('SELECT COUNT(*)::int as c FROM quotes');
   const year = new Date().getFullYear();
-  return `Q-${year}-${String(rows[0].c + 1).padStart(3, '0')}`;
+  const { rows } = await pool.query(
+    `SELECT quote_number FROM quotes
+     WHERE quote_number LIKE $1
+     ORDER BY quote_number DESC
+     LIMIT 1`,
+    [`Q-${year}-%`]
+  );
+  let next = 1;
+  if (rows[0]?.quote_number) {
+    const m = String(rows[0].quote_number).match(/Q-\d{4}-(\d+)$/);
+    if (m) next = parseInt(m[1], 10) + 1;
+  }
+  return `Q-${year}-${String(next).padStart(3, '0')}`;
 }
 
 // QUOTES
@@ -155,12 +168,71 @@ router.post('/quotes', async (req, res) => {
   }
 });
 
+router.post('/quotes/from-brief', quoteUpload.array('photos', 8), async (req, res) => {
+  try {
+    const files = req.files || [];
+    const photos = files.map((f, i) => ({
+      url: `/uploads/quotes/${f.filename}`,
+      caption: String(req.body?.[`caption_${i}`] || req.body?.caption || f.originalname || '').slice(0, 200),
+      name: f.originalname,
+    }));
+
+    let photoExtracts = [];
+    if (photos.length) {
+      try {
+        const { extractAllAttachments } = await import('../services/attachment-extract.js');
+        photoExtracts = await extractAllAttachments(
+          photos.map(p => ({ name: p.name, url: p.url, type: 'image/jpeg' }))
+        );
+      } catch { photoExtracts = []; }
+    }
+
+    const createProject = String(req.body?.create_project || '1') !== '0';
+    const result = await createQuoteFromBrief({
+      clientId: req.body?.client_id,
+      title: req.body?.title,
+      notes: req.body?.notes,
+      wood: req.body?.wood,
+      dimensions: req.body?.dimensions,
+      finish: req.body?.finish,
+      deadline: req.body?.deadline,
+      extra: req.body?.extra,
+      photos,
+      createProject,
+      photoExtracts,
+    });
+    res.status(201).json({
+      ...result,
+      quote: await enrichQuoteRow(result.quote),
+    });
+  } catch (err) {
+    const status = /requis|introuvable|invalide/i.test(err.message) ? 400 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
 router.put('/quotes/:id', async (req, res) => {
   try {
     const {
       status, lines, notes, title, reference, project_id,
       valid_until, additional_notes, acceptance_date, document,
     } = req.body;
+
+    const hasClientId = Object.prototype.hasOwnProperty.call(req.body, 'client_id');
+    let client_id;
+    if (hasClientId) {
+      const raw = req.body.client_id;
+      if (raw === null || raw === '') {
+        client_id = null;
+      } else {
+        client_id = Number(raw);
+        if (!Number.isFinite(client_id)) {
+          return res.status(400).json({ error: 'Client invalide' });
+        }
+        const { rows: clients } = await pool.query('SELECT id FROM clients WHERE id = $1', [client_id]);
+        if (!clients[0]) return res.status(400).json({ error: 'Client introuvable' });
+      }
+    }
 
     let storedLines = null;
     if (document) {
@@ -190,8 +262,9 @@ router.put('/quotes/:id', async (req, res) => {
         project_id = COALESCE($8, project_id),
         valid_until = COALESCE($9, valid_until),
         additional_notes = COALESCE($10, additional_notes),
-        acceptance_date = COALESCE($11, acceptance_date)
-       WHERE id = $12 RETURNING *`,
+        acceptance_date = COALESCE($11, acceptance_date),
+        client_id = CASE WHEN $12::boolean THEN $13 ELSE client_id END
+       WHERE id = $14 RETURNING *`,
       [
         status,
         storedLines ? JSON.stringify(storedLines) : null,
@@ -200,6 +273,8 @@ router.put('/quotes/:id', async (req, res) => {
         valid_until === undefined ? null : valid_until,
         additional_notes === undefined ? null : additional_notes,
         acceptance_date === undefined ? null : acceptance_date,
+        hasClientId,
+        hasClientId ? client_id : null,
         req.params.id,
       ]
     );
@@ -266,7 +341,8 @@ router.post('/quotes/:id/photos', quoteUpload.single('photo'), async (req, res) 
 router.get('/quotes/:id/pdf', async (req, res) => {
   try {
     const { rows } = await pool.query(`
-      SELECT q.*, c.name as client_name, c.contact, c.email, c.address as client_address, c.city as client_city,
+      SELECT q.*, c.name as client_name, c.contact, c.email, c.phone as client_phone,
+             c.address as client_address, c.city as client_city,
              p.name as project_name
       FROM quotes q
       LEFT JOIN clients c ON c.id = q.client_id
@@ -302,6 +378,29 @@ router.get('/quotes/:id/send-preview', async (req, res) => {
     res.json(await buildDocumentEmailDraft('quote', req.params.id));
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/quotes/:id/spellcheck', async (req, res) => {
+  try {
+    const result = await spellcheckQuote(req.params.id);
+    res.json({
+      unchanged: result.unchanged,
+      changes: result.changes,
+      quote: await enrichQuoteRow(result.quote),
+    });
+  } catch (err) {
+    const status = /introuvable/i.test(err.message) ? 404 : 400;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+router.post('/quotes/:id/price-review', async (req, res) => {
+  try {
+    res.json(await reviewQuotePrices(req.params.id));
+  } catch (err) {
+    const status = /introuvable/i.test(err.message) ? 404 : 400;
+    res.status(status).json({ error: err.message });
   }
 });
 
@@ -397,7 +496,8 @@ router.post('/from-quote/:quoteId', async (req, res) => {
 router.get('/:id/pdf', async (req, res) => {
   try {
     const { rows } = await pool.query(`
-      SELECT i.*, c.name as client_name, c.contact, c.email, c.address as client_address, c.city as client_city,
+      SELECT i.*, c.name as client_name, c.contact, c.email, c.phone as client_phone,
+             c.address as client_address, c.city as client_city,
              p.name as project_name
       FROM invoices i
       LEFT JOIN clients c ON c.id = i.client_id
@@ -416,7 +516,9 @@ router.get('/:id/pdf', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const { rows } = await pool.query(`
-      SELECT i.*, c.name as client_name, c.email, c.phone, p.name as project_name
+      SELECT i.*, c.name as client_name, c.contact, c.email, c.phone as client_phone,
+             c.address as client_address, c.city as client_city,
+             p.name as project_name
       FROM invoices i
       LEFT JOIN clients c ON c.id = i.client_id
       LEFT JOIN projects p ON p.id = i.project_id
@@ -455,6 +557,21 @@ router.get('/:id/send-preview', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     let { status, lines, due_date, notes, title, subtitle, reference, terms, order_summary } = req.body;
+    const hasClientId = Object.prototype.hasOwnProperty.call(req.body, 'client_id');
+    let client_id;
+    if (hasClientId) {
+      const raw = req.body.client_id;
+      if (raw === null || raw === '') {
+        client_id = null;
+      } else {
+        client_id = Number(raw);
+        if (!Number.isFinite(client_id)) {
+          return res.status(400).json({ error: 'Client invalide' });
+        }
+        const { rows: clients } = await pool.query('SELECT id FROM clients WHERE id = $1', [client_id]);
+        if (!clients[0]) return res.status(400).json({ error: 'Client introuvable' });
+      }
+    }
     if (status === 'partial') status = 'partially_paid';
     const allowed = new Set(['draft', 'sent', 'partially_paid', 'paid', 'overdue', 'cancelled', 'void']);
     if (status != null && status !== '' && !allowed.has(status)) {
@@ -474,12 +591,38 @@ router.put('/:id', async (req, res) => {
         subtitle = COALESCE($8, subtitle),
         reference = COALESCE($9, reference),
         terms = COALESCE($10, terms),
-        order_summary = COALESCE($11, order_summary)
-       WHERE id = $12 RETURNING *`,
-      [status || null, lines ? JSON.stringify(lines) : null, subtotal, total, due_date, notes, title, subtitle, reference, terms, order_summary, req.params.id]
+        order_summary = COALESCE($11, order_summary),
+        client_id = CASE WHEN $12::boolean THEN $13 ELSE client_id END
+       WHERE id = $14 RETURNING *`,
+      [
+        status || null,
+        lines ? JSON.stringify(lines) : null,
+        subtotal,
+        total,
+        due_date,
+        notes,
+        title,
+        subtitle,
+        reference,
+        terms,
+        order_summary,
+        hasClientId,
+        hasClientId ? client_id : null,
+        req.params.id,
+      ]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Facture introuvable' });
-    res.json(rows[0]);
+
+    const { rows: full } = await pool.query(`
+      SELECT i.*, c.name as client_name, c.contact, c.email, c.phone as client_phone,
+             c.address as client_address, c.city as client_city,
+             p.name as project_name
+      FROM invoices i
+      LEFT JOIN clients c ON c.id = i.client_id
+      LEFT JOIN projects p ON p.id = i.project_id
+      WHERE i.id = $1
+    `, [req.params.id]);
+    res.json(full[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
