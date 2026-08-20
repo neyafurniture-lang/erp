@@ -608,6 +608,46 @@ ALTER TABLE marketplace_sales ADD COLUMN IF NOT EXISTS invoice_id INT REFERENCES
 ALTER TABLE marketplace_sales ADD COLUMN IF NOT EXISTS payment_id INT REFERENCES payments(id) ON DELETE SET NULL;
 ALTER TABLE marketplace_sales ADD COLUMN IF NOT EXISTS expense_id INT REFERENCES expenses(id) ON DELETE SET NULL;
 
+-- Marchés artisanaux / événements (suivi contrats, logistique, ventes sur place)
+CREATE TABLE IF NOT EXISTS market_events (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  organizer TEXT,
+  venue TEXT,
+  address TEXT,
+  city TEXT DEFAULT 'Montréal',
+  start_date DATE,
+  end_date DATE,
+  event_hours TEXT,
+  setup_start TEXT,
+  presence_deadline TEXT,
+  fee_amount NUMERIC(12,2),
+  fee_notes TEXT,
+  fee_paid BOOLEAN NOT NULL DEFAULT false,
+  invoice_amount NUMERIC(12,2),
+  status TEXT NOT NULL DEFAULT 'not_started',
+  sort_order INT NOT NULL DEFAULT 0,
+  description TEXT,
+  mail_reply TEXT,
+  notes TEXT,
+  contract_url TEXT,
+  contract_filename TEXT,
+  contract_text TEXT,
+  logistics JSONB NOT NULL DEFAULT '{}',
+  materials JSONB NOT NULL DEFAULT '[]',
+  steps JSONB NOT NULL DEFAULT '[]',
+  sales_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+  sales_notes TEXT,
+  gmail_message_id TEXT,
+  task_id INT REFERENCES tasks(id) ON DELETE SET NULL,
+  expense_id INT REFERENCES expenses(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_market_events_start ON market_events(start_date);
+CREATE INDEX IF NOT EXISTS idx_market_events_status ON market_events(status);
+CREATE INDEX IF NOT EXISTS idx_market_events_sort ON market_events(sort_order);
+
 -- Réseaux sociaux : calendrier éditorial cross-platform
 CREATE TABLE IF NOT EXISTS social_posts (
   id SERIAL PRIMARY KEY,

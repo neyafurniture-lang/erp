@@ -19,6 +19,7 @@ export const PERMISSION_AREAS = {
   standards: { label: 'Standards', group: 'Commercial' },
   web: { label: 'Site web', group: 'Commercial' },
   marketplace: { label: 'Marketplace', group: 'Commercial' },
+  markets: { label: 'Marchés & événements', group: 'Commercial' },
   social: { label: 'Réseaux sociaux', group: 'Commercial' },
   settings: { label: 'Paramètres', group: 'Système' },
   users: { label: 'Gestion utilisateurs', group: 'Système', adminOnly: true },
@@ -49,6 +50,7 @@ export const PATH_PERMISSION = [
   { prefix: '/standards', permission: 'standards' },
   { prefix: '/web', permission: 'web' },
   { prefix: '/marketplace', permission: 'marketplace' },
+  { prefix: '/marches', permission: 'markets' },
   { prefix: '/social', permission: 'social' },
   { prefix: '/settings', permission: 'settings' },
 ];
