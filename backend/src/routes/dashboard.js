@@ -20,15 +20,32 @@ import {
 const router = Router();
 
 const TIER_RANK = { p1: 0, p2: 1, p3: 2 };
+const LIVE_TODO_TYPES = ['admin', 'atelier', 'rdv', 'installation'];
 const SOURCE_LABEL = {
   admin: 'Admin',
   atelier: 'Atelier',
   rdv: 'RDV',
+  installation: 'Installation',
   todo: 'Perso',
 };
 
+function looksLikeInstallation(row = {}) {
+  const type = String(row.type || '').toLowerCase();
+  const key = String(row.source_key || '').toLowerCase();
+  const blob = `${row.title || ''} ${row.notes || ''} ${row.description || ''} ${row.category || ''}`.toLowerCase();
+  return type === 'installation'
+    || key.startsWith('ops_install')
+    || key.includes('installation')
+    || /install/.test(blob);
+}
+
+function resolveLiveSource(row, fallback) {
+  if (looksLikeInstallation(row)) return 'installation';
+  return fallback;
+}
+
 /**
- * Todo live Dashboard : fusion admin + ops atelier + RDV du jour + todos manuels.
+ * Todo live Dashboard : fusion admin + atelier + RDV + installation + todos manuels.
  */
 async function buildLiveTodo() {
   await seedOpsLiveTasks().catch(() => {});
@@ -48,7 +65,7 @@ async function buildLiveTodo() {
       LIMIT 20
     `),
     pool.query(`
-      SELECT t.id, t.title, t.status, t.type, t.start_time, t.project_id,
+      SELECT t.id, t.title, t.status, t.type, t.start_time, t.project_id, t.description,
              p.name AS project_name
       FROM tasks t
       INNER JOIN projects p ON p.id = t.project_id AND p.status = 'active'
@@ -65,7 +82,7 @@ async function buildLiveTodo() {
       LIMIT 8
     `),
     pool.query(`
-      SELECT t.id, t.title, t.status, t.type, t.start_time, t.project_id,
+      SELECT t.id, t.title, t.status, t.type, t.start_time, t.project_id, t.description,
              p.name AS project_name
       FROM tasks t
       LEFT JOIN projects p ON p.id = t.project_id
@@ -76,7 +93,7 @@ async function buildLiveTodo() {
       ORDER BY t.start_time ASC
       LIMIT 8
     `),
-    listVisibleTodos('main'),
+    listVisibleTodos(),
   ]);
 
   const atelierIds = new Set(atelierOpen.rows.map(r => r.id));
@@ -87,12 +104,15 @@ async function buildLiveTodo() {
     if (!shouldShowAdminOnDashboard(t)) continue;
     const isOps = String(t.source_key || '').startsWith('ops_')
       || /atelier|matériel|materiel|nettoyage/i.test(`${t.title} ${t.notes || ''}`);
+    const source = resolveLiveSource(t, isOps ? 'atelier' : 'admin');
     items.push({
       key: `admin:${t.id}`,
-      source: isOps ? 'atelier' : 'admin',
+      source,
       id: t.id,
       title: t.title,
-      subtitle: isOps ? 'Atelier' : adminCategoryLabel(t.category),
+      subtitle: source === 'installation'
+        ? 'Installation'
+        : (isOps ? 'Atelier' : adminCategoryLabel(t.category)),
       href: resolveMailTaskHref(t) || t.link_href || '/admin',
       priority: t.priority_tier || null,
       status: t.status,
@@ -103,14 +123,17 @@ async function buildLiveTodo() {
   }
 
   for (const t of atelierOpen.rows) {
+    const source = resolveLiveSource(t, 'atelier');
     items.push({
-      key: `atelier:${t.id}`,
-      source: 'atelier',
+      key: `${source === 'installation' ? 'installation' : 'atelier'}:${t.id}`,
+      source,
       id: t.id,
       title: t.title,
-      subtitle: t.project_name ? `Projet · ${t.project_name}` : 'Atelier',
+      subtitle: source === 'installation'
+        ? (t.project_name ? `Installation · ${t.project_name}` : 'Installation')
+        : (t.project_name ? `Projet · ${t.project_name}` : 'Atelier'),
       href: t.project_id ? `/projects/${t.project_id}` : '/production',
-      priority: t.status === 'doing' ? 'p1' : 'p2',
+      priority: t.status === 'doing' || source === 'installation' ? 'p1' : 'p2',
       status: t.status,
       done: false,
       due_date: null,
@@ -120,12 +143,15 @@ async function buildLiveTodo() {
 
   for (const t of rdvToday.rows) {
     if (atelierIds.has(t.id)) continue;
+    const source = resolveLiveSource(t, 'rdv');
     items.push({
-      key: `rdv:${t.id}`,
-      source: 'rdv',
+      key: `${source === 'installation' ? 'installation' : 'rdv'}:${t.id}`,
+      source,
       id: t.id,
       title: t.title,
-      subtitle: t.project_name ? `RDV · ${t.project_name}` : 'Rendez-vous',
+      subtitle: source === 'installation'
+        ? (t.project_name ? `Installation · ${t.project_name}` : 'Installation')
+        : (t.project_name ? `RDV · ${t.project_name}` : 'Rendez-vous'),
       href: t.project_id ? `/projects/${t.project_id}` : '/calendar',
       priority: 'p1',
       status: t.status,
@@ -137,14 +163,18 @@ async function buildLiveTodo() {
 
   for (const t of manualTodos) {
     if (t.done) continue;
+    const listKey = String(t.list_key || 'main');
+    const source = LIVE_TODO_TYPES.includes(listKey)
+      ? listKey
+      : resolveLiveSource({ title: t.title }, 'todo');
     items.push({
       key: `todo:${t.id}`,
-      source: 'todo',
+      source,
       id: t.id,
       title: t.title,
-      subtitle: 'À faire',
-      href: null,
-      priority: null,
+      subtitle: SOURCE_LABEL[source] || 'À faire',
+      href: source === 'installation' ? '/calendar' : (source === 'rdv' ? '/calendar' : null),
+      priority: source === 'installation' ? 'p1' : null,
       status: 'todo',
       done: false,
       due_date: null,
@@ -169,10 +199,12 @@ async function buildLiveTodo() {
   return {
     items: items.slice(0, 16),
     open,
+    types: LIVE_TODO_TYPES.map(id => ({ id, label: SOURCE_LABEL[id] })),
     bySource: {
       admin: items.filter(i => i.source === 'admin').length,
       atelier: items.filter(i => i.source === 'atelier').length,
       rdv: items.filter(i => i.source === 'rdv').length,
+      installation: items.filter(i => i.source === 'installation').length,
       todo: items.filter(i => i.source === 'todo').length,
     },
   };
@@ -503,7 +535,7 @@ router.patch('/live-todo', async (req, res) => {
         [nextStatus, id]
       );
       if (!rows[0]) return res.status(404).json({ error: 'Tâche admin introuvable' });
-    } else if (source === 'atelier' || source === 'rdv') {
+    } else if (source === 'atelier' || source === 'rdv' || source === 'installation') {
       const { rows: existing } = await pool.query('SELECT * FROM tasks WHERE id = $1', [id]);
       if (!existing[0]) return res.status(404).json({ error: 'Tâche atelier introuvable' });
       const { rows } = await pool.query(
@@ -545,7 +577,8 @@ router.get('/todos', async (req, res) => {
 router.post('/todos', async (req, res) => {
   try {
     const title = String(req.body.title || '').trim();
-    const listKey = String(req.body.list_key || 'main').trim() || 'main';
+    const rawKey = String(req.body.list_key || req.body.type || 'main').trim() || 'main';
+    const listKey = LIVE_TODO_TYPES.includes(rawKey) || rawKey === 'main' ? rawKey : 'main';
     if (!title) return res.status(400).json({ error: 'Titre requis' });
     const { rows } = await pool.query(
       `INSERT INTO dashboard_todos (title, list_key, sort_order)
