@@ -175,3 +175,43 @@ export function torontoWallTime(baseDate, hours, minutes) {
   );
   return new Date(utcGuess - (asUtc - utcGuess));
 }
+
+/** « Mets Olive demain 8h » / « quart Mehdi lundi » — pas une tâche calendrier. */
+export function wantsCreateShift(message) {
+  const t = String(message || '').toLowerCase();
+  if (!t.trim()) return false;
+  if (/\b(quart|shift|horaire)\b/.test(t)) return true;
+  if (/mett(re|s)\s+(olive|mehdi)/.test(t)) return true;
+  if (/\b(olive|mehdi)\b/.test(t) && /(\d{1,2}\s*h|\bdemain\b|\blundi\b|\bmardi\b|\bmercredi\b|\bjeudi\b|\bvendredi\b)/.test(t)) {
+    return true;
+  }
+  return false;
+}
+
+/** « Mets ça au calendrier mardi 9h » / « planifie livraison James ». */
+export function wantsScheduleOnCalendar(message) {
+  const t = String(message || '').toLowerCase();
+  if (!t.trim() || wantsCreateShift(t)) return false;
+  if (/calendrier/.test(t)) return true;
+  if (/mett(re|s)\s+(ça|ca|le|la|une?|cette)?\s*(tâche|tache|rdv|livraison)?.{0,24}(calendrier|mardi|lundi|demain)/.test(t)) {
+    return true;
+  }
+  if (/\b(planifie[rz]?|programme[rz]?)\b/.test(t) && /\b(demain|lundi|mardi|mercredi|jeudi|vendredi|\d{1,2}\s*h)\b/.test(t)) {
+    return true;
+  }
+  return false;
+}
+
+/** Titre d’un RDV : « Mets livraison James au calendrier demain 9h » → « livraison James ». */
+export function calendarTitleFromMessage(message) {
+  let t = String(message || '').trim();
+  t = t.replace(/^(mets[e]?|mettre|ajoute[rz]?|ajouter|planifie[rz]?|programme[rz]?)\s+/i, '');
+  t = t.replace(/\s+(au|dans le|sur le)\s+calendrier\b/gi, ' ');
+  t = t.replace(/\bcalendrier\b/gi, ' ');
+  t = t.replace(/\b(demain|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\b/gi, ' ');
+  t = t.replace(/\bà\s+\d{1,2}\s*h(\s*\d{2})?\b/gi, ' ');
+  t = t.replace(/\b\d{1,2}\s*h(\s*\d{2})?\b/gi, ' ');
+  t = t.replace(/\s{2,}/g, ' ').replace(/^[\s,;:.]+|[\s,;:.]+$/g, '').trim();
+  if (t.length < 2) return 'RDV atelier';
+  return t.slice(0, 200);
+}

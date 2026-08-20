@@ -14,6 +14,7 @@ import {
 import AppShell from '../components/AppShell';
 import AuthGuard from '../components/AuthGuard';
 import DashboardLiveTodo from '../components/DashboardLiveTodo';
+import DashboardFollowPanel from '../components/DashboardFollowPanel';
 import { api, formatMoney, formatDate } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
 import { hasPermission } from '../lib/permissions';
@@ -247,7 +248,7 @@ export default function DashboardPage() {
             />
           )}
           <KpiCard
-            label="Devis en attente"
+            label="Devis ouverts"
             value={String(s.quotesPending ?? data?.pendingQuotes?.length ?? 0)}
             delta={formatMoney(s.quotesPendingTotal || 0)}
             Icon={FileText}
@@ -255,6 +256,12 @@ export default function DashboardPage() {
             href="/invoices"
           />
         </div>
+
+        <DashboardFollowPanel
+          invoices={data?.pendingInvoices || []}
+          quotes={data?.pendingQuotes || []}
+          shifts={data?.todayShifts || []}
+        />
 
         <DashboardLiveTodo initial={data?.liveTodo} />
 
@@ -378,18 +385,19 @@ export default function DashboardPage() {
           ) : (
             <ul className="divide-y divide-neya-border/70">
               {mailPreview.messages.map(m => {
-                const from = m.fromName || m.from || m.sender || 'Inconnu';
+                const fromRaw = m.fromName || m.from || m.sender || '';
+                const fromMatch = String(fromRaw).match(/^(.+?)\s*<([^>]+)>$/);
+                const from = (fromMatch ? fromMatch[1].replace(/"/g, '').trim() : fromRaw) || 'Inconnu';
                 const urgent = m.urgent || /urgent/i.test(m.subject || '');
                 const cat = m.mailCategory || m.erpFolder || m.tag;
-                const tagLabels = {
+                const tag = {
                   a_repondre: 'À répondre',
-                  clients: 'Clients',
-                  fournisseurs: 'Fournisseurs',
-                  projets: 'Projets',
-                  promotions: 'Promos',
-                  autres: 'Autres',
-                };
-                const tag = tagLabels[cat] || (urgent ? 'À répondre' : 'Boîte');
+                  clients: 'Client',
+                  fournisseurs: 'Fournisseur',
+                  projets: 'Projet',
+                  promotions: 'Promo',
+                  autres: 'Autre',
+                }[cat] || (urgent ? 'À répondre' : 'Boîte');
                 const time = m.date
                   ? new Date(m.date).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' })
                   : (m.internalDate

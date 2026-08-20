@@ -1024,6 +1024,8 @@ h1, h2, h3, h4, h5, h6 {
   .mail-badge--project { background: rgba(124,58,237,0.1); color: #6d28d9; }
   .mail-badge--promo { background: rgba(100,116,139,0.12); color: #475569; }
   .mail-badge--other { background: rgba(10,10,10,0.05); color: #737373; }
+  .mail-badge--unpaid { background: rgba(185, 28, 28, 0.1); color: #b91c1c; }
+  .mail-badge--paid { background: rgba(5, 150, 105, 0.12); color: #047857; }
 
   .mail-empty {
     @apply flex-1 flex flex-col items-center justify-center text-center px-8 py-16;

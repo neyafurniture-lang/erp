@@ -30,6 +30,7 @@ const LIST_FILTERS = [
   { id: 'a_repondre', label: 'À répondre' },
   { id: 'clients', label: 'Clients' },
   { id: 'fournisseurs', label: 'Fournisseurs' },
+  { id: 'projets', label: 'Projets' },
   { id: 'promotions', label: 'Promos' },
   { id: 'autres', label: 'Non classés' },
 ];
@@ -617,6 +618,7 @@ export default function GmailInbox({
   const [messages, setMessages] = useState([]);
   const [selected, setSelected] = useState(null);
   const deepLinkOpened = useRef(null);
+  const autoSorted = useRef(false);
   const [thread, setThread] = useState(null);
   const [loading, setLoading] = useState(true);
   const [threadLoading, setThreadLoading] = useState(false);
@@ -709,12 +711,15 @@ export default function GmailInbox({
         );
         setMessages(data.messages || []);
         if (data.sections) setSections(data.sections);
+      } else if (ERP_FOLDERS.some(f => f.id === folder)) {
+        const data = await api(`/gmail/folder/${encodeURIComponent(folder)}?max=50`);
+        setMessages(data.messages || []);
+        if (data.sections) setSections(data.sections);
       } else if (folder === 'inbox' || !folder) {
         const data = await api('/gmail/inbox-sorted?max=40');
         setMessages(data.messages || []);
         setSections(data.sections || [{ id: 'inbox', count: 0 }, ...ERP_FOLDERS.map(s => ({ ...s, count: 0 }))]);
       } else {
-        // Dossier ERP : inbox triée puis filtre côté client
         const data = await api('/gmail/inbox-sorted?max=40');
         setMessages(data.messages || []);
         setSections(data.sections || [{ id: 'inbox', count: 0 }, ...ERP_FOLDERS.map(s => ({ ...s, count: 0 }))]);
@@ -865,7 +870,7 @@ export default function GmailInbox({
     try {
       // Toujours recharger le message complet (corps + pièces jointes)
       full = await api(`/gmail/messages/${id}`);
-      setSelected(full);
+      setSelected({ ...m, ...full });
 
       // Comportement Gmail : ouvrir = marquer comme lu
       if (activeFolder !== 'sent' && (full.isUnread || m.isUnread || m.unread)) {
@@ -932,12 +937,14 @@ export default function GmailInbox({
 
   useEffect(() => {
     if (!initialMessageId || connected !== true) return;
+    if (loading) return;
     if (deepLinkOpened.current === initialMessageId) return;
     deepLinkOpened.current = initialMessageId;
-    openMessage({ id: initialMessageId });
-    // openMessage volontairement hors deps : ouvrir une seule fois par id
+    Promise.resolve(openMessage({ id: initialMessageId })).catch(() => {
+      deepLinkOpened.current = null;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialMessageId, connected]);
+  }, [initialMessageId, connected, loading]);
 
   async function processInbox() {
     setInboxProcessing(true);
@@ -945,26 +952,20 @@ export default function GmailInbox({
     try {
       const result = await api('/gmail/sort-inbox', {
         method: 'POST',
-        body: JSON.stringify({ max: 50, includeTri: true, scanInvoices: true }),      });
+        timeoutMs: 60000,
+        body: JSON.stringify({ fast: true, max: 50 }),
+      });
       setMessages(result.messages || []);
       setSections(result.sections || sections);
       await loadGmailLabels();
       const labeled = result.gmail_labels?.applied ?? 0;
-      const triBit = result.tri_processed
-        ? ` · ${result.tri_processed} depuis Tri/A_traiter`
-        : '';
-      const inv = result.invoices;
-      const invBit = inv ? ` · ${inv.ingested || 0} facture(s) stockée(s)` : '';
-      const msg = `${result.processed || 0} fil(s) trié(s)${triBit} — ${labeled} label(s) NEYA${invBit}.`;
-      if (result.errors?.length || result.gmail_labels?.errors?.length || result.tri_errors?.length) {
-        const errText = result.errors?.[0]?.error
-          || result.gmail_labels?.errors?.[0]?.error
-          || result.tri_errors?.[0]?.error;
-        setErr(`${msg} Erreur : ${errText}`);
-      } else {
-        showUndo(msg, null);
-      }
+      showUndo(`${result.processed || 0} mail(s) classés — ${labeled} label(s) NEYA.`, null);
       if (!search) await load('', activeFolder);
+      api('/gmail/sort-inbox', {
+        method: 'POST',
+        timeoutMs: 120000,
+        body: JSON.stringify({ max: 30, includeTri: true, scanInvoices: true }),
+      }).then(() => loadGmailLabels()).catch(() => {});
     } catch (e) {
       try {
         const result = await threadApi('/process-inbox', {
@@ -980,6 +981,14 @@ export default function GmailInbox({
       setInboxProcessing(false);
     }
   }
+
+  useEffect(() => {
+    if (connected !== true || autoSorted.current) return;
+    autoSorted.current = true;
+    processInbox().catch(() => {});
+    // Un tri automatique à l’ouverture — les dossiers NEYA restent vides sinon.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected]);
 
   async function synthesize() {
     if (!thread?.id) return;
@@ -1393,13 +1402,13 @@ export default function GmailInbox({
             </ul>
           </div>
 
-          {(gmailGroups.tri?.length > 0 || gmailGroups.other?.length > 0) && (
+          {(gmailGroups.neya?.length > 0 || gmailGroups.tri?.length > 0 || gmailGroups.other?.length > 0) && (
             <div className="border-t border-neya-border px-4 py-3">
               <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-neya-muted">
                 Labels Gmail
               </p>
               <ul className="flex flex-col gap-0.5 max-h-56 overflow-y-auto">
-                {[...(gmailGroups.tri || []), ...(gmailGroups.other || [])]
+                {[...(gmailGroups.neya || []), ...(gmailGroups.tri || []), ...(gmailGroups.other || [])]
                   .filter(l => l.name !== 'Tri' && l.name !== 'NEYA')
                   .map(label => {
                     const folderId = `gmail:${encodeURIComponent(label.name)}`;
@@ -1534,7 +1543,7 @@ export default function GmailInbox({
                   ? 'Aucun message envoyé pour le moment.'
                   : activeFolder === 'inbox'
                     ? 'Aucun message à afficher pour le moment.'
-                    : `Aucun courriel dans « ${ALL_FOLDER_LABELS[activeFolder]} ». Lancez « Trier la boîte » pour classifier.`}
+                    : `Aucun courriel ici. Cliquez « Lancer le tri » pour ranger À répondre / Clients / Fournisseurs.`}
               </EmptyState>
             ) : (
               groupedMessages.map(group => (
@@ -1581,11 +1590,18 @@ export default function GmailInbox({
                             {preview ? (
                               <span className="mail-row-preview">{preview}</span>
                             ) : null}
-                            {badge ? (
+                            {(badge || m.moneyLabel) ? (
                               <span className="mail-row-badges">
-                                <span className="rounded-md bg-neya-surface px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-neya-ink-light">
-                                  {badge.label}
-                                </span>
+                                {badge ? (
+                                  <span className="rounded-md bg-neya-surface px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-neya-ink-light">
+                                    {badge.label}
+                                  </span>
+                                ) : null}
+                                {m.moneyLabel ? (
+                                  <span className={`mail-badge ${m.paymentHint === 'paid' ? 'mail-badge--paid' : 'mail-badge--unpaid'}`}>
+                                    {m.moneyLabel}
+                                  </span>
+                                ) : null}
                               </span>
                             ) : null}
                           </span>
@@ -1691,6 +1707,24 @@ export default function GmailInbox({
                     </div>
                   </div>
                 </header>
+
+                {(selected.invoiceKind || selected.expense_id || selected.moneyLabel) && (
+                  <div className="mx-4 mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
+                    <p className="font-medium">
+                      {selected.moneyLabel
+                        || (selected.invoiceKind === 'ticket' ? 'Ticket fournisseur'
+                          : selected.invoiceKind === 'facture' ? 'Facture à payer'
+                            : 'Dépense (courriel)')}
+                    </p>
+                    <p className="text-xs mt-0.5">
+                      {selected.expense_id
+                        ? 'Enregistré dans les dépenses.'
+                        : 'Sera classé dans Dépenses dès qu’un montant est lu.'}
+                      {' '}
+                      <Link href="/expenses" className="text-neya-orange hover:underline">Ouvrir Dépenses</Link>
+                    </p>
+                  </div>
+                )}
 
                 <div className={`mail-body ${selected.bodyHtml ? 'mail-body--html' : ''}`}>
                   {threadLoading && !selected.body && !selected.bodyHtml ? (

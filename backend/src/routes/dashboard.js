@@ -7,19 +7,45 @@ import { scanInboxForSupplierInvoices } from '../services/invoice-email-router.j
 import { syncProjectStatusFromTasks } from '../services/project-status-sync.js';
 import { cleanupClientMailPayableTodos, cleanupHandledSupplierPayableTodos } from '../services/mail-invoice-todos.js';
 import { resolveMailTaskHref } from '../services/mail-deep-link.js';
+import {
+  adminCategoryLabel,
+  isMoneyFollowSourceKey,
+  shouldShowAdminOnDashboard,
+  quoteDetailHref,
+  invoiceDetailHref,
+  formatQuoteFollowTitle,
+  formatInvoiceFollowTitle,
+} from '../services/dashboard-follow.js';
 
 const router = Router();
 
 const TIER_RANK = { p1: 0, p2: 1, p3: 2 };
+const LIVE_TODO_TYPES = ['admin', 'atelier', 'rdv', 'installation'];
 const SOURCE_LABEL = {
   admin: 'Admin',
   atelier: 'Atelier',
   rdv: 'RDV',
+  installation: 'Installation',
   todo: 'Perso',
 };
 
+function looksLikeInstallation(row = {}) {
+  const type = String(row.type || '').toLowerCase();
+  const key = String(row.source_key || '').toLowerCase();
+  const blob = `${row.title || ''} ${row.notes || ''} ${row.description || ''} ${row.category || ''}`.toLowerCase();
+  return type === 'installation'
+    || key.startsWith('ops_install')
+    || key.includes('installation')
+    || /install/.test(blob);
+}
+
+function resolveLiveSource(row, fallback) {
+  if (looksLikeInstallation(row)) return 'installation';
+  return fallback;
+}
+
 /**
- * Todo live Dashboard : fusion admin + ops atelier + RDV du jour + todos manuels.
+ * Todo live Dashboard : fusion admin + atelier + RDV + installation + todos manuels.
  */
 async function buildLiveTodo() {
   await seedOpsLiveTasks().catch(() => {});
@@ -39,20 +65,24 @@ async function buildLiveTodo() {
       LIMIT 20
     `),
     pool.query(`
-      SELECT t.id, t.title, t.status, t.type, t.start_time, t.project_id,
+      SELECT t.id, t.title, t.status, t.type, t.start_time, t.project_id, t.description,
              p.name AS project_name
       FROM tasks t
       INNER JOIN projects p ON p.id = t.project_id AND p.status = 'active'
       WHERE t.status != 'done'
+        AND (
+          t.status = 'doing'
+          OR (t.start_time IS NOT NULL AND t.start_time >= CURRENT_DATE AND t.start_time < CURRENT_DATE + INTERVAL '1 day')
+        )
       ORDER BY
         CASE t.status WHEN 'doing' THEN 0 WHEN 'todo' THEN 1 ELSE 2 END,
         t.start_time NULLS LAST,
         t.sort_order NULLS LAST,
         t.id ASC
-      LIMIT 12
+      LIMIT 8
     `),
     pool.query(`
-      SELECT t.id, t.title, t.status, t.type, t.start_time, t.project_id,
+      SELECT t.id, t.title, t.status, t.type, t.start_time, t.project_id, t.description,
              p.name AS project_name
       FROM tasks t
       LEFT JOIN projects p ON p.id = t.project_id
@@ -63,21 +93,26 @@ async function buildLiveTodo() {
       ORDER BY t.start_time ASC
       LIMIT 8
     `),
-    listVisibleTodos('main'),
+    listVisibleTodos(),
   ]);
 
   const atelierIds = new Set(atelierOpen.rows.map(r => r.id));
   const items = [];
 
   for (const t of adminOpen.rows) {
+    if (isMoneyFollowSourceKey(t.source_key)) continue;
+    if (!shouldShowAdminOnDashboard(t)) continue;
     const isOps = String(t.source_key || '').startsWith('ops_')
       || /atelier|matériel|materiel|nettoyage/i.test(`${t.title} ${t.notes || ''}`);
+    const source = resolveLiveSource(t, isOps ? 'atelier' : 'admin');
     items.push({
       key: `admin:${t.id}`,
-      source: isOps ? 'atelier' : 'admin',
+      source,
       id: t.id,
       title: t.title,
-      subtitle: isOps ? 'Opération atelier' : (SOURCE_LABEL.admin + (t.category ? ` · ${t.category}` : '')),
+      subtitle: source === 'installation'
+        ? 'Installation'
+        : (isOps ? 'Atelier' : adminCategoryLabel(t.category)),
       href: resolveMailTaskHref(t) || t.link_href || '/admin',
       priority: t.priority_tier || null,
       status: t.status,
@@ -88,14 +123,17 @@ async function buildLiveTodo() {
   }
 
   for (const t of atelierOpen.rows) {
+    const source = resolveLiveSource(t, 'atelier');
     items.push({
-      key: `atelier:${t.id}`,
-      source: 'atelier',
+      key: `${source === 'installation' ? 'installation' : 'atelier'}:${t.id}`,
+      source,
       id: t.id,
       title: t.title,
-      subtitle: t.project_name ? `Projet · ${t.project_name}` : 'Atelier',
+      subtitle: source === 'installation'
+        ? (t.project_name ? `Installation · ${t.project_name}` : 'Installation')
+        : (t.project_name ? `Projet · ${t.project_name}` : 'Atelier'),
       href: t.project_id ? `/projects/${t.project_id}` : '/production',
-      priority: t.status === 'doing' ? 'p1' : 'p2',
+      priority: t.status === 'doing' || source === 'installation' ? 'p1' : 'p2',
       status: t.status,
       done: false,
       due_date: null,
@@ -105,12 +143,15 @@ async function buildLiveTodo() {
 
   for (const t of rdvToday.rows) {
     if (atelierIds.has(t.id)) continue;
+    const source = resolveLiveSource(t, 'rdv');
     items.push({
-      key: `rdv:${t.id}`,
-      source: 'rdv',
+      key: `${source === 'installation' ? 'installation' : 'rdv'}:${t.id}`,
+      source,
       id: t.id,
       title: t.title,
-      subtitle: t.project_name ? `RDV · ${t.project_name}` : 'Rendez-vous',
+      subtitle: source === 'installation'
+        ? (t.project_name ? `Installation · ${t.project_name}` : 'Installation')
+        : (t.project_name ? `RDV · ${t.project_name}` : 'Rendez-vous'),
       href: t.project_id ? `/projects/${t.project_id}` : '/calendar',
       priority: 'p1',
       status: t.status,
@@ -122,14 +163,18 @@ async function buildLiveTodo() {
 
   for (const t of manualTodos) {
     if (t.done) continue;
+    const listKey = String(t.list_key || 'main');
+    const source = LIVE_TODO_TYPES.includes(listKey)
+      ? listKey
+      : resolveLiveSource({ title: t.title }, 'todo');
     items.push({
       key: `todo:${t.id}`,
-      source: 'todo',
+      source,
       id: t.id,
       title: t.title,
-      subtitle: 'À faire',
-      href: null,
-      priority: null,
+      subtitle: SOURCE_LABEL[source] || 'À faire',
+      href: source === 'installation' ? '/calendar' : (source === 'rdv' ? '/calendar' : null),
+      priority: source === 'installation' ? 'p1' : null,
       status: 'todo',
       done: false,
       due_date: null,
@@ -152,12 +197,14 @@ async function buildLiveTodo() {
 
   const open = items.filter(i => !i.done).length;
   return {
-    items: items.slice(0, 24),
+    items: items.slice(0, 16),
     open,
+    types: LIVE_TODO_TYPES.map(id => ({ id, label: SOURCE_LABEL[id] })),
     bySource: {
       admin: items.filter(i => i.source === 'admin').length,
       atelier: items.filter(i => i.source === 'atelier').length,
       rdv: items.filter(i => i.source === 'rdv').length,
+      installation: items.filter(i => i.source === 'installation').length,
       todo: items.filter(i => i.source === 'todo').length,
     },
   };
@@ -214,6 +261,7 @@ router.get('/', async (req, res) => {
       revenueMonth,
       quotesPendingTotal,
       revenuePrevMonth,
+      todayShifts,
     ] = await Promise.all([
       pool.query(`
         SELECT
@@ -350,6 +398,16 @@ router.get('/', async (req, res) => {
           AND created_at >= date_trunc('month', CURRENT_DATE::timestamp) - INTERVAL '1 month'
           AND created_at < date_trunc('month', CURRENT_DATE::timestamp)
       `).catch(() => ({ rows: [{ total: 0 }] })),
+      pool.query(`
+        SELECT sh.id, sh.start_at, sh.end_at, sh.notes, e.name AS employee_name, e.color, p.name AS project_name
+        FROM shifts sh
+        JOIN employees e ON e.id = sh.employee_id
+        LEFT JOIN projects p ON p.id = sh.project_id
+        WHERE sh.start_at >= CURRENT_DATE
+          AND sh.start_at < CURRENT_DATE + INTERVAL '1 day'
+        ORDER BY sh.start_at
+        LIMIT 12
+      `).catch(() => ({ rows: [] })),
     ]);
 
     const ps = projectStats.rows[0];
@@ -379,8 +437,8 @@ router.get('/', async (req, res) => {
     if (pendingQuotes.rows.length > 0) alerts.push({ type: 'info', text: `${pendingQuotes.rows.length} devis en cours`, href: '/invoices' });
     const adminOpen = adminTasksSummary.rows[0]?.open || 0;
     const adminOverdue = adminTasksSummary.rows[0]?.overdue || 0;
-    if (adminOverdue > 0) alerts.push({ type: 'warning', text: `${adminOverdue} tâche(s) admin en retard`, href: '/admin' });
-    else if (adminOpen > 0) alerts.push({ type: 'info', text: `${adminOpen} tâche(s) admin à faire`, href: '/admin' });
+    if (adminOverdue > 0) alerts.push({ type: 'warning', text: `${adminOverdue} tâche(s) bureau en retard`, href: '/admin' });
+    else if (adminOpen > 0) alerts.push({ type: 'info', text: `${adminOpen} tâche(s) bureau à faire`, href: '/admin' });
     const supplierPending = supplierInvoicesPending.rows[0]?.count || 0;
     if (supplierPending > 0) alerts.push({ type: 'warning', text: `${supplierPending} facture(s) fournisseur à classer`, href: '/mail' });
 
@@ -394,6 +452,18 @@ router.get('/', async (req, res) => {
     scanInboxForSupplierInvoices().catch(() => {});
 
     const liveTodo = await buildLiveTodo().catch(() => ({ items: [], open: 0, bySource: {} }));
+
+    const moneyQuotes = pendingQuotes.rows.map(q => ({
+      ...q,
+      href: quoteDetailHref(q.id),
+      label: formatQuoteFollowTitle(q),
+    }));
+    const moneyInvoices = pendingInvoices.rows.map(i => ({
+      ...i,
+      href: invoiceDetailHref(i.id),
+      remaining: Math.max(0, Number(i.total || 0) - Number(i.amount_paid || 0)),
+      label: formatInvoiceFollowTitle(i),
+    }));
 
     res.json({
       stats: {
@@ -418,8 +488,9 @@ router.get('/', async (req, res) => {
       alerts,
       tasksToday: tasksToday.rows,
       tasksWeek: tasksWeek.rows,
-      pendingInvoices: pendingInvoices.rows,
-      pendingQuotes: pendingQuotes.rows,
+      pendingInvoices: moneyInvoices,
+      pendingQuotes: moneyQuotes,
+      todayShifts: todayShifts.rows || [],
       urgentProjects: urgentProjects.rows,
       activeProjects: projectCards,
       projectCards,
@@ -464,7 +535,7 @@ router.patch('/live-todo', async (req, res) => {
         [nextStatus, id]
       );
       if (!rows[0]) return res.status(404).json({ error: 'Tâche admin introuvable' });
-    } else if (source === 'atelier' || source === 'rdv') {
+    } else if (source === 'atelier' || source === 'rdv' || source === 'installation') {
       const { rows: existing } = await pool.query('SELECT * FROM tasks WHERE id = $1', [id]);
       if (!existing[0]) return res.status(404).json({ error: 'Tâche atelier introuvable' });
       const { rows } = await pool.query(
@@ -506,7 +577,8 @@ router.get('/todos', async (req, res) => {
 router.post('/todos', async (req, res) => {
   try {
     const title = String(req.body.title || '').trim();
-    const listKey = String(req.body.list_key || 'main').trim() || 'main';
+    const rawKey = String(req.body.list_key || req.body.type || 'main').trim() || 'main';
+    const listKey = LIVE_TODO_TYPES.includes(rawKey) || rawKey === 'main' ? rawKey : 'main';
     if (!title) return res.status(400).json({ error: 'Titre requis' });
     const { rows } = await pool.query(
       `INSERT INTO dashboard_todos (title, list_key, sort_order)

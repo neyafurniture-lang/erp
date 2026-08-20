@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
 import InvoicePaymentModal from '../../components/InvoicePaymentModal';
@@ -28,8 +28,9 @@ const EMPTY_FORM = {
   lines: [{ description: '', qty: 1, price: 0 }],
 };
 
-export default function InvoicesPage() {
+function InvoicesPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [invoices, setInvoices] = useState([]);
   const [quotes, setQuotes] = useState([]);
   const [clients, setClients] = useState([]);
@@ -50,6 +51,20 @@ export default function InvoicesPage() {
   };
 
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    const q = searchParams.get('quote');
+    if (q) {
+      router.replace(`/invoices/quotes/${q}`);
+      return;
+    }
+    const inv = searchParams.get('invoice');
+    if (inv) {
+      router.replace(`/invoices/${inv}`);
+      return;
+    }
+    if (searchParams.get('tab') === 'invoices') setTab('invoices');
+  }, [searchParams, router]);
 
   function showToast(msg) {
     setToast(msg);
@@ -234,6 +249,11 @@ export default function InvoicesPage() {
             </button>
           </div>
           <div className="flex-1" />
+          {tab === 'quotes' && (
+            <Link href="/invoices/quotes/nouveau" className="btn-secondary">
+              Brief + photos (IA)
+            </Link>
+          )}
           <button type="button" onClick={openCreateForm} className="btn-primary">
             + {tab === 'quotes' ? 'Nouveau devis' : 'Nouvelle facture'}
           </button>
@@ -575,5 +595,19 @@ export default function InvoicesPage() {
         )}
       </AppShell>
     </AuthGuard>
+  );
+}
+
+export default function InvoicesPage() {
+  return (
+    <Suspense fallback={
+      <AuthGuard>
+        <AppShell title="Devis & factures">
+          <p className="text-sm text-neya-muted">Chargement…</p>
+        </AppShell>
+      </AuthGuard>
+    }>
+      <InvoicesPageInner />
+    </Suspense>
   );
 }

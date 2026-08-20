@@ -13,6 +13,19 @@ const CATEGORY_LABELS = {
   admin: 'Admin',
 };
 
+function scanSummary(result) {
+  if (!result || result.scanned == null) return '';
+  const parts = [
+    `${result.ingested || 0} nouveau(x) sur ${result.scanned} mail(s)`,
+  ];
+  if (result.expenses_created) parts.push(`${result.expenses_created} dépense(s) créée(s)`);
+  if (result.admin_todos?.created) parts.push(`${result.admin_todos.created} todo(s)`);
+  if (result.admin_todos?.cleaned_handled_supplier_payables) {
+    parts.push(`${result.admin_todos.cleaned_handled_supplier_payables} todo(s) fermée(s)`);
+  }
+  return parts.join(' · ');
+}
+
 function groupPendingBySupplier(items = []) {
   const map = new Map();
   for (const item of items) {
@@ -38,10 +51,15 @@ function AssignModal({ item, projects, onClose, onDone }) {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
 
-  async function assign() {
+  async function assign({ alreadyPaid = false } = {}) {
     setSaving(true);
     setErr('');
     try {
+      if (alreadyPaid && !amount && item.suggested_amount == null) {
+        setErr('Indiquez le montant pour enregistrer le ticket dans les dépenses.');
+        setSaving(false);
+        return;
+      }
       await api(`/supplier-invoices/${item.id}/assign`, {
         method: 'POST',
         body: JSON.stringify({
@@ -50,6 +68,7 @@ function AssignModal({ item, projects, onClose, onDone }) {
           category: projectId ? category : (category || 'atelier'),
           remember_rule: Boolean(remember && projectId),
           keyword_pattern: keyword.trim() || undefined,
+          already_paid: alreadyPaid,
         }),
       });
       onDone();
@@ -63,10 +82,6 @@ function AssignModal({ item, projects, onClose, onDone }) {
 
   async function submit(e) {
     e.preventDefault();
-    await assign();
-  }
-
-  async function markPaid() {
     await assign();
   }
 
@@ -161,11 +176,21 @@ function AssignModal({ item, projects, onClose, onDone }) {
             <button type="submit" disabled={saving} className="btn-primary flex-1 sm:flex-none">
               {saving ? 'Enregistrement…' : 'Classer la facture'}
             </button>
-            <button type="button" onClick={markPaid} disabled={saving} className="btn-secondary text-sm">
+            <button
+              type="button"
+              onClick={() => assign({ alreadyPaid: true })}
+              disabled={saving}
+              className="btn-secondary text-sm"
+            >
               Déjà payée
             </button>
             <button type="button" onClick={dismiss} disabled={saving} className="btn-secondary text-sm">Ignorer</button>
-            <Link href="/mail" className="btn-secondary text-sm">Voir dans Gmail</Link>
+            <Link
+              href={item.gmail_message_id ? `/mail?message=${encodeURIComponent(item.gmail_message_id)}` : '/mail'}
+              className="btn-secondary text-sm"
+            >
+              Voir le courriel
+            </Link>
           </div>
         </form>
       </div>
@@ -204,14 +229,8 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
     api('/supplier-invoices/scan', { method: 'POST' })
       .then((result) => {
         if (result.scanned != null) {
-          const todoBit = result.admin_todos?.created
-            ? ` · ${result.admin_todos.created} todo(s) admin`
-            : '';
-          const closedBit = result.admin_todos?.cleaned_handled_supplier_payables
-            ? ` · ${result.admin_todos.cleaned_handled_supplier_payables} todo(s) fermée(s)`
-            : '';
-          setScanInfo(`${result.ingested || 0} facture(s) détectée(s) sur ${result.scanned} message(s) scanné(s)${todoBit}${closedBit}`);
-          if ((result.ingested || 0) > 0 && compact) setExpanded(true);
+          setScanInfo(scanSummary(result));
+          if (((result.ingested || 0) > 0 || (result.expenses_created || 0) > 0) && compact) setExpanded(true);
         }
         if (result.errors?.length) {
           setScanErr(result.errors[0].error);
@@ -228,13 +247,7 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
     setScanInfo('');
     try {
       const result = await api('/supplier-invoices/scan', { method: 'POST' });
-      const todoBit = result.admin_todos?.created
-        ? ` · ${result.admin_todos.created} todo(s) admin`
-        : '';
-      const closedBit = result.admin_todos?.cleaned_handled_supplier_payables
-        ? ` · ${result.admin_todos.cleaned_handled_supplier_payables} todo(s) fermée(s)`
-        : '';
-      setScanInfo(`${result.ingested || 0} facture(s) détectée(s) sur ${result.scanned || 0} message(s) scanné(s)${todoBit}${closedBit}`);
+      setScanInfo(scanSummary(result));
       if (result.errors?.length) {
         setScanErr(`${result.errors.length} message(s) en erreur — ${result.errors[0].error}`);
       }
@@ -247,7 +260,7 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
     }
   }
 
-  if (!pending.length && compact) return null;
+  if (!pending.length && compact && !scanErr) return null;
 
   if (compact) {
     return (
@@ -335,7 +348,7 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
                 : 'Factures fournisseurs'}
             </h2>
             <p className="text-xs text-neya-muted mt-0.5">
-              Projet ou frais atelier — Home Depot, Rona, etc.
+              Tickets et factures reçus par courriel — montant manquant = à saisir. L’argent gagné est dans Factures, pas ici.
             </p>
           </div>
           <button type="button" onClick={scan} disabled={scanning} className="btn-secondary text-xs shrink-0 min-h-[36px]">
@@ -366,7 +379,11 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
                     <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 p-2.5 sm:p-3 border border-neya-border bg-white">
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium truncate">{item.subject}</p>
-                        <p className="text-xs text-neya-muted truncate">{item.from_email}</p>
+                        <p className="text-xs text-neya-muted truncate">
+                          {item.from_email}
+                          {item.suggested_amount != null ? ` · ${Number(item.suggested_amount).toFixed(2)} $` : ' · montant à lire'}
+                          {item.doc_kind === 'ticket' ? ' · ticket' : item.doc_kind === 'facture' ? ' · facture' : ''}
+                        </p>
                       </div>
                       <button type="button" onClick={() => setActive(item)} className="btn-primary text-xs shrink-0 min-h-[36px]">
                         Classer

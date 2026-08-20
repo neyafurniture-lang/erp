@@ -167,7 +167,11 @@ CREATE TABLE IF NOT EXISTS expenses (
   description TEXT,
   receipt_url TEXT,
   date DATE DEFAULT CURRENT_DATE,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  source TEXT DEFAULT 'manual',
+  gmail_message_id TEXT,
+  payment_status TEXT DEFAULT 'paid',
+  mail_from TEXT
 );
 
 CREATE TABLE IF NOT EXISTS receipt_scans (
@@ -290,7 +294,12 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS account_number TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_suppliers_slug ON suppliers(slug) WHERE slug IS NOT NULL;
 
 ALTER TABLE expenses ADD COLUMN IF NOT EXISTS supplier_id INT REFERENCES suppliers(id) ON DELETE SET NULL;
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'manual';
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS gmail_message_id TEXT;
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS payment_status TEXT DEFAULT 'paid';
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS mail_from TEXT;
 CREATE INDEX IF NOT EXISTS idx_expenses_supplier ON expenses(supplier_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_expenses_gmail_message ON expenses(gmail_message_id) WHERE gmail_message_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS inventory_items (
   id SERIAL PRIMARY KEY,
@@ -563,6 +572,7 @@ CREATE TABLE IF NOT EXISTS supplier_invoice_emails (
   assigned_at TIMESTAMPTZ,
   received_at TIMESTAMPTZ,
   suggested_amount NUMERIC(12,2),
+  doc_kind TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -700,6 +710,7 @@ INSERT INTO assistant_skills (name, description, trigger_patterns, action_type, 
   ('create_task', 'Créer une tâche de production', '["créer tâche", "ajouter tâche", "nouvelle tâche", "task"]', 'create_task', '{}'),
   ('create_project', 'Créer un nouveau projet', '["créer projet", "nouveau projet", "project"]', 'create_project', '{}'),
   ('schedule_task', 'Planifier une tâche au calendrier', '["planifier", "programmer", "calendrier", "demain", "lundi"]', 'schedule_task', '{}'),
+  ('create_shift', 'Créer un quart employé', '["quart", "shift", "horaire olive", "horaire mehdi", "mettre olive"]', 'create_shift', '{}'),
   ('create_expense', 'Enregistrer une dépense', '["dépense", "acheté", "payé pour"]', 'create_expense', '{}'),
   ('list_today', 'Voir les tâches du jour', '["aujourd''hui", "tâches du jour", "planning jour"]', 'list_today', '{}'),
   ('create_client', 'Ajouter un client', '["nouveau client", "ajouter client", "client"]', 'create_client', '{}'),
