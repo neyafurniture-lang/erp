@@ -217,6 +217,19 @@ export default function ChatAssistant() {
     }
   }, [expanded, mobileSheetOpen]);
 
+  useEffect(() => {
+    function onOpenLia() {
+      const isDesktop = window.matchMedia('(min-width: 1024px)').matches;
+      if (isDesktop) setExpanded(true);
+      else setMobileSheetOpen(true);
+      setVoiceCard(v => ({ ...v, visible: false }));
+      setTextComposerOpen(false);
+      setLauncherMenuOpen(false);
+    }
+    window.addEventListener('neya:open-lia', onOpenLia);
+    return () => window.removeEventListener('neya:open-lia', onOpenLia);
+  }, []);
+
   const scheduleDismiss = useCallback(() => {
     clearTimeout(dismissTimerRef.current);
     dismissTimerRef.current = setTimeout(() => {

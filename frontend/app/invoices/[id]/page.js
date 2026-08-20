@@ -6,19 +6,22 @@ import Link from 'next/link';
 import AppShell from '../../../components/AppShell';
 import AuthGuard from '../../../components/AuthGuard';
 import InvoicePaymentModal, { paymentMethodLabel } from '../../../components/InvoicePaymentModal';
-import DocumentVisualEditor from '../../../components/DocumentVisualEditor';
+import DocumentVisualEditor, { serializeQuoteDocument } from '../../../components/DocumentVisualEditor';
 import SendDocumentModal from '../../../components/SendDocumentModal';
+import DocumentPdfPreviewModal from '../../../components/DocumentPdfPreviewModal';
 import {
   api, formatMoney, formatDate, INVOICE_STATUS, downloadPdf,
 } from '../../../lib/api';
 import { useRegisterChatContext } from '../../../lib/chat-context';
+import { flattenQuoteLines } from '../../../lib/quote-document';
+import { finalizeDecimal } from '../../../lib/parse-decimal';
 
 function parseLines(lines) {
   if (!lines) return [];
   if (typeof lines === 'string') {
     try { return JSON.parse(lines); } catch { return []; }
   }
-  return Array.isArray(lines) ? lines : [];
+  return lines;
 }
 
 export default function InvoiceDetailPage() {
@@ -28,9 +31,12 @@ export default function InvoiceDetailPage() {
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
   const [showSend, setShowSend] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [clients, setClients] = useState([]);
+  const [clientSaving, setClientSaving] = useState(false);
 
   const load = useCallback(() => {
     if (!id) return;
@@ -43,6 +49,10 @@ export default function InvoiceDetailPage() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    api('/clients').then(setClients).catch(() => setClients([]));
+  }, []);
 
   useRegisterChatContext(invoice ? {
     type: 'invoice',
@@ -101,16 +111,43 @@ export default function InvoiceDetailPage() {
     }
   }
 
+  async function updateClient(clientId) {
+    const nextId = clientId ? Number(clientId) : null;
+    if (nextId === invoice?.client_id) return;
+    setClientSaving(true);
+    try {
+      const updated = await api(`/invoices/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ client_id: nextId }),
+      });
+      setInvoice(updated);
+      showToast('Client mis à jour');
+    } catch (err) {
+      showToast(err.message || 'Impossible de changer le client');
+    } finally {
+      setClientSaving(false);
+    }
+  }
+
   async function saveDocument(draft) {
     setSaving(true);
     try {
-      const cleaned = (draft.lines || [])
-        .map(l => ({
+      const document = serializeQuoteDocument({
+        sections: draft.sections,
+      });
+      // Une seule section sans titre → tableau plat (compat installation-billing / anciennes factures)
+      const multi = (document.sections || []).length > 1
+        || (document.sections || []).some(s => String(s.title || '').trim());
+      const lines = multi
+        ? document
+        : flattenQuoteLines(document).map(l => ({
           description: String(l.description || '').trim(),
-          qty: Number(l.qty) || 0,
-          price: Number(l.price) || 0,
-        }))
-        .filter(l => l.description || l.qty || l.price);
+          qty: finalizeDecimal(l.qty, 1),
+          price: finalizeDecimal(l.price, 0),
+        }));
+      const payloadLines = Array.isArray(lines) && !lines.length
+        ? [{ description: '', qty: 1, price: 0 }]
+        : lines;
       await api(`/invoices/${id}`, {
         method: 'PUT',
         body: JSON.stringify({
@@ -119,7 +156,7 @@ export default function InvoiceDetailPage() {
           notes: draft.notes,
           order_summary: draft.notes,
           due_date: draft.due_date || null,
-          lines: cleaned.length ? cleaned : [{ description: '', qty: 1, price: 0 }],
+          lines: payloadLines,
         }),
       });
       load();
@@ -182,6 +219,9 @@ export default function InvoiceDetailPage() {
             ← Facturation
           </Link>
           <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => setShowPreview(true)} className="btn-secondary text-sm min-h-[36px]">
+              Prévisualiser
+            </button>
             <button type="button" onClick={handlePdf} disabled={pdfLoading} className="btn-secondary text-sm min-h-[36px]">
               {pdfLoading ? 'PDF…' : 'Télécharger PDF'}
             </button>
@@ -203,12 +243,44 @@ export default function InvoiceDetailPage() {
             statusLabel={st.label}
             clientName={invoice.client_name}
             clientHref={invoice.client_id ? `/clients/${invoice.client_id}` : null}
+            client={{
+              contact: invoice.contact,
+              email: invoice.email,
+              phone: invoice.client_phone || invoice.phone,
+              address: invoice.client_address,
+              city: invoice.client_city,
+            }}
             value={editorValue}
             onSave={saveDocument}
             saving={saving}
           />
 
           <aside className="space-y-6">
+            <div className="border border-neya-border p-4">
+              <h2 className="text-sm font-semibold mb-3">Client</h2>
+              <select
+                className="input text-sm w-full"
+                value={invoice.client_id || ''}
+                disabled={clientSaving}
+                onChange={e => updateClient(e.target.value)}
+              >
+                <option value="">— Aucun client —</option>
+                {clients.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+              {invoice.client_id && (
+                <Link
+                  href={`/clients/${invoice.client_id}`}
+                  className="inline-block text-xs text-neya-orange hover:underline mt-2"
+                >
+                  Voir la fiche client →
+                </Link>
+              )}
+              {clientSaving && (
+                <p className="text-xs text-neya-muted mt-2">Mise à jour…</p>
+              )}
+            </div>
             <div className="border border-neya-border p-4">
               <h2 className="text-sm font-semibold mb-3">Paiements</h2>
               <div className="space-y-2 text-sm mb-3">
@@ -263,6 +335,16 @@ export default function InvoiceDetailPage() {
               showToast('Facture envoyée par courriel');
               load();
             }}
+          />
+        )}
+
+        {showPreview && (
+          <DocumentPdfPreviewModal
+            type="invoice"
+            docId={id}
+            title={`Facture ${invoice.invoice_number}${invoice.client_name ? ` · ${invoice.client_name}` : ''}`}
+            filename={`facture-${invoice.invoice_number}.pdf`}
+            onClose={() => setShowPreview(false)}
           />
         )}
       </AppShell>

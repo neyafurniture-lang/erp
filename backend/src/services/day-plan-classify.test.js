@@ -8,6 +8,11 @@ import {
   stripAssistantMeta,
   sanitizeAssistantReply,
   splitPlanItems,
+  wantsSmartTaskPlan,
+  cleanTaskTitle,
+  wantsCreateShift,
+  wantsScheduleOnCalendar,
+  calendarTitleFromMessage,
 } from './day-plan-classify.js';
 
 const PROSE_BUG = `La semaine prochaine. Il faut avancer sur le projet (nom non clair.
@@ -59,6 +64,30 @@ describe('isClearDayIntent', () => {
   });
 });
 
+describe('wantsSmartTaskPlan', () => {
+  it('capture la prose multi-intent', () => {
+    assert.equal(wantsSmartTaskPlan(PROSE_BUG), true);
+  });
+
+  it('capture « créer des tâches depuis ce texte »', () => {
+    assert.equal(
+      wantsSmartTaskPlan('Analyse ce texte et crée des tâches : appeler James, payer Olive, débitage mardi'),
+      true
+    );
+  });
+
+  it('ne capture pas une courte consigne simple', () => {
+    assert.equal(wantsSmartTaskPlan('ajoute finition sur projet Olive'), false);
+  });
+
+  it('ne capture pas une vraie liste journée (reste plan_day)', () => {
+    assert.equal(
+      wantsSmartTaskPlan('Demain finition banc olive, mail pour The NNS, débitage table chêne'),
+      false
+    );
+  });
+});
+
 describe('isDeleteTaskIntent', () => {
   it('accepte impératif sans accent', () => {
     assert.equal(isDeleteTaskIntent('Supprime la tache finition'), true);
@@ -66,6 +95,17 @@ describe('isDeleteTaskIntent', () => {
 
   it('laisse le clear-day au bulk', () => {
     assert.equal(isDeleteTaskIntent(DELETE_TOMORROW), false);
+  });
+});
+
+describe('cleanTaskTitle', () => {
+  it('retire le préfixe « crée une tâche »', () => {
+    assert.equal(cleanTaskTitle('crée une tâche appeler James demain'), 'Appeler James demain');
+  });
+
+  it('coupe une phrase trop longue', () => {
+    const long = `ajoute ${'x'.repeat(120)}`;
+    assert.ok(cleanTaskTitle(long).length <= 90);
   });
 });
 
@@ -83,7 +123,7 @@ describe('isDayPlanMessage', () => {
 
   it('accepte « planifie ma journée demain … »', () => {
     assert.equal(
-      isDayPlanMessage('Planifie ma journée demain : finition ETEL, assemblage cadres'),
+      isDayPlanMessage('planifie ma journée demain : finition olive puis débitage NNS'),
       true
     );
   });
@@ -117,5 +157,21 @@ describe('splitPlanItems', () => {
   it('découpe une liste virgule / puis', () => {
     const items = splitPlanItems('finition banc olive, mail The NNS puis débitage table');
     assert.equal(items.length, 3);
+  });
+});
+
+describe('quarts vs calendrier', () => {
+  it('Olive demain 8h = quart', () => {
+    assert.equal(wantsCreateShift('Mets Olive demain 8h'), true);
+    assert.equal(wantsScheduleOnCalendar('Mets Olive demain 8h'), false);
+  });
+
+  it('livraison au calendrier = tâche', () => {
+    assert.equal(wantsScheduleOnCalendar('Mets livraison James au calendrier demain 9h'), true);
+    assert.equal(wantsCreateShift('Mets livraison James au calendrier demain 9h'), false);
+  });
+
+  it('extrait le titre du RDV', () => {
+    assert.equal(calendarTitleFromMessage('Mets livraison James au calendrier demain 9h'), 'livraison James');
   });
 });

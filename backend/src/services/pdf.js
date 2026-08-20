@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import { getCompanyConfig } from './company-config.js';
 import { normalizeQuoteDocument, flattenQuoteLines } from './quote-document.js';
+import { calcDocTaxes, roundMoney } from './tax.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -46,9 +47,10 @@ function parseLines(lines) {
 }
 
 function calcTaxes(subtotal, co) {
-  const gst = subtotal * co.tax.gstRate;
-  const qst = subtotal * co.tax.qstRate;
-  return { gst, qst, total: subtotal + gst + qst };
+  return calcDocTaxes(subtotal, {
+    gstRate: co?.tax?.gstRate ?? 0.05,
+    qstRate: co?.tax?.qstRate ?? 0.09975,
+  });
 }
 
 /**
@@ -98,8 +100,9 @@ function ensureSpace(doc, y, need, ctx) {
   return docHeader(doc, ctx.co, { ...ctx, compact: true });
 }
 
-function roundedCard(doc, x, y, w, h, { fill = C.cream } = {}) {
-  doc.roundedRect(x, y, w, h, 6).fillColor(fill).fill();
+/** Cartes / blocs — coins carrés (style facture plus angulaire). */
+function flatCard(doc, x, y, w, h, { fill = C.cream } = {}) {
+  doc.rect(x, y, w, h).fillColor(fill).fill();
 }
 
 /**
@@ -123,8 +126,8 @@ function metaCards(doc, y, leftTitle, leftLines, rightTitle, rightRows) {
   }
   const h = Math.max(lh, rh, 64) + pad * 1.5;
 
-  roundedCard(doc, M, y, cw, h);
-  roundedCard(doc, M + cw + gap, y, cw, h);
+  flatCard(doc, M, y, cw, h);
+  flatCard(doc, M + cw + gap, y, cw, h);
 
   // Carte gauche
   let ly = y + pad;
@@ -163,31 +166,44 @@ const COL = {
 };
 
 function tableHeader(doc, y) {
-  doc.roundedRect(M, y, W, 20, 4).fillColor(C.green).fill();
+  doc.rect(M, y, W, 20).fillColor(C.green).fill();
   doc.fillColor(C.white).font('Helvetica-Bold').fontSize(8);
   const ty = y + 6;
-  doc.text('DESCRIPTION', COL.desc.x, ty, { width: COL.desc.w, characterSpacing: 0.5 });
-  doc.text('QTÉ', COL.qty.x, ty, { width: COL.qty.w, align: 'right' });
-  doc.text('PRIX UNIT.', COL.price.x, ty, { width: COL.price.w, align: 'right' });
-  doc.text('MONTANT', COL.amount.x, ty, { width: COL.amount.w, align: 'right' });
+  doc.text('Description', COL.desc.x, ty, { width: COL.desc.w });
+  doc.text('Qté', COL.qty.x, ty, { width: COL.qty.w, align: 'right' });
+  doc.text('Prix unit.', COL.price.x, ty, { width: COL.price.w, align: 'right' });
+  doc.text('Montant', COL.amount.x, ty, { width: COL.amount.w, align: 'right' });
   return y + 26;
+}
+
+function fmtDateShort(d) {
+  if (!d) return '—';
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return '—';
+  const dd = String(dt.getDate()).padStart(2, '0');
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const yyyy = dt.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
 }
 
 function linesTable(doc, lines, startY, ctx) {
   let y = startY;
+  const visible = parseLines(lines).filter((line) => String(line?.description || '').trim());
+  if (!visible.length) return y;
+
   y = ensureSpace(doc, y, 60, ctx);
   y = tableHeader(doc, y);
 
   let i = 0;
-  for (const line of parseLines(lines)) {
+  for (const line of visible) {
     const qty = Number(line.qty) || 0;
     const price = Number(line.price) || 0;
     const amount = qty * price;
-    const desc = line.description || '';
+    const desc = String(line.description || '').trim();
 
     doc.font('Helvetica').fontSize(9);
     const descH = doc.heightOfString(desc, { width: COL.desc.w });
-    const rowH = Math.max(descH, 11) + 9;
+    const rowH = Math.max(descH, 11) + 10;
 
     if (y + rowH >= BODY_LIMIT) {
       y = ensureSpace(doc, y, rowH + 30, ctx);
@@ -200,7 +216,7 @@ function linesTable(doc, lines, startY, ctx) {
     doc.fillColor(C.black).font('Helvetica').fontSize(9);
     doc.text(desc, COL.desc.x, y, { width: COL.desc.w });
     doc.fillColor(C.muted);
-    doc.text(String(line.qty ?? qty), COL.qty.x, y, { width: COL.qty.w, align: 'right' });
+    doc.text(String(qty), COL.qty.x, y, { width: COL.qty.w, align: 'right' });
     doc.text(money(price), COL.price.x, y, { width: COL.price.w, align: 'right' });
     doc.fillColor(C.black).font('Helvetica-Bold');
     doc.text(money(amount), COL.amount.x, y, { width: COL.amount.w, align: 'right' });
@@ -208,7 +224,7 @@ function linesTable(doc, lines, startY, ctx) {
     i += 1;
   }
   doc.moveTo(M, y).lineTo(R, y).strokeColor(C.line).lineWidth(0.6).stroke();
-  return y + 8;
+  return y + 10;
 }
 
 /**
@@ -225,7 +241,7 @@ function totalsBlock(doc, subtotal, startY, co, label, ctx, { depositNote = fals
 
   let y = ensureSpace(doc, startY, boxH + (depositNote ? 34 : 10), ctx);
 
-  roundedCard(doc, bx, y, bw, boxH, { fill: C.cream });
+  flatCard(doc, bx, y, bw, boxH, { fill: C.cream });
   let ty = y + 10;
 
   const row = (caption, value) => {
@@ -240,7 +256,7 @@ function totalsBlock(doc, subtotal, startY, co, label, ctx, { depositNote = fals
   row(co.tax.labelQst || 'TVQ 9,975 %', qst);
 
   ty += 2;
-  doc.roundedRect(bx + 6, ty, bw - 12, 24, 5).fillColor(C.orange).fill();
+  doc.rect(bx + 6, ty, bw - 12, 24).fillColor(C.orange).fill();
   doc.fillColor(C.white).font('Helvetica-Bold').fontSize(10)
     .text(label.toUpperCase(), bx + padX, ty + 7, { width: bw - padX * 2 - 90, characterSpacing: 0.5 });
   doc.fontSize(11)
@@ -293,10 +309,12 @@ function stampFooters(doc, co, footerLeft) {
   }
 }
 
-function paymentBlock(doc, y, co, ctx, { compact = false } = {}) {
+function paymentBlock(doc, y, co, ctx, { compact = false, intro } = {}) {
   y = ensureSpace(doc, y, 120, ctx);
-  y = sectionTitle(doc, 'Paiement', y);
-  y = paragraph(doc, co.payment.intro, y, { size: compact ? 8 : 9 });
+  y = sectionTitle(doc, 'Instructions de paiement', y);
+  const introText = intro
+    || (ctx?.docType === 'Devis' ? (co.payment.introQuote || co.payment.intro) : co.payment.intro);
+  y = paragraph(doc, introText, y, { size: compact ? 8 : 9 });
 
   const gap = 12;
   const cw = (W - gap) / 2;
@@ -304,7 +322,7 @@ function paymentBlock(doc, y, co, ctx, { compact = false } = {}) {
   const h = 74;
   y = ensureSpace(doc, y, h + 10, ctx);
 
-  roundedCard(doc, M, y, cw, h, { fill: C.creamSoft });
+  flatCard(doc, M, y, cw, h, { fill: C.creamSoft });
   doc.fillColor(C.green).font('Helvetica-Bold').fontSize(8.5)
     .text(co.payment.interac.label, M + pad, y + pad);
   doc.fillColor(C.muted).font('Helvetica').fontSize(8);
@@ -312,7 +330,7 @@ function paymentBlock(doc, y, co, ctx, { compact = false } = {}) {
   doc.text(co.payment.interac.note, M + pad, y + pad + 27, { width: cw - pad * 2 });
 
   const rx = M + cw + gap;
-  roundedCard(doc, rx, y, cw, h, { fill: C.creamSoft });
+  flatCard(doc, rx, y, cw, h, { fill: C.creamSoft });
   doc.fillColor(C.green).font('Helvetica-Bold').fontSize(8.5)
     .text(co.payment.bank.label, rx + pad, y + pad);
   doc.fillColor(C.muted).font('Helvetica').fontSize(8);
@@ -333,13 +351,15 @@ export async function generateInvoicePdf(invoice, res) {
   doc.pipe(res);
 
   const subtotal = Number(invoice.subtotal) || 0;
-  const subtitle = invoice.subtitle || invoice.notes?.split('\n')[0] || '';
+  const subtitle = invoice.subtitle || '';
+  const title = invoice.title || '';
 
   let y = docHeader(doc, COMPANY, ctx);
 
-  if (subtitle) {
-    doc.font('Helvetica').fontSize(10).fillColor(C.muted).text(subtitle, M, y, { width: W });
-    y += doc.heightOfString(subtitle, { width: W }) + 10;
+  if (title || subtitle) {
+    const headline = [subtitle, title].filter(Boolean).join(subtitle && title ? ' · ' : '') || subtitle || title;
+    doc.font('Helvetica').fontSize(11).fillColor(C.black).text(headline, M, y, { width: W });
+    y += doc.heightOfString(headline, { width: W }) + 10;
   }
 
   const clientLines = [
@@ -348,30 +368,48 @@ export async function generateInvoicePdf(invoice, res) {
     invoice.client_address && { text: invoice.client_address },
     invoice.client_city && { text: invoice.client_city },
     invoice.email && { text: invoice.email },
+    invoice.client_phone && { text: invoice.client_phone },
   ].filter(Boolean);
 
   const detailRows = [
-    ['Numéro', invoice.invoice_number],
-    ['Date', fmtDate(invoice.created_at)],
+    ['Nº facture', invoice.invoice_number],
+    ['Date', fmtDateShort(invoice.created_at)],
     ['Modalités', invoice.terms || COMPANY.defaultTerms],
-    invoice.due_date && ['Échéance', fmtDate(invoice.due_date)],
+    invoice.due_date && ['Échéance', fmtDateShort(invoice.due_date)],
     invoice.reference && ['Référence', invoice.reference],
   ].filter(Boolean);
 
   y = metaCards(doc, y, 'Facturé à', clientLines, 'Détails', detailRows);
 
-  if (invoice.order_summary || (invoice.notes && !subtitle)) {
-    y = sectionTitle(doc, 'Résumé de commande', y);
+  if (invoice.order_summary || invoice.notes) {
+    y = sectionTitle(doc, 'Résumé', y);
     y = paragraph(doc, invoice.order_summary || invoice.notes, y);
   }
 
-  y = linesTable(doc, invoice.lines, y, ctx);
+  const invDoc = normalizeQuoteDocument(invoice.lines);
+  const hasNamedSections = (invDoc.sections || []).length > 1
+    || (invDoc.sections || []).some(s => String(s.title || '').trim());
+  if (hasNamedSections) {
+    for (const section of invDoc.sections) {
+      const sectionLines = (section.lines || []).filter((l) => String(l?.description || '').trim());
+      if (!sectionLines.length) continue;
+      y = ensureSpace(doc, y, 100, ctx);
+      if (section.title) {
+        doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(9)
+          .text(String(section.title).toUpperCase(), M, y, { characterSpacing: 0.8 });
+        y += 15;
+      }
+      y = linesTable(doc, sectionLines, y, ctx) + 4;
+    }
+  } else {
+    y = linesTable(doc, flattenQuoteLines(invDoc), y, ctx);
+  }
   let totals = totalsBlock(doc, subtotal, y, COMPANY, 'Solde à payer', ctx);
   y = totals.y;
 
   if (Number(invoice.amount_paid) > 0) {
     const paid = Number(invoice.amount_paid) || 0;
-    const due = Math.max(0, (Number(invoice.total) || totals.total) - paid);
+    const due = Math.max(0, roundMoney(totals.total - paid));
     doc.font('Helvetica').fontSize(8.5).fillColor(C.muted)
       .text(`Déjà payé : ${money(paid)}`, M, y, { width: W, align: 'right' });
     y += 12;
@@ -383,13 +421,19 @@ export async function generateInvoicePdf(invoice, res) {
   }
 
   y += 6;
-  y = paymentBlock(doc, y, COMPANY, ctx);
+  y = paymentBlock(doc, y, COMPANY, ctx, { intro: COMPANY.payment.intro });
   y = ensureSpace(doc, y, 30, ctx);
   doc.font('Helvetica-Oblique').fontSize(8).fillColor(C.muted)
-    .text(COMPANY.payment.referenceNote.replace('invoice number', `nº ${invoice.invoice_number}`), M, y, { width: W });
+    .text(
+      String(COMPANY.payment.referenceNote || '').replace(
+        /numéro de facture|invoice number/gi,
+        `nº ${invoice.invoice_number}`
+      ),
+      M, y, { width: W }
+    );
   y += 20;
   doc.font('Helvetica-Bold').fontSize(10).fillColor(C.orange)
-    .text('Merci pour votre commande.', M, y);
+    .text('Merci.', M, y);
 
   stampFooters(doc, COMPANY, `Facture ${invoice.invoice_number} · ${COMPANY.tradeName}`);
   doc.end();
@@ -429,9 +473,9 @@ export async function generateQuotePdf(quote, res) {
     : [{ text: '—' }];
 
   const detailRows = [
-    quote.quote_number && ['Numéro', quote.quote_number],
-    ['Émis le', fmtDate(quote.created_at)],
-    ['Valide jusqu’au', fmtDate(validUntil)],
+    quote.quote_number && ['Nº devis', quote.quote_number],
+    ['Date', fmtDateShort(quote.created_at)],
+    ['Valide jusqu’au', fmtDateShort(validUntil)],
     quote.reference && ['Référence', quote.reference],
   ].filter(Boolean);
 
@@ -443,13 +487,15 @@ export async function generateQuotePdf(quote, res) {
   }
 
   for (const section of document.sections) {
+    const sectionLines = (section.lines || []).filter((l) => String(l?.description || '').trim());
+    if (!sectionLines.length) continue;
     y = ensureSpace(doc, y, 100, ctx);
     if (section.title) {
       doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(9)
         .text(section.title.toUpperCase(), M, y, { characterSpacing: 0.8 });
       y += 15;
     }
-    y = linesTable(doc, section.lines, y, ctx) + 4;
+    y = linesTable(doc, sectionLines, y, ctx) + 4;
   }
 
   const { y: yAfterTotals } = totalsBlock(doc, subtotal, y, COMPANY, 'Total TTC', ctx, { depositNote: true });
@@ -494,7 +540,10 @@ export async function generateQuotePdf(quote, res) {
   y += 10;
 
   if (document.options?.show_payment !== false) {
-    y = paymentBlock(doc, y, COMPANY, ctx, { compact: true });
+    y = paymentBlock(doc, y, COMPANY, ctx, {
+      compact: true,
+      intro: COMPANY.payment.introQuote || COMPANY.payment.intro,
+    });
   }
 
   if (document.options?.show_signature !== false) {

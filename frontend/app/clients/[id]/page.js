@@ -120,6 +120,23 @@ export default function ClientDetailPage() {
     }
   }
 
+  async function deleteClient() {
+    const projects = client.projects?.length || 0;
+    const quotes = client.quotes?.length || 0;
+    const invoices = client.invoices?.length || 0;
+    const linked = projects + quotes + invoices;
+    const msg = linked
+      ? `Supprimer « ${client.name} » ?\n\nLa fiche sera effacée. Les ${projects} projet(s), ${quotes} devis et ${invoices} facture(s) resteront (sans client).`
+      : `Supprimer définitivement « ${client.name} » ?`;
+    if (!window.confirm(msg)) return;
+    try {
+      await api(`/clients/${id}`, { method: 'DELETE' });
+      router.push('/clients');
+    } catch (err) {
+      setError(err.message || 'Suppression impossible');
+    }
+  }
+
   if (error && !client) {
     return (
       <AuthGuard>
@@ -174,6 +191,13 @@ export default function ClientDetailPage() {
               <Link href={`/clients?edit=${client.id}`} className="btn-secondary text-sm">
                 Modifier
               </Link>
+              <button
+                type="button"
+                onClick={deleteClient}
+                className="btn-secondary text-sm text-red-600 hover:bg-red-50"
+              >
+                Supprimer
+              </button>
             </div>
           </div>
           {(error || enrichMsg) && (

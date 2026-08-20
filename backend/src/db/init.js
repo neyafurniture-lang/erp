@@ -7,6 +7,8 @@ import pool from './pool.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export async function initDb() {
+  // Jamais de DROP / TRUNCATE ici. CREATE IF NOT EXISTS + ALTER ADD COLUMN IF NOT EXISTS seulement.
+  // Un wipe de neya_db n’existe que dans deploy/back.sh (rollback volontaire).
   const schemaPath = path.join(__dirname, 'schema.sql');
   const schema = fs.readFileSync(schemaPath, 'utf8');
   try {
@@ -143,6 +145,15 @@ export async function initDb() {
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS employee_id INT REFERENCES employees(id) ON DELETE SET NULL');
   await pool.query('ALTER TABLE supplier_invoice_emails ADD COLUMN IF NOT EXISTS received_at TIMESTAMPTZ');
   await pool.query('ALTER TABLE supplier_invoice_emails ADD COLUMN IF NOT EXISTS suggested_amount NUMERIC(12,2)');
+  await pool.query('ALTER TABLE supplier_invoice_emails ADD COLUMN IF NOT EXISTS doc_kind TEXT');
+  await pool.query(`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'manual'`);
+  await pool.query('ALTER TABLE expenses ADD COLUMN IF NOT EXISTS gmail_message_id TEXT');
+  await pool.query(`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS payment_status TEXT DEFAULT 'paid'`);
+  await pool.query('ALTER TABLE expenses ADD COLUMN IF NOT EXISTS mail_from TEXT');
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_expenses_gmail_message
+    ON expenses(gmail_message_id) WHERE gmail_message_id IS NOT NULL
+  `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS time_entries (
       id SERIAL PRIMARY KEY,
@@ -403,6 +414,47 @@ export async function initDb() {
   await pool.query('ALTER TABLE marketplace_sales ADD COLUMN IF NOT EXISTS invoice_id INT REFERENCES invoices(id) ON DELETE SET NULL');
   await pool.query('ALTER TABLE marketplace_sales ADD COLUMN IF NOT EXISTS payment_id INT REFERENCES payments(id) ON DELETE SET NULL');
   await pool.query('ALTER TABLE marketplace_sales ADD COLUMN IF NOT EXISTS expense_id INT REFERENCES expenses(id) ON DELETE SET NULL');
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS market_events (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      organizer TEXT,
+      venue TEXT,
+      address TEXT,
+      city TEXT DEFAULT 'Montréal',
+      start_date DATE,
+      end_date DATE,
+      event_hours TEXT,
+      setup_start TEXT,
+      presence_deadline TEXT,
+      fee_amount NUMERIC(12,2),
+      fee_notes TEXT,
+      fee_paid BOOLEAN NOT NULL DEFAULT false,
+      invoice_amount NUMERIC(12,2),
+      status TEXT NOT NULL DEFAULT 'not_started',
+      sort_order INT NOT NULL DEFAULT 0,
+      description TEXT,
+      mail_reply TEXT,
+      notes TEXT,
+      contract_url TEXT,
+      contract_filename TEXT,
+      contract_text TEXT,
+      logistics JSONB NOT NULL DEFAULT '{}',
+      materials JSONB NOT NULL DEFAULT '[]',
+      steps JSONB NOT NULL DEFAULT '[]',
+      sales_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+      sales_notes TEXT,
+      gmail_message_id TEXT,
+      task_id INT REFERENCES tasks(id) ON DELETE SET NULL,
+      expense_id INT REFERENCES expenses(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_market_events_start ON market_events(start_date)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_market_events_status ON market_events(status)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_market_events_sort ON market_events(sort_order)`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS social_posts (

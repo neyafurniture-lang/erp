@@ -1,5 +1,5 @@
 import pool from '../db/pool.js';
-import { createQuoteRecord, createInvoiceRecord, convertQuoteToInvoice } from './invoice-helpers.js';
+import { createQuoteRecord, createInvoiceRecord, convertQuoteToInvoice, calcDocTotals } from './invoice-helpers.js';
 import { sendDocumentEmail } from './document-email.js';
 import {
   stripPlanPrefix,
@@ -11,7 +11,12 @@ import {
   isClearDayIntent,
   isDeleteTaskIntent,
   sanitizeAssistantReply,
+  wantsSmartTaskPlan,
+  cleanTaskTitle,
   torontoWallTime,
+  wantsCreateShift,
+  wantsScheduleOnCalendar,
+  calendarTitleFromMessage,
 } from './day-plan-classify.js';
 import { buildClientCreateFields } from './client-contact-enrich.js';
 
@@ -23,6 +28,10 @@ export {
   isDeleteTaskIntent,
   stripAssistantMeta,
   sanitizeAssistantReply,
+  wantsSmartTaskPlan,
+  wantsCreateShift,
+  wantsScheduleOnCalendar,
+  cleanTaskTitle,
   buildClientCreateFields,
 };
 
@@ -31,7 +40,7 @@ const DAY_MAP = {
 };
 
 export const ACTION_TYPES = [
-  'create_task', 'create_project', 'create_project_from_quote_email', 'schedule_task', 'plan_day', 'clear_day', 'create_expense', 'list_today', 'list_tomorrow', 'create_client',
+  'create_task', 'create_admin_task', 'create_dashboard_todo', 'create_project', 'create_project_from_quote_email', 'schedule_task', 'create_shift', 'plan_day', 'clear_day', 'create_expense', 'list_today', 'list_tomorrow', 'create_client',
   'complete_task', 'update_task', 'delete_task', 'unlink_task', 'list_project_tasks',
   'update_project', 'update_client', 'list_projects', 'list_clients', 'list_expenses',
   'search_projects', 'search_memory', 'get_project', 'add_project_material',
@@ -366,6 +375,48 @@ async function insertTaskForProject(projectId, title, type, minutes, extras = {}
     [projectId, clientId, relatedProjectId, title.slice(0, 200), description, type, estMinutes, sortOrder]
   );
   return rows[0];
+}
+
+function resolveScheduleStart(params = {}, message = '') {
+  const dayHint = params.day || params.date || params.schedule_day || params.schedule || '';
+  const fromParams = dayHint ? parseDateHint(String(dayHint)) : null;
+  const fromMessage = parseDateHint(message);
+  let start = fromParams || fromMessage || null;
+  if (!start && (params.start_time || params.start_hour != null)) {
+    start = new Date();
+  }
+  if (!start) return null;
+
+  let hour = 9;
+  let minute = 0;
+  if (params.start_hour != null && params.start_hour !== '') {
+    hour = Number(params.start_hour) || 9;
+    minute = Number(params.start_minute) || 0;
+  } else if (params.start_time) {
+    const m = String(params.start_time).match(/(\d{1,2})[h:](\d{2})?/);
+    if (m) {
+      hour = parseInt(m[1], 10);
+      minute = parseInt(m[2] || '0', 10);
+    }
+  } else {
+    const m = String(message).match(/(\d{1,2})[h:](\d{2})?/);
+    if (m) {
+      hour = parseInt(m[1], 10);
+      minute = parseInt(m[2] || '0', 10);
+    }
+  }
+  return torontoWallTime(start, hour, minute);
+}
+
+function inferAdminCategory(text = '') {
+  const t = String(text || '').toLowerCase();
+  if (/[aà]\s*payer|paiement|facture\s+(fournisseur|olive)|virement|transfert/i.test(t)) return 'a_payer';
+  if (/[aà]\s*recevoir|encaisser|client\s+doit/i.test(t)) return 'a_recevoir';
+  if (/factur/i.test(t)) return 'facturation';
+  if (/site|web|seo/i.test(t)) return 'site_web';
+  if (/market|pub|instagram|r[eé]seau/i.test(t)) return 'marketing';
+  if (/march[eé]|marketplace|etsy|facebook\s+marketplace/i.test(t)) return 'marche';
+  return 'gestion';
 }
 
 async function resolveProjectTasks(projectId, pageContext) {
@@ -794,12 +845,11 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
           || cleanMsg.replace(/^(ajoute[rz]?|cr[eé]e[rz]?|nouvelle)\s+/i, '').trim();
         if (rebuilt && rebuilt.toLowerCase() !== String(pageContext.label).toLowerCase()) title = rebuilt;
       }
-      title = (title || 'Nouvelle tâche').replace(/\s+/g, ' ').trim();
+      title = cleanTaskTitle(title || 'Nouvelle tâche') || 'Nouvelle tâche';
       if (/^admin\b/i.test(title)) {
         title = title
           .replace(/^admin\s*[-–—:]?\s*/i, 'Admin – ')
           .replace(/^Admin – (faire|à faire|a faire)\s+/i, 'Admin – ');
-        // Capitaliser le premier mot après le préfixe
         title = title.replace(/^(Admin – )([a-zàâäéèêëïîôùûüç])/i, (_, p, c) => `${p}${c.toUpperCase()}`);
       }
       let type = params.type || 'admin';
@@ -811,14 +861,34 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
           type = 'admin';
         }
       }
-      const minutes = params.estimated_minutes || extractDuration(msg);
+      const minutes = params.estimated_minutes || extractDuration(msg) || defaultMinutesForType(type);
       const soft = await resolveSoftTaskContext(pageContext, params);
+      const scheduleStart = resolveScheduleStart(params, cleanMsg);
+      const wantsCalendar = Boolean(
+        scheduleStart
+        || params.calendar === true
+        || /calendrier|planifie[rz]?|programme[rz]?/i.test(`${cleanMsg} ${params.destination || ''}`)
+      );
+
+      async function maybeSchedule(task) {
+        if (!wantsCalendar || !task?.id) return task;
+        const start = scheduleStart || torontoWallTime(parseDateHint(cleanMsg) || new Date(), 9, 0);
+        const end = new Date(start.getTime() + (task.estimated_minutes || minutes || 60) * 60000);
+        const { rows } = await pool.query(
+          'UPDATE tasks SET start_time=$1, end_time=$2 WHERE id=$3 RETURNING *',
+          [start.toISOString(), end.toISOString(), task.id]
+        );
+        return rows[0] || task;
+      }
+
       // Admin / finance / « sans projet » : hors checklist atelier, mais client + projet d'origine conservés
       if (shouldCreateStandaloneTask(msg, title, params) || shouldCreateStandaloneTask(message, title, params)) {
-        const task = await insertTaskForProject(null, title, type || 'admin', minutes, {
+        let task = await insertTaskForProject(null, title, type || 'admin', minutes, {
           clientId: soft.clientId,
           relatedProjectId: soft.relatedProjectId,
+          description: params.description || params.notes || null,
         });
+        task = await maybeSchedule(task);
         actions.push({ type: 'create_task', data: task });
         const ctxBits = [];
         if (soft.clientId) {
@@ -830,8 +900,11 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
           if (prows[0]?.name) ctxBits.push(`contexte « ${prows[0].name} »`);
         }
         const ctxNote = ctxBits.length ? ` — ${ctxBits.join(', ')} conservé` : '';
+        const calNote = task.start_time
+          ? ` · calendrier ${new Date(task.start_time).toLocaleString('fr-CA', { timeZone: 'America/Toronto' })}`
+          : '';
         return {
-          reply: `Tâche « ${task.title} » créée hors checklist projet (admin / générale)${ctxNote}.`,
+          reply: `Tâche « ${task.title} » créée hors checklist projet (admin / générale)${ctxNote}${calNote}.`,
           actions,
         };
       }
@@ -845,15 +918,92 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
       if (!pid && pageContext?.type === 'project') pid = pageContext.id;
       if (!pid) pid = await resolveProjectId(params, msg, pageContext);
       if (!pid) {
+        // Calendrier / todo sans projet → standalone plutôt que bloquer
+        if (wantsCalendar || /todo|dashboard|tableau de bord/i.test(String(params.destination || ''))) {
+          let task = await insertTaskForProject(null, title, type || 'admin', minutes, {
+            clientId: soft.clientId,
+            relatedProjectId: soft.relatedProjectId,
+            description: params.description || params.notes || null,
+          });
+          task = await maybeSchedule(task);
+          actions.push({ type: 'create_task', data: task });
+          return {
+            reply: `Tâche « ${task.title} » créée${task.start_time ? ' au calendrier' : ''}.`,
+            actions,
+          };
+        }
         return { reply: 'Précisez le projet (ex. « ajoute finition sur projet Olive »), ou dites « tâche admin » / « sans projet ».', actions: [] };
       }
-      const task = await insertTaskForProject(pid, title, type, minutes, {
+      let task = await insertTaskForProject(pid, title, type, minutes, {
         clientId: soft.clientId,
+        description: params.description || params.notes || null,
       });
+      task = await maybeSchedule(task);
       actions.push({ type: 'create_task', data: task });
       const { rows: pname } = await pool.query('SELECT name FROM projects WHERE id = $1', [pid]);
+      const calNote = task.start_time
+        ? ` · calendrier ${new Date(task.start_time).toLocaleString('fr-CA', { timeZone: 'America/Toronto' })}`
+        : '';
       return {
-        reply: `Tâche « ${task.title} » ajoutée au projet « ${pname[0]?.name || `#${pid}`} ».`,
+        reply: `Tâche « ${task.title} » ajoutée au projet « ${pname[0]?.name || `#${pid}`} »${calNote}.`,
+        actions,
+      };
+    }
+
+    case 'create_admin_task': {
+      const { ADMIN_CATEGORIES } = await import('./admin-task-sync.js');
+      const cleanMsg = String(msg || '')
+        .replace(/\n?\[Contexte page[\s\S]*$/i, '')
+        .replace(/\n?\[Suite de conversation[\s\S]*$/i, '')
+        .trim();
+      let title = cleanTaskTitle(
+        params.title || extractQuotedText(cleanMsg)
+        || extractAfterKeyword(cleanMsg, ['admin', 'à payer', 'a payer', 'à recevoir', 'a recevoir', 'tâche', 'tache', 'todo'])
+        || cleanMsg
+      ) || 'Tâche admin';
+      const category = ADMIN_CATEGORIES.includes(params.category)
+        ? params.category
+        : inferAdminCategory(`${title} ${cleanMsg} ${params.notes || ''}`);
+      const { rows } = await pool.query(
+        `INSERT INTO admin_tasks (title, category, status, due_date, notes, link_href, sort_order)
+         VALUES ($1, $2, 'todo', $3, $4, $5,
+           COALESCE((SELECT MAX(sort_order) + 1 FROM admin_tasks), 0))
+         RETURNING *`,
+        [
+          title.slice(0, 200),
+          category,
+          params.due_date || null,
+          params.notes || params.description || null,
+          params.link_href || null,
+        ]
+      );
+      actions.push({ type: 'create_admin_task', data: rows[0] });
+      return {
+        reply: `Todo admin « ${rows[0].title} » créée (/admin · ${category}).`,
+        actions,
+      };
+    }
+
+    case 'create_dashboard_todo': {
+      const cleanMsg = String(msg || '')
+        .replace(/\n?\[Contexte page[\s\S]*$/i, '')
+        .replace(/\n?\[Suite de conversation[\s\S]*$/i, '')
+        .trim();
+      const title = cleanTaskTitle(
+        params.title || extractQuotedText(cleanMsg)
+        || extractAfterKeyword(cleanMsg, ['todo', 'to-do', 'à faire', 'a faire', 'tableau de bord', 'dashboard'])
+        || cleanMsg
+      ) || 'À faire';
+      const listKey = String(params.list_key || params.list || 'main').trim() || 'main';
+      const { rows } = await pool.query(
+        `INSERT INTO dashboard_todos (title, list_key, sort_order)
+         VALUES ($1, $2, COALESCE((SELECT MAX(sort_order) + 1 FROM dashboard_todos WHERE list_key = $2), 0))
+         RETURNING *`,
+        [title.slice(0, 200), listKey]
+      );
+      actions.push({ type: 'create_dashboard_todo', data: rows[0] });
+      return {
+        reply: `Todo « ${rows[0].title} » ajoutée au tableau de bord.`,
         actions,
       };
     }
@@ -950,34 +1100,84 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
     }
 
     case 'schedule_task': {
-      const dateHint = parseDateHint(message);
-      const titleHint = extractQuotedText(message) || taskHintFromMessage(message);
-      const tasks = await resolveProjectTasks(projectId, pageContext);
-      let task = findTaskByHint(titleHint, tasks);
-      if (!task) {
-        const params = [];
-        let q = `SELECT * FROM tasks WHERE status != 'done'`;
-        if (projectId) { params.push(projectId); q += ` AND project_id = $${params.length}`; }
-        q += ' ORDER BY sort_order, created_at DESC LIMIT 1';
-        const { rows } = await pool.query(q, params);
+      const dateHint = parseDateHint(params.day || params.date || message) || null;
+      const titleHint = params.task_title || params.title || extractQuotedText(message)
+        || calendarTitleFromMessage(message) || taskHintFromMessage(message) || 'RDV atelier';
+      let task = null;
+      if (params.task_id) {
+        const { rows } = await pool.query('SELECT * FROM tasks WHERE id = $1', [Number(params.task_id)]);
         task = rows[0];
-      } else {
+      }
+      if (!task && titleHint) {
+        const tasks = await resolveProjectTasks(projectId, pageContext);
+        const lower = String(titleHint).toLowerCase().trim();
+        task = (tasks || []).find(t => t.status !== 'done' && String(t.title || '').toLowerCase() === lower) || null;
+      }
+      if (!task) {
+        const minutes = Number(params.estimated_minutes) || 60;
+        task = await insertTaskForProject(
+          projectId || null,
+          String(titleHint).slice(0, 200),
+          params.type || 'admin',
+          minutes,
+          {}
+        );
+      }
+      if (!task?.start_time && task?.id) {
         const { rows } = await pool.query('SELECT * FROM tasks WHERE id = $1', [task.id]);
-        task = rows[0];
+        task = rows[0] || task;
       }
-      if (!task) {
-        const hint = projectId ? ` dans le projet « ${pageContext.label} »` : '';
-        return { reply: `Aucune tâche à planifier${hint}. Créez-en une d'abord.`, actions };
-      }
-      const start = dateHint || new Date();
-      if (!dateHint) start.setHours(9, 0, 0, 0);
-      const end = new Date(start.getTime() + (task.estimated_minutes || 60) * 60000);
+      const start = resolveScheduleStart(params, message)
+        || (dateHint ? torontoWallTime(dateHint, 9, 0) : null)
+        || torontoWallTime(new Date(), 9, 0);
+      const end = new Date(start.getTime() + (task.estimated_minutes || Number(params.estimated_minutes) || 60) * 60000);
       const { rows } = await pool.query(
         'UPDATE tasks SET start_time=$1, end_time=$2 WHERE id=$3 RETURNING *',
         [start.toISOString(), end.toISOString(), task.id]
       );
       actions.push({ type: 'schedule_task', data: rows[0] });
-      return { reply: `« ${rows[0].title} » planifié le ${start.toLocaleString('fr-CA')}`, actions };
+      return {
+        reply: `« ${rows[0].title} » planifié le ${start.toLocaleString('fr-CA', { timeZone: 'America/Toronto' })} — visible dans Calendrier.`,
+        actions,
+      };
+    }
+
+    case 'create_shift': {
+      const nameHint = String(params.employee_name || params.employee || params.who || '').trim();
+      let emp = null;
+      if (params.employee_id) {
+        const { rows } = await pool.query('SELECT * FROM employees WHERE id = $1', [Number(params.employee_id)]);
+        emp = rows[0];
+      }
+      if (!emp && nameHint) {
+        const { rows } = await pool.query(
+          `SELECT * FROM employees WHERE LOWER(name) LIKE $1 ORDER BY id LIMIT 1`,
+          [`%${nameHint.toLowerCase().slice(0, 80)}%`]
+        );
+        emp = rows[0];
+      }
+      if (!emp) {
+        const blob = `${nameHint} ${message}`.toLowerCase();
+        const { rows } = await pool.query('SELECT * FROM employees ORDER BY id');
+        emp = rows.find(e => blob.includes(String(e.name || '').toLowerCase())) || rows[0];
+      }
+      if (!emp) {
+        return { reply: 'Aucun employé trouvé. Créez Olive / Mehdi dans Équipe d’abord.', actions };
+      }
+      const start = resolveScheduleStart(params, message)
+        || torontoWallTime(parseDateHint(message) || new Date(), Number(params.start_hour) || 8, 0);
+      const hours = Number(params.hours) || 8;
+      const end = new Date(start.getTime() + hours * 3600000);
+      const { rows } = await pool.query(
+        `INSERT INTO shifts (employee_id, project_id, start_at, end_at, notes)
+         VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+        [emp.id, params.project_id || null, start.toISOString(), end.toISOString(), params.notes || null]
+      );
+      actions.push({ type: 'create_shift', data: rows[0] });
+      return {
+        reply: `Quart de ${emp.name} : ${start.toLocaleString('fr-CA', { timeZone: 'America/Toronto' })} → ${end.toLocaleTimeString('fr-CA', { timeZone: 'America/Toronto', hour: '2-digit', minute: '2-digit' })}. Visible dans Calendrier / Quarts.`,
+        actions,
+      };
     }
 
     case 'plan_day':
@@ -1699,8 +1899,7 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
         || (/refusé|refuse|rejected/i.test(msg) ? 'rejected' : null)
         || q.status;
 
-      const subtotal = lines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.price) || 0), 0);
-      const total = Math.round(subtotal * 1.14975 * 100) / 100;
+      const { subtotal, total } = calcDocTotals(lines);
 
       const { rows } = await pool.query(
         `UPDATE quotes SET

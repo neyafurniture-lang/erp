@@ -1,11 +1,45 @@
 import { Router } from 'express';
+import multer from 'multer';
 import pool from '../db/pool.js';
 import * as gmail from '../services/google-gmail.js';
 import { logAgentAction } from '../services/assistant-memory.js';
-import { enrichInboxMessages, sortInbox, sortRecentInbox, MAIL_SECTIONS, ensureNeyaGmailLabels, listNeyaGmailLabels, GMAIL_CATEGORY_LABELS, setThreadMailCategory } from '../services/mail-sort.js';
+import { enrichInboxMessages, sortInbox, sortRecentInbox, listMailFolder, MAIL_SECTIONS, ensureNeyaGmailLabels, listNeyaGmailLabels, GMAIL_CATEGORY_LABELS, setThreadMailCategory, applyGmailLabelsForMessages } from '../services/mail-sort.js';
+import { mailMoneyLabel } from '../services/mail-money.js';
 import emailThreadsRoutes from './email-threads.js';
 
 const router = Router();
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024, files: 8 },
+});
+
+function parseConfirm(value) {
+  return value === true || value === 'true' || value === '1';
+}
+
+function filesFromRequest(req) {
+  const list = Array.isArray(req.files) ? req.files : [];
+  return list.map(f => ({
+    filename: f.originalname || f.fieldname || 'fichier',
+    mimeType: f.mimetype || 'application/octet-stream',
+    content: f.buffer,
+  }));
+}
+
+function multerSend(req, res, next) {
+  upload.array('files', 8)(req, res, (err) => {
+    if (err) {
+      const msg = err.code === 'LIMIT_FILE_SIZE'
+        ? 'Fichier trop volumineux (max 20 Mo)'
+        : err.code === 'LIMIT_FILE_COUNT'
+          ? 'Maximum 8 pièces jointes'
+          : (err.message || 'Upload invalide');
+      return res.status(400).json({ error: msg });
+    }
+    next();
+  });
+}
 
 // Fils de conversation / synthèse IA — sous /gmail/threads (même auth Gmail)
 router.use('/threads', emailThreadsRoutes);
@@ -30,7 +64,15 @@ router.get('/messages', async (req, res) => {
 
 router.get('/inbox-sorted', async (req, res) => {
   try {
-    res.json(await sortInbox({ max: Number(req.query.max) || 40 }));
+    res.json(await sortInbox({ max: Number(req.query.max) || 80 }));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get('/folder/:category', async (req, res) => {
+  try {
+    res.json(await listMailFolder(req.params.category, { max: Number(req.query.max) || 50 }));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -43,6 +85,21 @@ router.get('/sections', (_req, res) => {
 router.post('/sort-inbox', async (req, res) => {
   try {
     const max = Number(req.body?.max) || 40;
+    const fast = req.body?.fast === true;
+    if (fast) {
+      const sorted = await sortInbox({ max, applyLabels: false });
+      const labelResult = await applyGmailLabelsForMessages(sorted.messages || []);
+      return res.json({
+        ...sorted,
+        processed: sorted.messages?.length || 0,
+        fast: true,
+        gmail_labels: {
+          applied: labelResult.applied,
+          errors: labelResult.errors,
+          labels: GMAIL_CATEGORY_LABELS,
+        },
+      });
+    }
     const includeTri = req.body?.includeTri !== false;
     const scanInvoices = req.body?.scanInvoices !== false;
     res.json(await sortRecentInbox(max, { includeTri, scanInvoices }));
@@ -122,7 +179,19 @@ router.post('/labels/neya/setup', async (_req, res) => {
 
 router.get('/messages/:id', async (req, res) => {
   try {
-    res.json(await gmail.getMessage(req.params.id));
+    const msg = await gmail.getMessage(req.params.id);
+    try {
+      const { ingestMessage } = await import('../services/invoice-email-router.js');
+      const ingested = await ingestMessage(msg);
+      if (ingested) {
+        msg.expense_id = ingested.expense_id;
+        msg.supplier_invoice_id = ingested.id;
+        msg.invoiceKind = ingested.doc_kind;
+        msg.paymentHint = ingested.payment_status;
+        msg.moneyLabel = mailMoneyLabel(msg);
+      }
+    } catch { /* ingest optionnel */ }
+    res.json(msg);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -226,25 +295,45 @@ router.get('/messages/:id/summary', async (req, res) => {
   }
 });
 
-router.post('/send', async (req, res) => {
+router.post('/send', multerSend, async (req, res) => {
   try {
-    const { to, subject, body, threadId, replyToMessageId, confirm } = req.body;
-    if (!to || !subject || !body) return res.status(400).json({ error: 'to, subject, body requis' });
-    if (confirm !== true) return res.status(400).json({ error: 'Confirmation requise (confirm: true)' });
+    const { to, subject, body, threadId, replyToMessageId, confirm } = req.body || {};
+    const attachments = filesFromRequest(req);
+    if (!to || !subject) return res.status(400).json({ error: 'to et subject requis' });
+    if (!String(body || '').trim() && !attachments.length) {
+      return res.status(400).json({ error: 'body ou pièce jointe requis' });
+    }
+    if (!parseConfirm(confirm)) return res.status(400).json({ error: 'Confirmation requise (confirm: true)' });
 
-    const sent = await gmail.sendEmail({ to, subject, body, threadId, replyToMessageId });
-    await logAgentAction({ agent: 'commercial', action: 'gmail_send', resource: sent.id, details: { to, subject }, requiresConfirm: true });
+    const sent = await gmail.sendEmail({
+      to,
+      subject,
+      body: body || '',
+      threadId,
+      replyToMessageId,
+      attachments,
+    });
+    await logAgentAction({
+      agent: 'commercial',
+      action: 'gmail_send',
+      resource: sent.id,
+      details: { to, subject, attachments: attachments.length },
+      requiresConfirm: true,
+    });
     res.status(201).json(sent);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
-router.post('/messages/:id/reply', async (req, res) => {
+router.post('/messages/:id/reply', multerSend, async (req, res) => {
   try {
-    const { body, confirm } = req.body;
-    if (!body) return res.status(400).json({ error: 'body requis' });
-    if (confirm !== true) return res.status(400).json({ error: 'Confirmation requise' });
+    const { body, confirm } = req.body || {};
+    const attachments = filesFromRequest(req);
+    if (!String(body || '').trim() && !attachments.length) {
+      return res.status(400).json({ error: 'body ou pièce jointe requis' });
+    }
+    if (!parseConfirm(confirm)) return res.status(400).json({ error: 'Confirmation requise' });
 
     const orig = await gmail.getMessage(req.params.id);
     const to = orig.from.match(/<([^>]+)>/)?.[1] || orig.from;
@@ -252,11 +341,18 @@ router.post('/messages/:id/reply', async (req, res) => {
     const sent = await gmail.sendEmail({
       to,
       subject,
-      body,
+      body: body || '',
       threadId: orig.threadId,
       replyToMessageId: req.params.id,
+      attachments,
     });
-    await logAgentAction({ agent: 'commercial', action: 'gmail_reply', resource: req.params.id, requiresConfirm: true });
+    await logAgentAction({
+      agent: 'commercial',
+      action: 'gmail_reply',
+      resource: req.params.id,
+      details: { attachments: attachments.length },
+      requiresConfirm: true,
+    });
     res.status(201).json(sent);
   } catch (err) {
     res.status(400).json({ error: err.message });

@@ -167,7 +167,11 @@ CREATE TABLE IF NOT EXISTS expenses (
   description TEXT,
   receipt_url TEXT,
   date DATE DEFAULT CURRENT_DATE,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  source TEXT DEFAULT 'manual',
+  gmail_message_id TEXT,
+  payment_status TEXT DEFAULT 'paid',
+  mail_from TEXT
 );
 
 CREATE TABLE IF NOT EXISTS receipt_scans (
@@ -290,7 +294,12 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS account_number TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_suppliers_slug ON suppliers(slug) WHERE slug IS NOT NULL;
 
 ALTER TABLE expenses ADD COLUMN IF NOT EXISTS supplier_id INT REFERENCES suppliers(id) ON DELETE SET NULL;
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'manual';
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS gmail_message_id TEXT;
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS payment_status TEXT DEFAULT 'paid';
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS mail_from TEXT;
 CREATE INDEX IF NOT EXISTS idx_expenses_supplier ON expenses(supplier_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_expenses_gmail_message ON expenses(gmail_message_id) WHERE gmail_message_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS inventory_items (
   id SERIAL PRIMARY KEY,
@@ -563,6 +572,7 @@ CREATE TABLE IF NOT EXISTS supplier_invoice_emails (
   assigned_at TIMESTAMPTZ,
   received_at TIMESTAMPTZ,
   suggested_amount NUMERIC(12,2),
+  doc_kind TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -607,6 +617,46 @@ ALTER TABLE marketplace_sales ADD COLUMN IF NOT EXISTS payment_method TEXT;
 ALTER TABLE marketplace_sales ADD COLUMN IF NOT EXISTS invoice_id INT REFERENCES invoices(id) ON DELETE SET NULL;
 ALTER TABLE marketplace_sales ADD COLUMN IF NOT EXISTS payment_id INT REFERENCES payments(id) ON DELETE SET NULL;
 ALTER TABLE marketplace_sales ADD COLUMN IF NOT EXISTS expense_id INT REFERENCES expenses(id) ON DELETE SET NULL;
+
+-- Marchés artisanaux / événements (suivi contrats, logistique, ventes sur place)
+CREATE TABLE IF NOT EXISTS market_events (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  organizer TEXT,
+  venue TEXT,
+  address TEXT,
+  city TEXT DEFAULT 'Montréal',
+  start_date DATE,
+  end_date DATE,
+  event_hours TEXT,
+  setup_start TEXT,
+  presence_deadline TEXT,
+  fee_amount NUMERIC(12,2),
+  fee_notes TEXT,
+  fee_paid BOOLEAN NOT NULL DEFAULT false,
+  invoice_amount NUMERIC(12,2),
+  status TEXT NOT NULL DEFAULT 'not_started',
+  sort_order INT NOT NULL DEFAULT 0,
+  description TEXT,
+  mail_reply TEXT,
+  notes TEXT,
+  contract_url TEXT,
+  contract_filename TEXT,
+  contract_text TEXT,
+  logistics JSONB NOT NULL DEFAULT '{}',
+  materials JSONB NOT NULL DEFAULT '[]',
+  steps JSONB NOT NULL DEFAULT '[]',
+  sales_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+  sales_notes TEXT,
+  gmail_message_id TEXT,
+  task_id INT REFERENCES tasks(id) ON DELETE SET NULL,
+  expense_id INT REFERENCES expenses(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_market_events_start ON market_events(start_date);
+CREATE INDEX IF NOT EXISTS idx_market_events_status ON market_events(status);
+CREATE INDEX IF NOT EXISTS idx_market_events_sort ON market_events(sort_order);
 
 -- Réseaux sociaux : calendrier éditorial cross-platform
 CREATE TABLE IF NOT EXISTS social_posts (
@@ -702,6 +752,7 @@ INSERT INTO assistant_skills (name, description, trigger_patterns, action_type, 
   ('schedule_task', 'Planifier une tâche au calendrier', '["planifier", "programmer", "calendrier", "lundi"]', 'schedule_task', '{}'),
   ('plan_day', 'Planifier plusieurs étapes', '["planifier demain", "journée de demain", "étapes demain", "pour demain", "planning demain"]', 'plan_day', '{}'),
   ('clear_day', 'Vider le planning d''un jour', '["supprime toutes les tâches", "supprimer toutes les tâches", "vide le planning", "efface demain", "annule le planning"]', 'clear_day', '{}'),
+  ('create_shift', 'Créer un quart employé', '["quart", "shift", "horaire olive", "horaire mehdi", "mettre olive"]', 'create_shift', '{}'),
   ('create_expense', 'Enregistrer une dépense', '["dépense", "acheté", "payé pour"]', 'create_expense', '{}'),
   ('list_today', 'Voir les tâches du jour', '["aujourd''hui", "tâches du jour", "planning jour"]', 'list_today', '{}'),
   ('list_tomorrow', 'Voir les tâches de demain', '["demain matin", "tâches demain", "voir demain"]', 'list_tomorrow', '{}'),

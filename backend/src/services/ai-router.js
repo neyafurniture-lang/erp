@@ -21,7 +21,7 @@ export const SKILL_ONLY_ACTIONS = new Set([
 
 /** Actions métier — jamais redirigées vers Cursor par erreur. */
 export const BUSINESS_ACTIONS = new Set([
-  'create_task', 'complete_task', 'update_task', 'delete_task', 'schedule_task',
+  'create_task', 'complete_task', 'update_task', 'delete_task', 'schedule_task', 'create_shift',
   'create_project', 'update_project', 'delete_project', 'search_projects', 'get_project',
   'add_project_material',
   'create_client', 'update_client', 'delete_client',

@@ -509,8 +509,10 @@ h1, h2, h3, h4, h5, h6 {
     position: relative;
     display: flex;
     flex-direction: column;
+    flex: 1 1 auto;
     height: 100%;
     min-height: 0;
+    overflow: hidden;
   }
 
   .mail-supplier-strip {
@@ -521,25 +523,19 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .mail-shell {
-    @apply flex flex-col overflow-hidden bg-white min-h-0 flex-1;
-    /* App mail native — flush sous le header shell */
-    height: calc(100dvh - 3.5rem - var(--mobile-nav-h, 4rem) - var(--safe-bottom, 0px));
-    max-height: calc(100dvh - 3.5rem - var(--mobile-nav-h, 4rem) - var(--safe-bottom, 0px));
+    @apply flex flex-col overflow-hidden bg-white min-h-0 flex-1 w-full;
+    /* Remplit le parent flush — pas de calc(dvh) qui déborde (bandeau factures, Safari Mac) */
     border: 0;
     border-radius: 0;
     box-shadow: none;
   }
 
-  @media (min-width: 1024px) {
-    .mail-shell {
-      height: calc(100dvh - 4rem);
-      max-height: calc(100dvh - 4rem);
-    }
-  }
-
   @media (max-width: 767px) {
     .mail-shell {
       background: #faf9f7;
+      /* Mobile : ancrer à la hauteur viewport sous header + dock */
+      height: calc(100dvh - 3.5rem - var(--mobile-nav-h, 4rem) - var(--safe-bottom, 0px));
+      max-height: calc(100dvh - 3.5rem - var(--mobile-nav-h, 4rem) - var(--safe-bottom, 0px));
     }
   }
 
@@ -634,13 +630,15 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .mail-list {
-    @apply flex flex-col w-full shrink-0 min-w-0 min-h-0;
+    @apply flex flex-col w-full shrink-0 min-w-0 min-h-0 h-full overflow-hidden;
     border-right: 1px solid rgba(10, 10, 10, 0.06);
     background: #fff;
   }
-  @media (min-width: 1024px) {
+  /* Aligné sur le panneau lecture (md) — évite liste à 100% + lecture compressée */
+  @media (min-width: 768px) {
     .mail-list {
-      width: 380px;
+      width: min(380px, 42vw);
+      max-width: 100%;
     }
   }
   @media (min-width: 1280px) {
@@ -650,14 +648,24 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .mail-list-scroll {
-    @apply flex-1 overflow-y-auto overflow-x-hidden overscroll-contain divide-y;
+    @apply flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain divide-y;
     -webkit-overflow-scrolling: touch;
     border-color: rgba(10, 10, 10, 0.06);
   }
 
+  /* Safari/macOS : flex direct sur <button> peut cacher les enfants — layout sur .mail-row-inner */
   .mail-row {
-    @apply relative flex items-start gap-3 px-4 py-3 cursor-pointer text-left w-full min-w-0 overflow-hidden;
+    @apply relative block cursor-pointer text-left w-full min-w-0 overflow-hidden p-0 border-0;
+    appearance: none;
+    -webkit-appearance: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
     transition: background 0.15s ease;
+  }
+
+  .mail-row-inner {
+    @apply flex items-start gap-3 px-4 py-3 w-full min-w-0;
   }
 
   .mail-row:hover {
@@ -665,7 +673,7 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .mail-row-active {
-    background: color-mix(in srgb, #ffeee3 55%, white);
+    background: #ffeee3;
     box-shadow: none;
   }
 
@@ -882,6 +890,21 @@ h1, h2, h3, h4, h5, h6 {
     @apply flex items-center justify-end gap-2 border-t px-4 py-2.5;
     border-color: var(--border, #e6e4e2);
   }
+  .mail-compose-attachments {
+    @apply flex flex-wrap gap-2 px-4 pb-3;
+  }
+  .mail-compose-att {
+    @apply inline-flex items-center gap-1.5 max-w-full rounded-lg border px-2 py-1 text-[11.5px] text-neya-ink;
+    border-color: var(--border, #e6e4e2);
+    background: var(--surface, #f7f5f2);
+  }
+  .mail-compose-att__remove {
+    @apply ml-0.5 text-neya-muted hover:text-neya-ink text-sm leading-none px-0.5;
+  }
+  .mail-compose-attach-btn {
+    @apply inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-[12px] font-medium text-neya-muted hover:text-neya-ink hover:bg-neya-surface disabled:opacity-40;
+    border-color: var(--border, #e6e4e2);
+  }
 
   .mail-erp-panel {
     @apply flex-col overflow-hidden;
@@ -1002,6 +1025,8 @@ h1, h2, h3, h4, h5, h6 {
   .mail-badge--project { background: rgba(124,58,237,0.1); color: #6d28d9; }
   .mail-badge--promo { background: rgba(100,116,139,0.12); color: #475569; }
   .mail-badge--other { background: rgba(10,10,10,0.05); color: #737373; }
+  .mail-badge--unpaid { background: rgba(185, 28, 28, 0.1); color: #b91c1c; }
+  .mail-badge--paid { background: rgba(5, 150, 105, 0.12); color: #047857; }
 
   .mail-empty {
     @apply flex-1 flex flex-col items-center justify-center text-center px-8 py-16;
@@ -1607,7 +1632,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .doc-sheet {
-  @apply bg-white border border-neya-border p-5 sm:p-8 shadow-sm;
+  @apply bg-white border border-neya-border p-5 sm:p-8 shadow-sm rounded-none;
   background-image: linear-gradient(180deg, #fff 0%, #fafafa 100%);
 }
 
@@ -1628,7 +1653,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .doc-status {
-  @apply text-[11px] border border-neya-border px-2 py-0.5 text-neya-muted;
+  @apply text-[11px] border border-neya-border px-2 py-0.5 text-neya-muted rounded-none;
 }
 
 .doc-client {
@@ -1648,7 +1673,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .doc-editable {
-  @apply cursor-text rounded-sm outline-none;
+  @apply cursor-text rounded-none outline-none;
   box-shadow: inset 0 0 0 0 transparent;
   transition: box-shadow 0.15s ease, background-color 0.15s ease;
 }
@@ -1659,7 +1684,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .doc-input {
-  @apply w-full border border-neya-border bg-white px-2 py-1.5 text-sm focus:outline-none focus:border-neya-ink;
+  @apply w-full border border-neya-border bg-white px-2 py-1.5 text-sm focus:outline-none focus:border-neya-ink rounded-none;
 }
 
 .doc-title-input {
@@ -1692,6 +1717,29 @@ h1, h2, h3, h4, h5, h6 {
 
 .doc-add-line {
   @apply mt-3 text-sm text-neya-muted hover:text-neya-ink transition-colors;
+}
+
+.doc-add-section {
+  @apply mt-2 mb-6;
+}
+
+.doc-details-card {
+  @apply space-y-1 border border-neya-border bg-[#FBF6F0] p-4 rounded-none;
+}
+
+.doc-details-rows {
+  @apply text-neya-ink;
+}
+
+/* Éditeur devis/facture : coins carrés (y compris EasyTable / boutons imbriqués) */
+.doc-visual .rounded,
+.doc-visual .rounded-sm,
+.doc-visual .rounded-md,
+.doc-visual .rounded-lg,
+.doc-visual .rounded-xl,
+.doc-visual .rounded-2xl,
+.doc-visual .rounded-full {
+  border-radius: 0 !important;
 }
 
 .doc-totals {
@@ -1739,7 +1787,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .doc-photo {
-  @apply relative border border-neya-border bg-neya-surface overflow-hidden;
+  @apply relative border border-neya-border bg-neya-surface overflow-hidden rounded-none;
 }
 
 .doc-photo img {
@@ -1765,7 +1813,7 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Triangle actions (factures / devis) */
 .doc-row-menu__tri {
-  @apply inline-flex items-center justify-center w-7 h-7 rounded border border-neya-border bg-white text-neya-muted hover:border-neya-orange hover:text-neya-orange transition-colors;
+  @apply inline-flex items-center justify-center w-7 h-7 rounded-none border border-neya-border bg-white text-neya-muted hover:border-neya-orange hover:text-neya-orange transition-colors;
 }
 
 .doc-row-menu__tri-icon {
