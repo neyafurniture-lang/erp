@@ -115,6 +115,20 @@ describe('classifyMailMessage promotions', () => {
     assert.equal(cat, 'a_repondre');
   });
 
+  it('garde À répondre si le dernier mail vient du client (même lu)', () => {
+    const emails = new Set(['client@example.com']);
+    const cat = classifyMailMessage({
+      from: 'Client <client@example.com>',
+      subject: 'Suite devis',
+      snippet: 'On avance ?',
+      isUnread: false,
+      inboundNeedsReply: true,
+      clientEmails: emails,
+      thread: { client_id: 1, link_source: 'client_email', link_confidence: 0.95, mail_category: 'clients' },
+    });
+    assert.equal(cat, 'a_repondre');
+  });
+
   it('ne met pas un mail Gmail Promotions en À répondre', () => {
     const cat = classifyMailMessage({
       from: 'Shop <hello@shop.example>',
@@ -135,6 +149,16 @@ describe('classifyMailMessage promotions', () => {
       labelIds: ['UNREAD', 'IMPORTANT'],
     });
     assert.equal(cat, 'a_repondre');
+  });
+
+  it('suit le label Gmail NEYA si pas de signal plus fort', () => {
+    const cat = classifyMailMessage({
+      from: 'inconnu@example.net',
+      subject: 'Hello',
+      snippet: '',
+      gmailCategory: 'projets',
+    });
+    assert.equal(cat, 'projets');
   });
 });
 

@@ -11,6 +11,7 @@ import { syncMaterialsFromQuote } from '../services/project-materials.js';
 import { getCompanyConfig } from '../services/company-config.js';
 import { flattenQuoteLines, serializeQuoteDocument, normalizeQuoteDocument } from '../services/quote-document.js';
 import { spellcheckQuote, reviewQuotePrices } from '../services/quote-ai.js';
+import { createQuoteFromBrief } from '../services/quote-from-brief.js';
 
 const router = Router();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -164,6 +165,49 @@ router.post('/quotes', async (req, res) => {
     res.status(201).json(await enrichQuoteRow(created));
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/quotes/from-brief', quoteUpload.array('photos', 8), async (req, res) => {
+  try {
+    const files = req.files || [];
+    const photos = files.map((f, i) => ({
+      url: `/uploads/quotes/${f.filename}`,
+      caption: String(req.body?.[`caption_${i}`] || req.body?.caption || f.originalname || '').slice(0, 200),
+      name: f.originalname,
+    }));
+
+    let photoExtracts = [];
+    if (photos.length) {
+      try {
+        const { extractAllAttachments } = await import('../services/attachment-extract.js');
+        photoExtracts = await extractAllAttachments(
+          photos.map(p => ({ name: p.name, url: p.url, type: 'image/jpeg' }))
+        );
+      } catch { photoExtracts = []; }
+    }
+
+    const createProject = String(req.body?.create_project || '1') !== '0';
+    const result = await createQuoteFromBrief({
+      clientId: req.body?.client_id,
+      title: req.body?.title,
+      notes: req.body?.notes,
+      wood: req.body?.wood,
+      dimensions: req.body?.dimensions,
+      finish: req.body?.finish,
+      deadline: req.body?.deadline,
+      extra: req.body?.extra,
+      photos,
+      createProject,
+      photoExtracts,
+    });
+    res.status(201).json({
+      ...result,
+      quote: await enrichQuoteRow(result.quote),
+    });
+  } catch (err) {
+    const status = /requis|introuvable|invalide/i.test(err.message) ? 400 : 500;
+    res.status(status).json({ error: err.message });
   }
 });
 

@@ -60,6 +60,7 @@ function typeColor(type) {
     usinage: '#b85a28',
     assemblage: '#C4923A',
     finition: '#e88a55',
+    installation: '#059669',
     admin: '#8A847C',
   };
   return colors[type] || '#D86B30';

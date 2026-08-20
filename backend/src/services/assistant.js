@@ -9,8 +9,10 @@ import {
   isDayPlanMessage,
   isMultiIntentErpMessage,
   wantsSmartTaskPlan,
-  runSkillAction,
   wantsUnlinkFromProject,
+  wantsCreateShift,
+  wantsScheduleOnCalendar,
+  runSkillAction,
 } from './skill-actions.js';
 
 export { ACTION_TYPES };
@@ -21,7 +23,9 @@ async function matchSkill(message) {
   let best = null;
   let bestLen = 0;
   for (const skill of skills) {
-    const patterns = skill.trigger_patterns || [];
+    const patterns = typeof skill.trigger_patterns === 'string'
+      ? (() => { try { return JSON.parse(skill.trigger_patterns); } catch { return []; } })()
+      : (skill.trigger_patterns || []);
     for (const p of patterns) {
       const pl = p.toLowerCase();
       if (lower.includes(pl) && pl.length > bestLen) {
@@ -571,6 +575,12 @@ export async function processMessage(message, attachments = [], rawContext = nul
     if (isDayPlanMessage(bare) || isDayPlanMessage(msg)) {
       return runSkillAction('plan_day', bare || msg, pageContext);
     }
+    if (wantsCreateShift(bare) || wantsCreateShift(msg)) {
+      return runSkillAction('create_shift', bare || msg, pageContext);
+    }
+    if (wantsScheduleOnCalendar(bare) || wantsScheduleOnCalendar(msg)) {
+      return runSkillAction('schedule_task', bare || msg, pageContext);
+    }
     // Multi-intent sans IA : expliquer, ne pas créer une tâche-mot
     if (isMultiIntentErpMessage(bare) || wantsSmartTaskPlan(bare)) {
       return {
@@ -871,6 +881,7 @@ export async function seedDefaultSkills() {
     { name: 'create_project', description: 'Créer un projet', trigger_patterns: ['créer projet', 'nouveau projet', 'project'], action_type: 'create_project' },
     { name: 'plan_day', description: 'Planifier plusieurs étapes', trigger_patterns: ['planifier demain', 'journée de demain', 'étapes demain', 'pour demain', 'planning demain'], action_type: 'plan_day' },
     { name: 'schedule_task', description: 'Planifier au calendrier', trigger_patterns: ['planifier', 'programmer', 'calendrier', 'demain', 'lundi'], action_type: 'schedule_task' },
+    { name: 'create_shift', description: 'Créer un quart employé', trigger_patterns: ['quart', 'shift', 'horaire olive', 'horaire mehdi', 'mettre olive'], action_type: 'create_shift' },
     { name: 'create_expense', description: 'Enregistrer une dépense', trigger_patterns: ['dépense', 'acheté', 'payé pour'], action_type: 'create_expense' },
     { name: 'list_today', description: 'Tâches du jour', trigger_patterns: ["aujourd'hui", 'tâches du jour', 'planning jour'], action_type: 'list_today' },
     { name: 'list_tomorrow', description: 'Tâches de demain', trigger_patterns: ['demain matin', 'tâches demain', 'planning demain', 'voir demain'], action_type: 'list_tomorrow' },
@@ -1020,6 +1031,24 @@ export async function seedDefaultSkills() {
         'étapes atelier', 'à partir du fichier', 'à partir du mail', 'linker dans le projet',
       ],
       action: 'create_fabrication_plan',
+    },
+    {
+      name: 'schedule_task',
+      description: 'Planifier une tâche au calendrier (crée la tâche si besoin)',
+      triggers: [
+        'calendrier', 'mettre au calendrier', 'mets ça au calendrier', 'planifier',
+        'programmer', 'au calendrier',
+      ],
+      action: 'schedule_task',
+    },
+    {
+      name: 'create_shift',
+      description: 'Créer un quart employé (Olive / Mehdi)',
+      triggers: [
+        'quart', 'shift', 'horaire', 'mets olive', 'mettre olive', 'olive demain',
+        'mehdi demain', 'mets mehdi', 'horaire olive', 'horaire mehdi',
+      ],
+      action: 'create_shift',
     },
     {
       name: 'update_quote',

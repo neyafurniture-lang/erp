@@ -7,6 +7,8 @@ import pool from './pool.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export async function initDb() {
+  // Jamais de DROP / TRUNCATE ici. CREATE IF NOT EXISTS + ALTER ADD COLUMN IF NOT EXISTS seulement.
+  // Un wipe de neya_db n’existe que dans deploy/back.sh (rollback volontaire).
   const schemaPath = path.join(__dirname, 'schema.sql');
   const schema = fs.readFileSync(schemaPath, 'utf8');
   try {
@@ -143,6 +145,15 @@ export async function initDb() {
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS employee_id INT REFERENCES employees(id) ON DELETE SET NULL');
   await pool.query('ALTER TABLE supplier_invoice_emails ADD COLUMN IF NOT EXISTS received_at TIMESTAMPTZ');
   await pool.query('ALTER TABLE supplier_invoice_emails ADD COLUMN IF NOT EXISTS suggested_amount NUMERIC(12,2)');
+  await pool.query('ALTER TABLE supplier_invoice_emails ADD COLUMN IF NOT EXISTS doc_kind TEXT');
+  await pool.query(`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'manual'`);
+  await pool.query('ALTER TABLE expenses ADD COLUMN IF NOT EXISTS gmail_message_id TEXT');
+  await pool.query(`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS payment_status TEXT DEFAULT 'paid'`);
+  await pool.query('ALTER TABLE expenses ADD COLUMN IF NOT EXISTS mail_from TEXT');
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_expenses_gmail_message
+    ON expenses(gmail_message_id) WHERE gmail_message_id IS NOT NULL
+  `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS time_entries (
       id SERIAL PRIMARY KEY,
