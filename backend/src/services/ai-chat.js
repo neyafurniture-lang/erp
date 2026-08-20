@@ -222,6 +222,8 @@ AUTONOMIE — tu DOIS agir seule sans demander de cliquer dans l'ERP :
     Pour /admin (à payer / à recevoir / gestion) préfère create_admin_task {"title":"…","category":"a_payer"|"a_recevoir"|"gestion"}.
     Pour todo tableau de bord : create_dashboard_todo {"title":"…"}.
     Pour calendrier : create_task avec {"calendar":true,"day":"mardi","start_hour":9,"title":"…"}.
+    Pour un quart (Olive / Mehdi) : create_shift {"employee_name":"Olive","day":"demain","start_hour":8,"hours":8}.
+    « Mets ça au calendrier mardi 9h » → create_task calendar OU schedule_task (crée si besoin).
 8c. CORRECTION PROJET — si l'utilisateur dit « ce n'est pas en rapport / pas lié / pas pour ce projet »,
     appelle unlink_task (retire de la checklist, conserve client_id / related_project_id). Ne recrée JAMAIS la même tâche dans le projet ouvert.
 8d. TITRES — toujours un titre COURT d'action (« Débitage cadres », « Appeler James »), jamais coller la phrase entière ni « crée une tâche … ».

@@ -10,17 +10,20 @@ import {
   wantsSmartTaskPlan,
   cleanTaskTitle,
   torontoWallTime,
+  wantsCreateShift,
+  wantsScheduleOnCalendar,
+  calendarTitleFromMessage,
 } from './day-plan-classify.js';
 import { buildClientCreateFields } from './client-contact-enrich.js';
 
-export { splitPlanItems, isMultiIntentErpMessage, isDayPlanMessage, wantsSmartTaskPlan, cleanTaskTitle, buildClientCreateFields };
+export { splitPlanItems, isMultiIntentErpMessage, isDayPlanMessage, wantsSmartTaskPlan, wantsCreateShift, wantsScheduleOnCalendar, cleanTaskTitle, buildClientCreateFields };
 
 const DAY_MAP = {
   lundi: 1, mardi: 2, mercredi: 3, jeudi: 4, vendredi: 5, samedi: 6, dimanche: 0,
 };
 
 export const ACTION_TYPES = [
-  'create_task', 'create_admin_task', 'create_dashboard_todo', 'create_project', 'create_project_from_quote_email', 'schedule_task', 'plan_day', 'create_expense', 'list_today', 'list_tomorrow', 'create_client',
+  'create_task', 'create_admin_task', 'create_dashboard_todo', 'create_project', 'create_project_from_quote_email', 'schedule_task', 'create_shift', 'plan_day', 'create_expense', 'list_today', 'list_tomorrow', 'create_client',
   'complete_task', 'update_task', 'delete_task', 'unlink_task', 'list_project_tasks',
   'update_project', 'update_client', 'list_projects', 'list_clients', 'list_expenses',
   'search_projects', 'search_memory', 'get_project', 'add_project_material',
@@ -1004,35 +1007,31 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
 
     case 'schedule_task': {
       const dateHint = parseDateHint(params.day || params.date || message) || null;
-      const titleHint = params.task_title || params.title || extractQuotedText(message) || taskHintFromMessage(message);
-      const tasks = await resolveProjectTasks(projectId, pageContext);
-      let task = findTaskByHint(titleHint, tasks);
-      if (!task && params.task_id) {
+      const titleHint = params.task_title || params.title || extractQuotedText(message)
+        || calendarTitleFromMessage(message) || taskHintFromMessage(message) || 'RDV atelier';
+      let task = null;
+      if (params.task_id) {
         const { rows } = await pool.query('SELECT * FROM tasks WHERE id = $1', [Number(params.task_id)]);
         task = rows[0];
       }
       if (!task && titleHint) {
-        const { rows } = await pool.query(
-          `SELECT * FROM tasks WHERE status != 'done' AND LOWER(title) LIKE $1
-           ORDER BY created_at DESC NULLS LAST, id DESC LIMIT 1`,
-          [`%${String(titleHint).toLowerCase().slice(0, 80)}%`]
+        const tasks = await resolveProjectTasks(projectId, pageContext);
+        const lower = String(titleHint).toLowerCase().trim();
+        task = (tasks || []).find(t => t.status !== 'done' && String(t.title || '').toLowerCase() === lower) || null;
+      }
+      if (!task) {
+        const minutes = Number(params.estimated_minutes) || 60;
+        task = await insertTaskForProject(
+          projectId || null,
+          String(titleHint).slice(0, 200),
+          params.type || 'admin',
+          minutes,
+          {}
         );
-        task = rows[0];
       }
-      if (!task) {
-        const qparams = [];
-        let q = `SELECT * FROM tasks WHERE status != 'done'`;
-        if (projectId) { qparams.push(projectId); q += ` AND project_id = $${qparams.length}`; }
-        q += ' ORDER BY sort_order, created_at DESC LIMIT 1';
-        const { rows } = await pool.query(q, qparams);
-        task = rows[0];
-      } else if (!task.start_time && task.id) {
+      if (!task?.start_time && task?.id) {
         const { rows } = await pool.query('SELECT * FROM tasks WHERE id = $1', [task.id]);
-        task = rows[0];
-      }
-      if (!task) {
-        const hint = projectId ? ` dans le projet « ${pageContext.label} »` : '';
-        return { reply: `Aucune tâche à planifier${hint}. Créez-en une d'abord.`, actions };
+        task = rows[0] || task;
       }
       const start = resolveScheduleStart(params, message)
         || (dateHint ? torontoWallTime(dateHint, 9, 0) : null)
@@ -1044,7 +1043,45 @@ export async function runSkillAction(actionType, message, pageContext = null, sk
       );
       actions.push({ type: 'schedule_task', data: rows[0] });
       return {
-        reply: `« ${rows[0].title} » planifié le ${start.toLocaleString('fr-CA', { timeZone: 'America/Toronto' })}`,
+        reply: `« ${rows[0].title} » planifié le ${start.toLocaleString('fr-CA', { timeZone: 'America/Toronto' })} — visible dans Calendrier.`,
+        actions,
+      };
+    }
+
+    case 'create_shift': {
+      const nameHint = String(params.employee_name || params.employee || params.who || '').trim();
+      let emp = null;
+      if (params.employee_id) {
+        const { rows } = await pool.query('SELECT * FROM employees WHERE id = $1', [Number(params.employee_id)]);
+        emp = rows[0];
+      }
+      if (!emp && nameHint) {
+        const { rows } = await pool.query(
+          `SELECT * FROM employees WHERE LOWER(name) LIKE $1 ORDER BY id LIMIT 1`,
+          [`%${nameHint.toLowerCase().slice(0, 80)}%`]
+        );
+        emp = rows[0];
+      }
+      if (!emp) {
+        const blob = `${nameHint} ${message}`.toLowerCase();
+        const { rows } = await pool.query('SELECT * FROM employees ORDER BY id');
+        emp = rows.find(e => blob.includes(String(e.name || '').toLowerCase())) || rows[0];
+      }
+      if (!emp) {
+        return { reply: 'Aucun employé trouvé. Créez Olive / Mehdi dans Équipe d’abord.', actions };
+      }
+      const start = resolveScheduleStart(params, message)
+        || torontoWallTime(parseDateHint(message) || new Date(), Number(params.start_hour) || 8, 0);
+      const hours = Number(params.hours) || 8;
+      const end = new Date(start.getTime() + hours * 3600000);
+      const { rows } = await pool.query(
+        `INSERT INTO shifts (employee_id, project_id, start_at, end_at, notes)
+         VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+        [emp.id, params.project_id || null, start.toISOString(), end.toISOString(), params.notes || null]
+      );
+      actions.push({ type: 'create_shift', data: rows[0] });
+      return {
+        reply: `Quart de ${emp.name} : ${start.toLocaleString('fr-CA', { timeZone: 'America/Toronto' })} → ${end.toLocaleTimeString('fr-CA', { timeZone: 'America/Toronto', hour: '2-digit', minute: '2-digit' })}. Visible dans Calendrier / Quarts.`,
         actions,
       };
     }

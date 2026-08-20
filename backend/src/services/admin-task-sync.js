@@ -1,5 +1,11 @@
 import pool from '../db/pool.js';
 import { getWebStatus } from './wordpress.js';
+import {
+  formatQuoteFollowTitle,
+  formatInvoiceFollowTitle,
+  quoteDetailHref,
+  invoiceDetailHref,
+} from './dashboard-follow.js';
 
 export const ADMIN_CATEGORIES = [
   'a_payer',
@@ -68,38 +74,38 @@ export async function syncAdminTasksFromModules() {
   const created = [];
 
   const draftInvoices = await pool.query(`
-    SELECT id, invoice_number, due_date, client_id
-    FROM invoices
-    WHERE status = 'draft'
-    ORDER BY created_at DESC
+    SELECT i.id, i.invoice_number, i.due_date, i.status, c.name AS client_name
+    FROM invoices i
+    LEFT JOIN clients c ON c.id = i.client_id
+    WHERE i.status = 'draft'
+    ORDER BY i.created_at DESC
     LIMIT 20
   `);
   for (const inv of draftInvoices.rows) {
     const r = await upsertBySource({
       source_key: `invoice_draft_${inv.id}`,
-      title: `Facture à émettre — ${inv.invoice_number || `#${inv.id}`}`,
+      title: formatInvoiceFollowTitle(inv),
       category: 'facturation',
-      link_href: `/invoices/${inv.id}`,
+      link_href: invoiceDetailHref(inv.id),
       due_date: inv.due_date,
     });
     if (r?.inserted) created.push(r.id);
   }
 
   const pendingQuotes = await pool.query(`
-    SELECT id, quote_number, valid_until
-    FROM quotes
-    WHERE status IN ('draft', 'sent')
-    ORDER BY created_at DESC
+    SELECT q.id, q.quote_number, q.valid_until, q.status, c.name AS client_name
+    FROM quotes q
+    LEFT JOIN clients c ON c.id = q.client_id
+    WHERE q.status IN ('draft', 'sent')
+    ORDER BY q.created_at DESC
     LIMIT 15
   `);
   for (const q of pendingQuotes.rows) {
     const r = await upsertBySource({
       source_key: `quote_${q.status}_${q.id}`,
-      title: q.status === 'draft'
-        ? `Devis à finaliser — ${q.quote_number || `#${q.id}`}`
-        : `Suivre devis envoyé — ${q.quote_number || `#${q.id}`}`,
+      title: formatQuoteFollowTitle(q),
       category: 'facturation',
-      link_href: `/invoices?quote=${q.id}`,
+      link_href: quoteDetailHref(q.id),
       due_date: q.valid_until,
     });
     if (r?.inserted) created.push(r.id);
@@ -127,6 +133,13 @@ export async function syncAdminTasksFromModules() {
   } catch {
     /* wordpress optionnel */
   }
+
+  await pool.query(`
+    UPDATE admin_tasks
+    SET link_href = '/invoices/quotes/' || (regexp_replace(source_key, '^quote_(draft|sent)_', ''))
+    WHERE source_key ~ '^quote_(draft|sent)_[0-9]+$'
+      AND (link_href IS NULL OR link_href LIKE '/invoices?quote=%')
+  `).catch(() => {});
 
   await pool.query(`
     UPDATE admin_tasks SET status = 'done', completed_at = NOW()
@@ -216,20 +229,12 @@ export const OPS_LIVE_TASKS = [
 ];
 
 async function upsertSeedTask(t) {
-  const { rows } = await pool.query('SELECT id, status FROM admin_tasks WHERE source_key = $1', [t.source_key]);
-  if (!rows[0]) {
-    await pool.query(
-      `INSERT INTO admin_tasks (title, category, priority_tier, sort_order, link_href, source_key, notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [t.title, t.category, t.priority_tier, t.sort_order, t.link_href || null, t.source_key, t.notes || null]
-    );
-    return;
-  }
-  if (rows[0].status === 'done') return;
+  const { rows } = await pool.query('SELECT id FROM admin_tasks WHERE source_key = $1', [t.source_key]);
+  if (rows[0]) return;
   await pool.query(
-    `UPDATE admin_tasks SET title = $1, category = $2, priority_tier = $3, sort_order = $4,
-     link_href = COALESCE($5, link_href), notes = COALESCE($6, notes) WHERE source_key = $7`,
-    [t.title, t.category, t.priority_tier, t.sort_order, t.link_href || null, t.notes || null, t.source_key]
+    `INSERT INTO admin_tasks (title, category, priority_tier, sort_order, link_href, source_key, notes)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+    [t.title, t.category, t.priority_tier, t.sort_order, t.link_href || null, t.source_key, t.notes || null]
   );
 }
 

@@ -1,44 +1,24 @@
 import pool from '../db/pool.js';
 import * as gmail from './google-gmail.js';
+import { extractMoneyAmount } from './mail-money.js';
 import {
   looksLikeSupplierInvoice,
   detectSupplier,
   extractKeywords,
   matchProjectFromRules,
+  ensureExpenseForSupplierMail,
+  ensureMailExpenseSchema,
 } from './invoice-email-router.js';
 
 const SUPPLIER_QUERY_HINTS = [
-  'facture', 'invoice', 'receipt', 'reçu', 'recu',
-  'homedepot', 'rona', 'canac', 'renodepot', 'amazon',
+  'facture', 'invoice', 'receipt', 'ticket', 'reçu', 'recu',
+  'homedepot', 'rona', 'canac', 'renodepot', 'amazon', 'walmart', 'leevalley',
   'order confirmation', 'confirmation de commande',
   'votre commande', 'your order', 'purchase',
 ].join(' OR ');
 
 /** Extrait un montant CAD approximatif du texte mail. */
-export function extractMoneyAmount(...parts) {
-  const blob = parts.filter(Boolean).join('\n');
-  if (!blob) return null;
-  const patterns = [
-    /(?:total|montant|amount|grand\s*total|balance\s*due|sous[- ]?total)[^\d]{0,20}(\d{1,3}(?:[ ,]\d{3})*[.,]\d{2}|\d+[.,]\d{2})/i,
-    /\$\s*(\d{1,3}(?:[ ,]\d{3})*[.,]\d{2}|\d+[.,]\d{2})/,
-    /(\d{1,3}(?:[ ,]\d{3})*[.,]\d{2}|\d+[.,]\d{2})\s*(?:\$|cad|CAD)/,
-  ];
-  for (const re of patterns) {
-    const m = blob.match(re);
-    if (!m?.[1]) continue;
-    let raw = String(m[1]).replace(/\s/g, '');
-    if (/^\d{1,3}(\.\d{3})+(,\d{2})$/.test(raw)) {
-      raw = raw.replace(/\./g, '').replace(',', '.');
-    } else if (/,\d{2}$/.test(raw) && !raw.includes('.')) {
-      raw = raw.replace(',', '.');
-    } else {
-      raw = raw.replace(/,/g, '');
-    }
-    const n = Number(raw);
-    if (Number.isFinite(n) && n > 0 && n < 500000) return Math.round(n * 100) / 100;
-  }
-  return null;
-}
+export { extractMoneyAmount } from './mail-money.js';
 
 function parseEmailDate(dateHeader) {
   if (!dateHeader) return null;
@@ -52,8 +32,7 @@ function toDateOnly(d) {
 }
 
 async function ensureSupplierInvoiceColumns() {
-  await pool.query('ALTER TABLE supplier_invoice_emails ADD COLUMN IF NOT EXISTS received_at TIMESTAMPTZ');
-  await pool.query('ALTER TABLE supplier_invoice_emails ADD COLUMN IF NOT EXISTS suggested_amount NUMERIC(12,2)');
+  await ensureMailExpenseSchema();
 }
 
 async function searchGmailPaged(query, max = 80) {
@@ -106,7 +85,7 @@ export async function importSupplierInvoicesForYear({
     scanned += 1;
     try {
       const full = m.body || m.bodyHtml ? m : await gmail.getMessage(m.id);
-      if (!looksLikeSupplierInvoice(full.from, full.subject, full.snippet)) {
+      if (!looksLikeSupplierInvoice(full.from, full.subject, full.snippet, { attachments: full.attachments })) {
         skipped += 1;
         continue;
       }
@@ -183,6 +162,11 @@ export async function importSupplierInvoicesForYear({
       );
       if (dup[0]) {
         await pool.query(
+          `UPDATE expenses SET gmail_message_id = COALESCE(gmail_message_id, $2), source = COALESCE(NULLIF(source, 'manual'), 'email')
+           WHERE id = $1`,
+          [dup[0].id, full.id]
+        ).catch(() => {});
+        await pool.query(
           `UPDATE supplier_invoice_emails SET expense_id = $1, status = 'assigned', assigned_at = COALESCE(assigned_at, NOW())
            WHERE id = $2`,
           [dup[0].id, rowId]
@@ -195,12 +179,18 @@ export async function importSupplierInvoicesForYear({
         'SELECT project_id FROM supplier_invoice_emails WHERE id = $1',
         [rowId]
       );
-      const { rows: exp } = await pool.query(
-        `INSERT INTO expenses (project_id, amount, category, description, date)
-         VALUES ($1,$2,'materiaux',$3,$4::date) RETURNING *`,
-        [invRow[0]?.project_id || null, amount, desc, dateOnly]
-      );
-      expenseId = exp[0].id;
+      expenseId = await ensureExpenseForSupplierMail({
+        gmailMessageId: full.id,
+        amount,
+        description: desc,
+        date: dateOnly,
+        projectId: invRow[0]?.project_id || null,
+        category: invRow[0]?.project_id ? 'materiaux' : 'atelier',
+        supplierSlug: supplier?.id || 'other',
+        paymentStatus: /ticket|receipt|re[cç]u/i.test(`${full.subject} ${full.snippet}`) ? 'paid' : 'unpaid',
+        mailFrom: full.from,
+      });
+      if (!expenseId) continue;
       await pool.query(
         `UPDATE supplier_invoice_emails
          SET expense_id = $1, status = 'assigned', assigned_at = COALESCE(assigned_at, NOW())
