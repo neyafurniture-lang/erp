@@ -25,6 +25,35 @@ export function fromDatetimeLocal(val) {
   return new Date(val).toISOString();
 }
 
+const DEFAULT_DURATION_MS = 60 * 60 * 1000; // 1 h
+
+/** Durée entre deux valeurs datetime-local ; sinon fallback (1 h). */
+export function durationBetweenLocal(startLocal, endLocal, fallbackMs = DEFAULT_DURATION_MS) {
+  if (!startLocal || !endLocal) return fallbackMs;
+  const start = new Date(startLocal).getTime();
+  const end = new Date(endLocal).getTime();
+  if (Number.isNaN(start) || Number.isNaN(end) || end <= start) return fallbackMs;
+  return end - start;
+}
+
+/** Ajoute une durée (ms) à une valeur datetime-local. */
+export function addMsToDatetimeLocal(localVal, ms) {
+  if (!localVal) return '';
+  const start = new Date(localVal);
+  if (Number.isNaN(start.getTime())) return '';
+  return toDatetimeLocal(new Date(start.getTime() + ms).toISOString());
+}
+
+/**
+ * Quand le début change : la fin suit pour garder la même durée
+ * (défaut 1 h si durée absente / invalide / fin avant début).
+ */
+export function shiftEndKeepingDuration(prevStart, prevEnd, nextStart, fallbackMs = DEFAULT_DURATION_MS) {
+  if (!nextStart) return { start: nextStart, end: prevEnd || '' };
+  const ms = durationBetweenLocal(prevStart, prevEnd, fallbackMs);
+  return { start: nextStart, end: addMsToDatetimeLocal(nextStart, ms) };
+}
+
 /**
  * Modal d'édition d'une tâche calendrier :
  * heures, projet lié, notes annexes, statut, etc.
@@ -224,7 +253,15 @@ export default function CalendarTaskModal({
                     type="datetime-local"
                     className="input"
                     value={form.start_time || ''}
-                    onChange={e => setForm({ ...form, start_time: e.target.value })}
+                    onChange={e => {
+                      const nextStart = e.target.value;
+                      const { start, end } = shiftEndKeepingDuration(
+                        form.start_time,
+                        form.end_time,
+                        nextStart,
+                      );
+                      setForm({ ...form, start_time: start, end_time: end });
+                    }}
                   />
                 </div>
                 <div>
@@ -233,7 +270,22 @@ export default function CalendarTaskModal({
                     type="datetime-local"
                     className="input"
                     value={form.end_time || ''}
-                    onChange={e => setForm({ ...form, end_time: e.target.value })}
+                    onChange={e => {
+                      const nextEnd = e.target.value;
+                      // Si la fin passe avant le début, on recale à début + 1 h
+                      if (
+                        form.start_time
+                        && nextEnd
+                        && new Date(nextEnd).getTime() <= new Date(form.start_time).getTime()
+                      ) {
+                        setForm({
+                          ...form,
+                          end_time: addMsToDatetimeLocal(form.start_time, DEFAULT_DURATION_MS),
+                        });
+                        return;
+                      }
+                      setForm({ ...form, end_time: nextEnd });
+                    }}
                   />
                 </div>
               </div>
