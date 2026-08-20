@@ -17,6 +17,7 @@ import AuthGuard from '../../components/AuthGuard';
 import WeeklyPlanner from '../../components/WeeklyPlanner';
 import CalendarTaskModal from '../../components/CalendarTaskModal';
 import { api } from '../../lib/api';
+import { useRouter } from 'next/navigation';
 
 const MONTHS_FR = [
   'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
@@ -60,6 +61,13 @@ const CATEGORY_META = {
     dot: 'bg-neya-muted',
     chip: 'bg-neya-surface text-neya-muted border-neya-border',
     bar: 'border-l-neya-muted bg-neya-surface/80',
+  },
+  quart: {
+    label: 'Quart',
+    Icon: Users,
+    dot: 'bg-sky-700',
+    chip: 'bg-sky-50 text-sky-800 border-sky-200/80',
+    bar: 'border-l-sky-700 bg-sky-50/80',
   },
 };
 
@@ -122,11 +130,12 @@ function formatDayLabel(isoDate) {
 }
 
 function taskIdFromEvent(ev) {
-  if (!ev || ev.category === 'conge') return null;
+  if (!ev || ev.category === 'conge' || ev.category === 'quart') return null;
   return ev.raw?.extendedProps?.taskId || ev.raw?.id || null;
 }
 
 function CraftCalendar() {
+  const router = useRouter();
   const today = useMemo(() => new Date(), []);
   const [view, setView] = useState(() => new Date());
   const [selected, setSelected] = useState(() => iso(new Date()));
@@ -151,9 +160,10 @@ function CraftCalendar() {
     setLoading(true);
     setErr('');
     try {
-      const [tasks, timeOff] = await Promise.all([
+      const [tasks, timeOff, shifts] = await Promise.all([
         api(`/tasks/calendar?start=${rangeStart}T00:00:00&end=${rangeEnd}T23:59:59`),
         api(`/time-off?from=${rangeStart}&to=${rangeEnd}`).catch(() => []),
+        api(`/shifts?from=${rangeStart}&to=${rangeEnd}`).catch(() => []),
       ]);
       const mapped = (tasks || []).map(t => {
         const start = t.start ? new Date(t.start) : null;
@@ -194,7 +204,23 @@ function CraftCalendar() {
         });
       });
 
-      setEvents([...mapped, ...offs]);
+      const shiftEvts = (Array.isArray(shifts) ? shifts : []).map(s => {
+        const start = new Date(s.start_at);
+        const end = new Date(s.end_at);
+        return {
+          id: `shift-${s.id}`,
+          title: s.project_name ? `${s.employee_name} · ${s.project_name}` : `Quart — ${s.employee_name}`,
+          date: iso(start),
+          start: hhmm(start),
+          end: hhmm(end),
+          category: 'quart',
+          project: s.employee_name,
+          href: '/team?tab=planning',
+          raw: { kind: 'shift', shiftId: s.id },
+        };
+      }).filter(e => e.date && !Number.isNaN(new Date(e.date).getTime()));
+
+      setEvents([...mapped, ...offs, ...shiftEvts]);
     } catch (e) {
       setErr(e.message || 'Impossible de charger le calendrier');
     } finally {
@@ -203,6 +229,11 @@ function CraftCalendar() {
   }, [rangeStart, rangeEnd]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const handler = () => load();
+    window.addEventListener('neya:assistant-action', handler);
+    return () => window.removeEventListener('neya:assistant-action', handler);
+  }, [load]);
 
   const filteredEvents = useMemo(
     () => (filter === 'all' ? events : events.filter(e => e.category === filter)),
@@ -322,6 +353,10 @@ function CraftCalendar() {
     e.stopPropagation();
     e.preventDefault();
     if (suppressClickRef.current) return;
+    if (ev.category === 'quart' || ev.href) {
+      router.push(ev.href || '/team?tab=planning');
+      return;
+    }
     openTask(ev);
   }
 
@@ -329,7 +364,8 @@ function CraftCalendar() {
     <div className="space-y-4">
       <p className="text-[12px] text-neya-muted">
         <strong className="text-neya-ink font-medium">Clic</strong> pour modifier une tâche ·{' '}
-        <strong className="text-neya-ink font-medium">glisser-déposer</strong> pour la déplacer à un autre jour.
+        <strong className="text-neya-ink font-medium">glisser-déposer</strong> pour la déplacer.
+        Les quarts s’affichent ici ; pour les poser, onglet <strong className="text-neya-ink font-medium">Quarts</strong>.
       </p>
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2">
@@ -543,12 +579,16 @@ function CraftCalendar() {
                   onDragEnd={onTaskDragEnd}
                   onClick={ev => {
                     if (suppressClickRef.current) return;
+                    if (e.category === 'quart' || e.href) {
+                      router.push(e.href || '/team?tab=planning');
+                      return;
+                    }
                     if (canEdit) openTask(e);
                   }}
                   className={`w-full text-left rounded-xl border border-neya-border border-l-4 px-3 py-2.5 ${meta.bar} ${
-                    canEdit ? 'cursor-grab active:cursor-grabbing hover:opacity-90' : 'cursor-default'
-                  }`}
-                  title={canEdit ? 'Clic pour modifier · glisser vers un jour du calendrier' : undefined}
+                    canEdit || e.category === 'quart' ? 'cursor-pointer hover:opacity-90' : 'cursor-default'
+                  } ${canEdit ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                  title={canEdit ? 'Clic pour modifier · glisser vers un jour du calendrier' : (e.category === 'quart' ? 'Ouvrir le planning des quarts' : undefined)}
                 >
                   <div className="flex items-start gap-2">
                     <span className={`mt-0.5 grid h-7 w-7 place-items-center rounded-lg border ${meta.chip}`}>
@@ -562,6 +602,9 @@ function CraftCalendar() {
                       </p>
                       {canEdit && (
                         <p className="text-[11px] text-neya-orange mt-1 font-medium">Modifier · déplacer</p>
+                      )}
+                      {e.category === 'quart' && (
+                        <p className="text-[11px] text-neya-orange mt-1 font-medium">Ouvrir les quarts</p>
                       )}
                     </div>
                   </div>
@@ -590,7 +633,7 @@ export default function CalendarPage() {
     <AuthGuard>
       <AppShell
         title="Calendrier"
-        subtitle="Planning atelier, livraisons et rendez-vous"
+        subtitle="Mois = tâches + quarts. Onglet Quarts = glisser les horaires employés."
         wide
       >
         <div className="flex flex-wrap items-center gap-2 mb-5">
@@ -611,7 +654,7 @@ export default function CalendarPage() {
                 mode === 'equipe' ? 'bg-neya-ink text-white' : 'text-neya-muted hover:text-neya-ink'
               }`}
             >
-              Équipe / semaine
+              Quarts
             </button>
           </div>
         </div>

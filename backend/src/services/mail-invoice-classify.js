@@ -9,10 +9,11 @@ const SUPPLIER_PATTERNS = [
   { id: 'reno_depot', label: 'Reno Depot', patterns: ['renodepot', 'reno-depot', 'reno depot'] },
   { id: 'amazon', label: 'Amazon', patterns: ['amazon'] },
   { id: 'walmart', label: 'Walmart', patterns: ['walmart'] },
+  { id: 'lee_valley', label: 'Lee Valley', patterns: ['leevalley', 'lee valley'] },
 ];
 
 const INVOICE_HINTS = [
-  'facture', 'invoice', 'facturation', 'receipt', 'reçu', 'recu',
+  'facture', 'invoice', 'facturation', 'receipt', 'reçu', 'recu', 'ticket',
   'à payer', 'a payer', 'montant dû', 'payment due', 'votre facture',
   'order confirmation', 'confirmation de commande', 'your order', 'votre commande',
 ];
@@ -65,7 +66,7 @@ export function looksLikeInvoiceMail({ subject, snippet, from, attachments = [] 
   const hay = norm(`${subject} ${snippet} ${from}`);
   if (INVOICE_HINTS.some(h => hay.includes(norm(h)))) return true;
   const attNames = (attachments || []).map(a => norm(a.filename || a.name || '')).join(' ');
-  if (/\b(facture|invoice|receipt|recu)\b/.test(attNames)) return true;
+  if (/\b(facture|invoice|receipt|recu|ticket)\b/.test(attNames)) return true;
   return false;
 }
 
