@@ -556,6 +556,8 @@ export default function DocumentVisualEditor({
                   allowReorder
                   sectionId={section.id}
                   onReceiveRow={(payload, toIndex) => receiveRowFromOtherSection(section.id, payload, toIndex)}
+                  className="doc-table"
+                  variant="doc"
                 />
               )}
             </div>

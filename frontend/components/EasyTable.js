@@ -59,6 +59,8 @@ export default function EasyTable({
   minRows = 1,
   className = '',
   allowReorder = true,
+  /** Variante visuelle : `doc` = factures/devis (sans bandeau crème) */
+  variant = 'default',
   /** Identifiant du tableau (requis pour DnD inter-tableaux) */
   sectionId = null,
   /** Déposer une ligne venant d’un autre tableau : (payload, toIndex) => void */
@@ -274,11 +276,14 @@ export default function EasyTable({
   }
 
   const canDrag = allowReorder && !!sectionId;
+  const isDoc = variant === 'doc';
 
   return (
     <div className={className}>
       <div
-        className={`overflow-x-auto border border-neya-border rounded-none transition-shadow ${
+        className={`overflow-x-auto transition-shadow ${
+          isDoc ? 'border-0' : 'border border-neya-border rounded-lg'
+        } ${
           dropIndex != null ? 'ring-1 ring-neya-orange/50' : ''
         }`}
         onDragLeave={handleDragLeaveTable}
@@ -287,7 +292,11 @@ export default function EasyTable({
       >
         <table ref={tableRef} className="w-full text-sm min-w-[480px]">
           <thead>
-            <tr className="bg-neya-cream/70 text-left text-neya-muted border-b border-neya-border">
+            <tr className={`text-left border-b ${
+              isDoc
+                ? 'bg-transparent border-neutral-300 text-neutral-400'
+                : 'bg-neya-cream/70 text-neya-muted border-neya-border'
+            }`}>
               {canDrag && <th className="px-1 py-2 w-7" title="Glisser" />}
               <th className="px-2 py-2 w-8 text-center text-[10px] font-normal">#</th>
               {columns.map(col => (
@@ -313,7 +322,11 @@ export default function EasyTable({
                   onDragEnd={handleDragEnd}
                   onDragOver={(e) => handleDragOverRow(e, ri)}
                   onDrop={(e) => handleDropAt(e, dropIndex ?? ri)}
-                  className={`border-b border-neya-border last:border-0 hover:bg-neya-cream/20 ${
+                  className={`border-b last:border-0 ${
+                    isDoc
+                      ? 'border-neutral-100 hover:bg-neutral-50/80'
+                      : 'border-neya-border hover:bg-neya-cream/20'
+                  } ${
                     canDrag ? 'cursor-grab active:cursor-grabbing' : ''
                   } ${draggingIndex === ri ? 'opacity-40' : ''} ${
                     showDropBefore ? 'shadow-[inset_0_2px_0_0_#D86B30]' : ''
