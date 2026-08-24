@@ -8,7 +8,7 @@ import { calcDocTaxes, roundMoney } from './tax.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/** Palette épurée — encre, gris, une touche orange sur le total uniquement. */
+/** Palette épurée — encre, gris, orange en accent (total + 2 filets). */
 const C = {
   ink: '#1A1A1A',
   muted: '#6B6B6B',
@@ -77,7 +77,9 @@ function docHeader(doc, co, { docType, number, compact = false }) {
   }
 
   y = Math.max(logoBottom, y + (compact ? 38 : 58)) + 10;
-  doc.moveTo(M, y).lineTo(R, y).strokeColor(C.lineStrong).lineWidth(0.75).stroke();
+  doc.save();
+  doc.strokeColor(C.accent).lineWidth(1.25).moveTo(M, y).lineTo(R, y).stroke();
+  doc.restore();
   y += 10;
 
   const contactBits = [
@@ -217,7 +219,7 @@ function linesTable(doc, lines, startY, ctx) {
 }
 
 /**
- * Bloc totaux : boîte crème à droite, ligne TOTAL sur fond orange.
+ * Bloc totaux : typographie à droite, filet orange au-dessus du solde.
  * Retourne { y, total, gst, qst }.
  */
 function totalsBlock(doc, subtotal, startY, co, label, ctx, { depositNote = false } = {}) {
@@ -243,7 +245,9 @@ function totalsBlock(doc, subtotal, startY, co, label, ctx, { depositNote = fals
   row(co.tax.labelQst || 'TVQ 9,975 %', qst);
 
   ty += 4;
-  doc.moveTo(bx, ty).lineTo(R, ty).strokeColor(C.lineStrong).lineWidth(0.75).stroke();
+  doc.save();
+  doc.strokeColor(C.accent).lineWidth(1.25).moveTo(bx, ty).lineTo(R, ty).stroke();
+  doc.restore();
   ty += 10;
   doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(8)
     .text(label.toUpperCase(), bx + padX, ty, { characterSpacing: 1 });

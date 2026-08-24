@@ -1636,7 +1636,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .doc-sheet-head {
-  @apply flex flex-wrap items-start justify-between gap-4 mb-6 pb-5 border-b border-neutral-200/80;
+  @apply flex flex-wrap items-start justify-between gap-4 mb-6 pb-5 border-b-2 border-neya-orange;
 }
 
 .doc-kicker {
@@ -1756,7 +1756,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .doc-totals-total {
-  @apply text-neutral-900 font-semibold text-lg pt-3 border-t border-neutral-300 mt-3;
+  @apply text-neutral-900 font-semibold text-lg pt-3 border-t-2 border-neya-orange mt-3;
 }
 
 .doc-totals-total span:last-child {
