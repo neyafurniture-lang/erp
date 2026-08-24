@@ -324,6 +324,27 @@ export function isProjectPriority(projectOrPriority) {
   return Number(projectOrPriority) > 0;
 }
 
+async function readPdfBlob(res) {
+  const ct = res.headers.get('content-type') || '';
+  const buf = await res.arrayBuffer();
+  if (!buf.byteLength) {
+    throw new Error('Le serveur a renvoyé un PDF vide');
+  }
+  const head = new TextDecoder().decode(buf.slice(0, 5));
+  if (!head.startsWith('%PDF')) {
+    let msg = `Erreur PDF (${res.status})`;
+    try {
+      const err = JSON.parse(new TextDecoder().decode(buf));
+      if (err.error) msg = err.error;
+    } catch { /* pas du JSON */ }
+    throw new Error(msg);
+  }
+  if (ct.includes('json')) {
+    throw new Error('Le serveur n\'a pas renvoyé un PDF valide');
+  }
+  return new Blob([buf], { type: ct.includes('pdf') ? ct : 'application/pdf' });
+}
+
 export async function downloadPdf(path, filename) {
   const token = getToken();
   const res = await fetch(`${getApiUrl()}${path}`, {
@@ -333,10 +354,7 @@ export async function downloadPdf(path, filename) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || `Erreur téléchargement PDF (${res.status})`);
   }
-  const blob = await res.blob();
-  if (!blob.size || blob.type === 'application/json') {
-    throw new Error('Le serveur n\'a pas renvoyé un PDF valide');
-  }
+  const blob = await readPdfBlob(res);
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -358,10 +376,7 @@ export async function fetchPdfObjectUrl(path) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || `Erreur PDF (${res.status})`);
   }
-  const blob = await res.blob();
-  if (!blob.size || (blob.type && blob.type.includes('json'))) {
-    throw new Error('Le serveur n\'a pas renvoyé un PDF valide');
-  }
+  const blob = await readPdfBlob(res);
   return URL.createObjectURL(blob);
 }
 
