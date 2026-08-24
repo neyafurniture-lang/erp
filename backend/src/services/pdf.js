@@ -19,6 +19,20 @@ const C = {
   white: '#FFFFFF',
 };
 const RADIUS = 8;
+const ACCENT_RULE = 1.5;
+
+/** Filet orange plein (plus fiable que strokeColor seul dans PDFKit). */
+function accentRule(doc, x, y, w, h = ACCENT_RULE) {
+  doc.save();
+  doc.fillColor(C.accent).rect(x, y, w, h).fill();
+  doc.restore();
+}
+
+/** Petites capitales sans espacement forcé (characterSpacing casse les accents UTF-8). */
+function labelCaps(doc, text, x, y, w, opts = {}) {
+  doc.fillColor(opts.color || C.faint).font('Helvetica-Bold').fontSize(opts.size || 7)
+    .text(String(text).toUpperCase(), x, y, { width: w });
+}
 
 const BRAND_DIR = path.join(__dirname, '../../brand');
 const LOGO_PATH = path.join(BRAND_DIR, 'logo-orange.png');
@@ -69,7 +83,7 @@ function docHeader(doc, co, { docType, number, compact = false }) {
 
   doc.fillColor(C.ink).font('Helvetica-Bold').fontSize(compact ? 15 : 24)
     .text(String(docType).toUpperCase(), M + 200, y + (compact ? 6 : 8), {
-      width: W - 200, align: 'right', characterSpacing: 3,
+      width: W - 200, align: 'right',
     });
   if (number) {
     doc.fillColor(C.muted).font('Helvetica').fontSize(compact ? 9 : 10)
@@ -77,9 +91,7 @@ function docHeader(doc, co, { docType, number, compact = false }) {
   }
 
   y = Math.max(logoBottom, y + (compact ? 38 : 58)) + 10;
-  doc.save();
-  doc.strokeColor(C.accent).lineWidth(1.25).moveTo(M, y).lineTo(R, y).stroke();
-  doc.restore();
+  accentRule(doc, M, y, W);
   y += 10;
 
   const contactBits = [
@@ -121,8 +133,7 @@ function metaCards(doc, y, leftTitle, leftLines, rightTitle, rightRows) {
 
   doc.font('Helvetica').fontSize(9);
   let ly = y;
-  doc.fillColor(C.faint).font('Helvetica-Bold').fontSize(7)
-    .text(leftTitle.toUpperCase(), lx, ly, { characterSpacing: 1.4 });
+  labelCaps(doc, leftTitle, lx, ly, lw);
   ly += 14;
   for (const line of leftLines) {
     doc.fillColor(line.strong ? C.ink : C.muted)
@@ -133,8 +144,7 @@ function metaCards(doc, y, leftTitle, leftLines, rightTitle, rightRows) {
   }
 
   let ry = y;
-  doc.fillColor(C.faint).font('Helvetica-Bold').fontSize(7)
-    .text(rightTitle.toUpperCase(), rx, ry, { characterSpacing: 1.4 });
+  labelCaps(doc, rightTitle, rx, ry, rw);
   ry += 14;
   for (const [k, v] of rightRows) {
     doc.fillColor(C.muted).font('Helvetica').fontSize(8.5).text(k, rx, ry, { width: 72 });
@@ -161,10 +171,10 @@ const COL = {
 function tableHeader(doc, y) {
   doc.fillColor(C.faint).font('Helvetica-Bold').fontSize(7);
   const ty = y + 2;
-  doc.text('DESCRIPTION', COL.desc.x, ty, { width: COL.desc.w, characterSpacing: 0.8 });
-  doc.text('QTÉ', COL.qty.x, ty, { width: COL.qty.w, align: 'right', characterSpacing: 0.8 });
-  doc.text('PRIX UNIT.', COL.price.x, ty, { width: COL.price.w, align: 'right', characterSpacing: 0.8 });
-  doc.text('MONTANT', COL.amount.x, ty, { width: COL.amount.w, align: 'right', characterSpacing: 0.8 });
+  doc.text('DESCRIPTION', COL.desc.x, ty, { width: COL.desc.w });
+  doc.text('QTÉ', COL.qty.x, ty, { width: COL.qty.w, align: 'right' });
+  doc.text('PRIX UNIT.', COL.price.x, ty, { width: COL.price.w, align: 'right' });
+  doc.text('MONTANT', COL.amount.x, ty, { width: COL.amount.w, align: 'right' });
   y += 16;
   doc.moveTo(M, y).lineTo(R, y).strokeColor(C.lineStrong).lineWidth(0.75).stroke();
   return y + 10;
@@ -245,12 +255,10 @@ function totalsBlock(doc, subtotal, startY, co, label, ctx, { depositNote = fals
   row(co.tax.labelQst || 'TVQ 9,975 %', qst);
 
   ty += 4;
-  doc.save();
-  doc.strokeColor(C.accent).lineWidth(1.25).moveTo(bx, ty).lineTo(R, ty).stroke();
-  doc.restore();
+  accentRule(doc, bx, ty, R - bx);
   ty += 10;
   doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(8)
-    .text(label.toUpperCase(), bx + padX, ty, { characterSpacing: 1 });
+    .text(label.toUpperCase(), bx + padX, ty);
   doc.fillColor(C.accent).font('Helvetica-Bold').fontSize(13)
     .text(money(total), bx + padX, ty - 2, { width: bw - padX * 2, align: 'right' });
 
@@ -270,7 +278,7 @@ function totalsBlock(doc, subtotal, startY, co, label, ctx, { depositNote = fals
 
 function sectionTitle(doc, text, y) {
   doc.fillColor(C.ink).font('Helvetica-Bold').fontSize(9)
-    .text(String(text).toUpperCase(), M, y, { characterSpacing: 1.2 });
+    .text(String(text).toUpperCase(), M, y);
   doc.moveTo(M, y + 14).lineTo(R, y + 14).strokeColor(C.line).lineWidth(0.5).stroke();
   return y + 22;
 }
@@ -389,7 +397,7 @@ export async function generateInvoicePdf(invoice, res) {
       y = ensureSpace(doc, y, 100, ctx);
       if (section.title) {
         doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(8.5)
-          .text(String(section.title).toUpperCase(), M, y, { characterSpacing: 1 });
+          .text(String(section.title).toUpperCase(), M, y);
         y += 15;
       }
       y = linesTable(doc, sectionLines, y, ctx) + 4;
@@ -485,7 +493,7 @@ export async function generateQuotePdf(quote, res) {
     y = ensureSpace(doc, y, 100, ctx);
     if (section.title) {
       doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(8.5)
-        .text(section.title.toUpperCase(), M, y, { characterSpacing: 1 });
+        .text(section.title.toUpperCase(), M, y);
       y += 15;
     }
     y = linesTable(doc, sectionLines, y, ctx) + 4;
