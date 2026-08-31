@@ -1,4 +1,5 @@
 import pool from '../db/pool.js';
+import { ensurePayStubSchema, lockPeriodBreakdowns, unlockPeriodBreakdowns, refreshLineBreakdown } from './payroll-stub.js';
 
 function num(v) {
   const n = Number(v);
@@ -55,6 +56,7 @@ export function shiftPeriod(startIso, direction = -1) {
 }
 
 async function ensurePayrollTables() {
+  await ensurePayStubSchema();
   await pool.query(`
     CREATE TABLE IF NOT EXISTS payroll_periods (
       id SERIAL PRIMARY KEY,
@@ -295,15 +297,48 @@ export async function computePayrollOverview({ start, end } = {}) {
       advances: num(line.advances),
       net: num(line.net),
       source_breakdown: line.source_breakdown || breakdown,
+      deduction_breakdown: line.deduction_breakdown,
     });
+
+    try {
+      await refreshLineBreakdown(period.id, emp.id);
+    } catch { /* ignore calc errors for inactive lines */ }
   }
+
+  // Re-fetch lines with updated breakdowns
+  const { rows: refreshed } = await pool.query(
+    `SELECT pl.*, e.name AS employee_name, e.role AS employee_role, e.color AS employee_color
+     FROM payroll_lines pl
+     JOIN employees e ON e.id = pl.employee_id
+     WHERE pl.period_id = $1 ORDER BY e.name`,
+    [period.id]
+  );
+  const finalLines = refreshed.map(line => ({
+    ...line,
+    hours_worked: num(line.hours_worked),
+    hours_scheduled: num(line.hours_scheduled),
+    hourly_rate: num(line.hourly_rate),
+    gross: num(line.gross),
+    deductions: num(line.deductions),
+    advances: num(line.advances),
+    net: num(line.net),
+    source_breakdown: typeof line.source_breakdown === 'string'
+      ? JSON.parse(line.source_breakdown || '{}')
+      : (line.source_breakdown || {}),
+    deduction_breakdown: typeof line.deduction_breakdown === 'string'
+      ? JSON.parse(line.deduction_breakdown || '{}')
+      : (line.deduction_breakdown || {}),
+  }));
+
+  const { rows: periodFresh } = await pool.query('SELECT * FROM payroll_periods WHERE id = $1', [period.id]);
+  const periodOut = periodFresh[0] || period;
 
   const { rows: todos } = await pool.query(
     `SELECT * FROM payroll_todos WHERE period_id = $1 ORDER BY sort_order, id`,
     [period.id]
   );
 
-  const totals = lines.reduce((acc, l) => {
+  const totals = finalLines.reduce((acc, l) => {
     acc.hours_worked = round2(acc.hours_worked + l.hours_worked);
     acc.hours_scheduled = round2(acc.hours_scheduled + l.hours_scheduled);
     acc.gross = round2(acc.gross + l.gross);
@@ -317,12 +352,13 @@ export async function computePayrollOverview({ start, end } = {}) {
 
   return {
     period: {
-      ...period,
-      label: periodDates.label || `${period.start_date} → ${period.end_date}`,
-      start_date: String(period.start_date).slice(0, 10),
-      end_date: String(period.end_date).slice(0, 10),
+      ...periodOut,
+      label: periodDates.label || `${periodOut.start_date} → ${periodOut.end_date}`,
+      start_date: String(periodOut.start_date).slice(0, 10),
+      end_date: String(periodOut.end_date).slice(0, 10),
+      pay_date: periodOut.pay_date ? String(periodOut.pay_date).slice(0, 10) : null,
     },
-    lines,
+    lines: finalLines,
     todos,
     totals,
     progress: {
@@ -369,6 +405,8 @@ export async function setPayrollPeriodStatus(periodId, status) {
     [status, periodId]
   );
   if (!rows[0]) throw new Error('Période introuvable');
+  if (status === 'paid') await lockPeriodBreakdowns(periodId);
+  if (status === 'open') await unlockPeriodBreakdowns(periodId);
   return rows[0];
 }
 
