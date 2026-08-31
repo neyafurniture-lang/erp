@@ -359,6 +359,10 @@ CREATE TABLE IF NOT EXISTS employees (
   skills JSONB DEFAULT '[]',
   active BOOLEAN DEFAULT true,
   color TEXT DEFAULT '#D86B30',
+  address_line1 TEXT,
+  city TEXT,
+  province TEXT DEFAULT 'QC',
+  postal_code TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -684,6 +688,7 @@ CREATE TABLE IF NOT EXISTS payroll_periods (
   id SERIAL PRIMARY KEY,
   start_date DATE NOT NULL,
   end_date DATE NOT NULL,
+  pay_date DATE,
   status TEXT NOT NULL DEFAULT 'open',
   notes TEXT,
   paid_at TIMESTAMPTZ,
@@ -703,6 +708,8 @@ CREATE TABLE IF NOT EXISTS payroll_lines (
   advances NUMERIC(12,2) NOT NULL DEFAULT 0,
   net NUMERIC(12,2) NOT NULL DEFAULT 0,
   source_breakdown JSONB NOT NULL DEFAULT '{}',
+  deduction_breakdown JSONB NOT NULL DEFAULT '{}',
+  breakdown_locked BOOLEAN NOT NULL DEFAULT false,
   notes TEXT,
   UNIQUE (period_id, employee_id)
 );
