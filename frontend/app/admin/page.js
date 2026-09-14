@@ -8,7 +8,7 @@ export default function AdminPage() {
   return (
     <AuthGuard>
       <AppShell title="Tâches bureau" subtitle="Notes, paiements, relances — pas la production atelier">
-        <div className="rounded-2xl border border-neya-border bg-white shadow-sm p-4 sm:p-6">
+        <div className="cf-panel neya-enter neya-lift p-4 sm:p-6">
           <AdminTasksPanel />
         </div>
       </AppShell>

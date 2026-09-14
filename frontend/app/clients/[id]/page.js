@@ -167,14 +167,14 @@ export default function ClientDetailPage() {
   return (
     <AuthGuard>
       <AppShell title={client.name}>
-        <Link href="/clients" className="text-sm text-neya-orange hover:underline mb-4 inline-block">
+        <Link href="/clients" className="text-sm text-neya-orange hover:underline mb-4 inline-block neya-enter">
           ← Retour aux clients
         </Link>
 
-        <div className="card mb-6">
+        <div className="card mb-6 neya-enter neya-lift">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <h1 className="font-heading text-2xl text-neya-ink">{client.name}</h1>
+              <h1 className="font-display text-2xl font-semibold text-neya-ink">{client.name}</h1>
               {client.contact && <p className="text-sm text-neya-muted mt-1">{client.contact}</p>}
             </div>
             <div className="flex flex-wrap gap-2">
@@ -247,17 +247,13 @@ export default function ClientDetailPage() {
           )}
         </div>
 
-        <div className="flex flex-wrap gap-2 mb-6">
+        <div className="flex flex-wrap gap-2 mb-6 neya-enter" style={{ animationDelay: '60ms' }}>
           {tabs.map(t => (
             <button
               key={t.key}
               type="button"
               onClick={() => setTab(t.key)}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                tab === t.key
-                  ? 'bg-neya-orange text-white'
-                  : 'bg-white border border-neya-border text-neya-muted hover:border-neya-orange'
-              }`}
+              className={`cf-chip ${tab === t.key ? 'cf-chip-active' : ''}`}
             >
               {t.label} ({t.count})
             </button>
@@ -265,7 +261,7 @@ export default function ClientDetailPage() {
         </div>
 
         {tab === 'projects' && (
-          <div className="space-y-3">
+          <div className="space-y-3 neya-enter" style={{ animationDelay: '90ms' }}>
             <div className="flex justify-end">
               <button
                 type="button"
@@ -277,9 +273,13 @@ export default function ClientDetailPage() {
               </button>
             </div>
             {client.projects?.length === 0 ? (
-              <p className="text-sm text-neya-muted card">Aucun projet pour ce client.</p>
+              <div className="card rounded-2xl text-center py-10">
+                <p className="text-sm font-medium text-neya-ink">Aucun projet</p>
+                <p className="text-[12.5px] text-neya-muted mt-1">Liez un projet atelier à ce client.</p>
+              </div>
             ) : (
-              client.projects.map(p => {
+              <div className="neya-stagger space-y-3">
+              {client.projects.map(p => {
                 const st = projectStatusMeta(p.status);
                 const custom = isCustomProject(p);
                 const prio = Number(p.priority) > 0;
@@ -287,11 +287,11 @@ export default function ClientDetailPage() {
                   <Link
                     key={p.id}
                     href={`/projects/${p.id}`}
-                    className={`card block hover:border-neya-orange transition-colors ${prio ? 'border-amber-300' : ''}`}
+                    className={`card neya-lift block hover:border-neya-orange transition-colors ${prio ? 'border-amber-300' : ''}`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <h3 className="font-heading text-lg text-neya-ink">
+                        <h3 className="font-display text-lg font-semibold text-neya-ink">
                           {prio ? '★ ' : ''}{p.name}
                         </h3>
                         <p className="text-xs text-neya-muted mt-1">
@@ -309,7 +309,8 @@ export default function ClientDetailPage() {
                     </div>
                   </Link>
                 );
-              })
+              })}
+              </div>
             )}
             <Link href="/projects" className="inline-block text-sm text-neya-orange hover:underline mt-2">
               Voir tous les projets →
@@ -318,7 +319,7 @@ export default function ClientDetailPage() {
         )}
 
         {tab === 'quotes' && (
-          <div className="card overflow-x-auto">
+          <div className="card overflow-x-auto neya-enter" style={{ animationDelay: '90ms' }}>
             <div className="flex justify-end mb-4">
               <button
                 type="button"
@@ -392,7 +393,7 @@ export default function ClientDetailPage() {
         )}
 
         {tab === 'invoices' && (
-          <div className="card overflow-x-auto">
+          <div className="card overflow-x-auto neya-enter" style={{ animationDelay: '90ms' }}>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-neya-border text-left text-neya-muted">

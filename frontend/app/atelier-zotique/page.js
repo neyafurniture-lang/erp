@@ -96,11 +96,11 @@ export default function AtelierZotiquePage() {
 
   return (
     <AuthGuard>
-      <AppShell>
+      <AppShell title="Atelier Zotique" subtitle="200 Zotique — assemblage 3D & fit-out">
         <div className="space-y-6 max-w-5xl">
-          <header className="space-y-1">
+          <header className="space-y-1 neya-enter">
             <p className="text-xs uppercase tracking-wide text-neya-muted">Déménagement atelier</p>
-            <h1 className="text-2xl font-semibold text-neya-ink">200 Zotique — 1er étage</h1>
+            <h1 className="font-display text-2xl font-semibold text-neya-ink">200 Zotique — 1er étage</h1>
             <p className="text-sm text-neya-muted">
               Assemblage 3D du futur atelier + liste d’achats pour le fit-out.
               {data?.project?.id && (
@@ -115,14 +115,14 @@ export default function AtelierZotiquePage() {
           </header>
 
           {err && (
-            <p className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-lg">{err}</p>
+            <p className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl neya-enter">{err}</p>
           )}
 
-          <section className="card rounded-2xl space-y-4 p-4 sm:p-5">
+          <section className="cf-panel space-y-4 neya-enter" style={{ animationDelay: '60ms' }}>
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h2 className="text-base font-semibold text-neya-ink">Modèle 3D</h2>
-                <p className="text-xs text-neya-muted mt-0.5">
+                <h2 className="cf-panel-title">Modèle 3D</h2>
+                <p className="cf-panel-sub mt-0.5">
                   Choisissez uniquement le fichier 3D (GLB / GLTF / SketchUp) sur le Drive.
                 </p>
               </div>
@@ -166,8 +166,8 @@ export default function AtelierZotiquePage() {
             )}
           </section>
 
-          <section className="card rounded-2xl space-y-3 p-4 sm:p-5">
-            <h2 className="text-base font-semibold text-neya-ink">Notes déménagement</h2>
+          <section className="cf-panel space-y-3 neya-enter" style={{ animationDelay: '120ms' }}>
+            <h2 className="cf-panel-title">Notes déménagement</h2>
             <textarea
               className="input w-full min-h-[88px]"
               value={notes}
@@ -179,11 +179,11 @@ export default function AtelierZotiquePage() {
             </button>
           </section>
 
-          <section className="card rounded-2xl space-y-4 p-4 sm:p-5">
+          <section className="cf-panel space-y-4 neya-enter" style={{ animationDelay: '180ms' }}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h2 className="text-base font-semibold text-neya-ink">Liste d’achats — fit-out</h2>
-                <p className="text-xs text-neya-muted">
+                <h2 className="cf-panel-title">Liste d’achats — fit-out</h2>
+                <p className="cf-panel-sub">
                   {neededCount} à acheter · {needs.length} au total
                   {' · '}
                   <Link href="/purchases" className="text-neya-orange hover:underline">Module achats</Link>
@@ -196,17 +196,20 @@ export default function AtelierZotiquePage() {
             {seedMsg && <p className="text-xs text-neya-muted">{seedMsg}</p>}
 
             {needs.length === 0 ? (
-              <p className="text-sm text-neya-muted">
-                Aucun besoin lié. Cliquez « Générer la liste de départ » (éclairage, élec, poussière, établis, rayonnage…).
-              </p>
+              <div className="rounded-xl border border-dashed border-neya-border px-4 py-6 text-center">
+                <p className="font-display text-base font-semibold text-neya-ink mb-1">Aucun besoin lié</p>
+                <p className="text-sm text-neya-muted">
+                  Générez la liste de départ (éclairage, élec, poussière, établis, rayonnage…).
+                </p>
+              </div>
             ) : (
-              <ul className="space-y-2">
+              <ul className="space-y-2 neya-stagger">
                 {needs.map((n) => {
                   const st = PURCHASE_NEED_STATUS[n.status] || PURCHASE_NEED_STATUS.needed;
                   return (
                     <li
                       key={n.id}
-                      className={`flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2 ${
+                      className={`neya-lift flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2 ${
                         n.priority === 'urgent' && n.status === 'needed'
                           ? 'border-red-200 bg-red-50/40'
                           : 'border-neya-border bg-neya-surface/30'
@@ -228,7 +231,7 @@ export default function AtelierZotiquePage() {
                         className="btn-ghost text-xs min-h-[32px]"
                         onClick={() => toggleNeedStatus(n)}
                       >
-                        Statut →
+                        Avancer statut
                       </button>
                     </li>
                   );

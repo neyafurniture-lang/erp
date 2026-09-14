@@ -3,14 +3,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import {
-  FINANCE_SESSION_PIN,
   closeFinanceSession,
   isFinanceSessionOpen,
   openFinanceSession,
 } from '../lib/finance-session';
 
 /**
- * Verrouillage gestionnaire Finance (P&L total) : code requis.
+ * Verrouillage gestionnaire Finance (P&L total) : code requis côté serveur.
  * Les tâches admin ne passent plus par ce gate.
  */
 export default function FinanceSessionGate({ children }) {
@@ -39,24 +38,14 @@ export default function FinanceSessionGate({ children }) {
     setBusy(true);
     try {
       const entered = code.trim();
-      let accepted = false;
-      try {
-        await api('/analytics/unlock', {
-          method: 'POST',
-          body: JSON.stringify({ code: entered }),
-        });
-        accepted = true;
-      } catch (apiErr) {
-        // Fallback local si l’API est down (même code par défaut)
-        if (entered === FINANCE_SESSION_PIN) {
-          console.warn('finance unlock API:', apiErr?.message || apiErr);
-          accepted = true;
-        } else {
-          throw new Error(apiErr?.message || 'Code incorrect');
-        }
+      const res = await api('/analytics/unlock', {
+        method: 'POST',
+        body: JSON.stringify({ code: entered }),
+      });
+      if (!res?.finance_token) {
+        throw new Error('Réponse serveur invalide');
       }
-      if (!accepted) throw new Error('Code incorrect');
-      openFinanceSession();
+      openFinanceSession(res.finance_token);
       setUnlocked(true);
       setCode('');
     } catch (err) {
@@ -81,8 +70,8 @@ export default function FinanceSessionGate({ children }) {
 
   if (!unlocked) {
     return (
-      <div className="max-w-xs mx-auto mt-10 sm:mt-16">
-        <div className="border border-neya-border rounded-xl bg-white p-4 shadow-sm">
+      <div className="max-w-xs mx-auto mt-10 sm:mt-16 neya-enter">
+        <div className="card rounded-xl p-4 neya-lift">
           <p className="text-sm font-medium text-neya-ink mb-0.5">Gestionnaire Finance</p>
           <p className="text-[11px] text-neya-muted mb-3">
             Entrez le code pour voir le P&amp;L total (bénéfice, dépenses, temps).
@@ -116,12 +105,12 @@ export default function FinanceSessionGate({ children }) {
   }
 
   return (
-    <div>
+    <div className="neya-enter-fade">
       <div className="flex items-center justify-end mb-3">
         <button
           type="button"
           onClick={lock}
-          className="text-[11px] text-neya-muted hover:text-neya-ink border border-neya-border rounded-lg px-2.5 py-1"
+          className="btn-secondary text-[11px] h-8 px-2.5"
         >
           Verrouiller
         </button>

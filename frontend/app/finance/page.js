@@ -26,7 +26,7 @@ function moneyTone(n) {
 
 function Kpi({ label, value, hint, tone }) {
   return (
-    <div className="card rounded-2xl p-4">
+    <div className="card rounded-2xl p-4 neya-lift">
       <p className="text-[11px] font-semibold uppercase tracking-wider text-neya-muted">{label}</p>
       <p className={`mt-1 font-display text-2xl font-semibold tabular-nums ${tone || 'text-neya-ink'}`}>{value}</p>
       {hint ? <p className="mt-1 text-xs text-neya-muted">{hint}</p> : null}
@@ -128,13 +128,13 @@ function FinanceDashboard() {
           }}
         />
 
-        <p className="mb-6 text-sm text-neya-muted">
+        <p className="mb-6 text-sm text-neya-muted neya-enter">
           Pour revoir les projets {year}, lier les factures et marquer terminé :{' '}
           <Link href={`/projects/revue?year=${year}`} className="text-neya-orange hover:underline">
             Revue projets {year} →
           </Link>
         </p>
-        <div className="flex flex-wrap items-end gap-3 mb-6">
+        <div className="flex flex-wrap items-end gap-3 mb-6 neya-enter" style={{ animationDelay: '45ms' }}>
           <div>
             <label className="label">Année</label>
             <select className="input min-w-[120px]" value={year} onChange={e => setYear(Number(e.target.value))}>
@@ -143,17 +143,17 @@ function FinanceDashboard() {
           </div>
           <div>
             <label className="label">Base bénéfice</label>
-            <div className="flex rounded-xl border border-neya-border overflow-hidden">
+            <div className="neya-segment">
               <button
                 type="button"
-                className={`px-3 py-2 text-sm ${basis === 'collected' ? 'bg-neya-ink text-white' : 'bg-white text-neya-muted'}`}
+                className={`neya-segment-btn ${basis === 'collected' ? 'is-active' : ''}`}
                 onClick={() => setBasis('collected')}
               >
                 Encaissé
               </button>
               <button
                 type="button"
-                className={`px-3 py-2 text-sm ${basis === 'invoiced' ? 'bg-neya-ink text-white' : 'bg-white text-neya-muted'}`}
+                className={`neya-segment-btn ${basis === 'invoiced' ? 'is-active' : ''}`}
                 onClick={() => setBasis('invoiced')}
               >
                 Facturé
@@ -183,14 +183,14 @@ function FinanceDashboard() {
 
         {loading && <p className="text-sm text-neya-muted">Chargement du P&L…</p>}
         {err && (
-          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 neya-enter">
             {err}
           </div>
         )}
 
         {data && totals && (
           <>
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6 neya-stagger">
               <Kpi
                 label={basis === 'invoiced' ? 'Facturé YTD' : 'Encaissé YTD'}
                 value={formatMoney(revenueYtd)}
@@ -218,7 +218,7 @@ function FinanceDashboard() {
               />
             </div>
 
-            <div className="cf-table-wrap overflow-x-auto mb-6">
+            <div className="cf-table-wrap overflow-x-auto mb-6 neya-enter" style={{ animationDelay: '120ms' }}>
               <table className="w-full text-sm">
                 <thead>
                   <tr>
@@ -272,14 +272,14 @@ function FinanceDashboard() {
             </div>
 
             {month && (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
-                <div className="card rounded-2xl p-5">
-                  <h3 className="font-display text-lg font-semibold text-neya-ink mb-1">
-                    {month.label} {year}
-                  </h3>
-                  <p className="text-xs text-neya-muted mb-4">
-                    Détail du mois sélectionné
-                  </p>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8 neya-stagger">
+                <div className="cf-panel neya-lift">
+                  <div className="cf-panel-head">
+                    <div>
+                      <h3 className="cf-panel-title">{month.label} {year}</h3>
+                      <p className="cf-panel-sub">Détail du mois sélectionné</p>
+                    </div>
+                  </div>
                   <dl className="space-y-2 text-sm">
                     <div className="flex justify-between gap-2">
                       <dt className="text-neya-muted">Facturé (hors brouillon)</dt>
@@ -312,8 +312,12 @@ function FinanceDashboard() {
                   </dl>
                 </div>
 
-                <div className="card rounded-2xl p-5">
-                  <h3 className="font-display text-base font-semibold text-neya-ink mb-3">Dépenses par catégorie</h3>
+                <div className="cf-panel neya-lift">
+                  <div className="cf-panel-head">
+                    <div>
+                      <h3 className="cf-panel-title">Dépenses par catégorie</h3>
+                    </div>
+                  </div>
                   {Object.keys(month.expenses_by_category || {}).length === 0 ? (
                     <p className="text-sm text-neya-muted">Aucune dépense ce mois.</p>
                   ) : (
@@ -332,8 +336,12 @@ function FinanceDashboard() {
                   )}
                 </div>
 
-                <div className="card rounded-2xl p-5">
-                  <h3 className="font-display text-base font-semibold text-neya-ink mb-3">Heures par personne</h3>
+                <div className="cf-panel neya-lift">
+                  <div className="cf-panel-head">
+                    <div>
+                      <h3 className="cf-panel-title">Heures par personne</h3>
+                    </div>
+                  </div>
                   {Object.keys(month.labor_by_person || {}).length === 0 ? (
                     <p className="text-sm text-neya-muted">
                       Aucune heure (carnet projets / pointages) ce mois.
@@ -361,14 +369,16 @@ function FinanceDashboard() {
               </div>
             )}
 
-            <div className="card rounded-2xl p-5">
-              <h3 className="font-display text-base font-semibold text-neya-ink mb-2">
-                Année {year} — équipe
-              </h3>
-              <p className="text-xs text-neya-muted mb-4">
-                Coût main-d’œuvre basé sur le carnet d’heures des projets + pointages, × taux employés.
-              </p>
-              <div className="overflow-x-auto">
+            <div className="cf-panel neya-enter neya-lift" style={{ animationDelay: '180ms' }}>
+              <div className="cf-panel-head">
+                <div>
+                  <h3 className="cf-panel-title">Année {year} — équipe</h3>
+                  <p className="cf-panel-sub">
+                    Coût main-d’œuvre basé sur le carnet d’heures des projets + pointages, × taux employés.
+                  </p>
+                </div>
+              </div>
+              <div className="cf-table-wrap overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr>

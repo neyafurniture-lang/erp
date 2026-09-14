@@ -160,12 +160,12 @@ export default function ProjectsPage() {
         subtitle={`${activeCount} actifs · ${waitingCount} en attente · ${priorityCount} prioritaires · ${doneCount} terminés · ${projects.length} au total`}
       >
         <div className="space-y-5">
-          <div className="lg:hidden">
+          <div className="lg:hidden neya-enter">
             <h1 className="font-display text-[26px] font-semibold text-neya-ink">Projets</h1>
             <p className="text-sm text-neya-muted">{activeCount} actifs · {waitingCount} en attente · {priorityCount} prioritaires · {doneCount} terminés</p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3 neya-enter" style={{ animationDelay: '60ms' }}>
             <div className="relative min-w-[220px] flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neya-muted" aria-hidden />
               <input
@@ -197,7 +197,7 @@ export default function ProjectsPage() {
           </div>
 
           {showForm && (
-            <form onSubmit={create} className="card rounded-2xl mb-0 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <form onSubmit={create} className="cf-panel mb-0 grid grid-cols-1 md:grid-cols-2 gap-4 neya-enter">
               <div>
                 <label className="label">Nom du projet</label>
                 <input className="input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required />
@@ -245,11 +245,12 @@ export default function ProjectsPage() {
           )}
 
           {visible.length === 0 ? (
-            <div className="card rounded-2xl text-center py-10 text-neya-muted text-sm">
-              Aucun projet dans ce filtre.
+            <div className="cf-panel text-center py-10 neya-enter">
+              <p className="font-display text-lg font-semibold text-neya-ink mb-1">Aucun projet</p>
+              <p className="text-sm text-neya-muted">Rien dans ce filtre — essayez « Tous » ou créez un projet.</p>
             </div>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 neya-stagger">
               {visible.map(p => {
                 const st = projectStatusMeta(p.status);
                 const custom = isCustomProject(p);
@@ -263,8 +264,8 @@ export default function ProjectsPage() {
                 return (
                   <div
                     key={p.id}
-                    className={`group relative grid grid-rows-[auto_1fr_auto] rounded-2xl border bg-white p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${
-                      prio ? 'border-amber-300 ring-1 ring-amber-200' : 'border-neya-border'
+                    className={`group relative grid grid-rows-[auto_1fr_auto] card neya-lift p-5 ${
+                      prio ? 'border-amber-300 ring-1 ring-amber-200' : ''
                     } ${isDone ? 'opacity-80' : ''}`}
                   >
                     <Link href={`/projects/${p.id}`} className="min-w-0 block pr-28">

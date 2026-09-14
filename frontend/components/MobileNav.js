@@ -37,6 +37,7 @@ const MENU_GROUPS = [
       { href: '/suppliers', label: 'Fournisseurs', permission: 'purchases' },
       { href: '/admin', label: 'Tâches bureau', permission: 'admin' },
       { href: '/reunions', label: 'Réunions', permission: 'meetings' },
+      { href: '/marches', label: 'Marchés & événements', permission: 'markets' },
     ],
   },
   {

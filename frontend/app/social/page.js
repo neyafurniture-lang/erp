@@ -310,7 +310,7 @@ export default function SocialPage() {
         subtitle="Comme Buffer / Later — comptes, médiathèque photo, planning et analytics"
         wide
       >
-        <div className="rounded-2xl border border-neya-border bg-white px-4 py-3 mb-5 text-sm text-neya-muted">
+        <div className="card rounded-2xl px-4 py-3 mb-5 text-sm text-neya-muted neya-enter">
           <strong className="text-neya-ink font-medium">Pôle social NEYA</strong>
           {' — '}connectez Instagram, Facebook et Pinterest, analysez vos photos produit (les factures et documents sont exclus),
           puis planifiez. Publication auto Graph API dès que les App ID Meta/Pinterest sont renseignés.
@@ -318,16 +318,14 @@ export default function SocialPage() {
           <Link href="/settings?tab=integrations" className="text-neya-orange hover:underline">Paramètres → Intégrations</Link>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 mb-5">
+        <div className="flex flex-wrap items-center gap-2 mb-5 neya-enter" style={{ animationDelay: '45ms' }}>
           {TABS.map(({ id, label, Icon }) => (
             <button
               key={id}
               type="button"
               onClick={() => setTab(id)}
-              className={`inline-flex items-center gap-1.5 h-9 rounded-lg border px-3 text-[12.5px] font-medium transition-colors ${
-                tab === id
-                  ? 'border-neya-ink bg-neya-ink text-white'
-                  : 'border-neya-border bg-white text-neya-muted hover:text-neya-ink'
+              className={`cf-chip inline-flex items-center gap-1.5 h-9 ${
+                tab === id ? 'cf-chip-active' : ''
               }`}
             >
               <Icon className="h-3.5 w-3.5" />
@@ -356,9 +354,9 @@ export default function SocialPage() {
               Connectez vos comptes professionnels pour programmer et (bientôt) publier.
               Même logique que Meta Business Suite / Buffer : un compte = un canal.
             </p>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 neya-stagger">
               {accounts.map(acc => (
-                <div key={acc.id} className="rounded-2xl border border-neya-border bg-white p-4 flex flex-col gap-3">
+                <div key={acc.id} className="card rounded-2xl p-4 flex flex-col gap-3 neya-lift">
                   <div className="flex items-start gap-3">
                     <span
                       className="w-10 h-10 rounded-xl shrink-0 grid place-items-center text-white text-xs font-bold"
@@ -448,9 +446,9 @@ export default function SocialPage() {
                 Aucune photo produit. Placez vos photos finales dans Drive (pas les dossiers Factures / Admin).
               </div>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 neya-stagger">
                 {media.map(item => (
-                  <article key={item.id} className="rounded-2xl border border-neya-border bg-white overflow-hidden flex flex-col">
+                  <article key={item.id} className="card rounded-2xl overflow-hidden flex flex-col neya-lift">
                     <div className="aspect-square bg-neya-surface relative">
                       {item.thumbnailLink ? (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -496,9 +494,9 @@ export default function SocialPage() {
             {proposeMeta?.hint && (
               <p className="text-xs text-neya-muted bg-neya-surface rounded-xl px-3 py-2">{proposeMeta.hint}</p>
             )}
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 neya-stagger">
               {proposals.map(p => (
-                <article key={p.key} className="rounded-2xl border border-neya-border bg-white overflow-hidden flex flex-col">
+                <article key={p.key} className="card rounded-2xl overflow-hidden flex flex-col neya-lift">
                   {p.media?.[0]?.thumbnailLink ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={p.media[0].thumbnailLink} alt="" className="h-40 w-full object-cover" />
@@ -535,7 +533,7 @@ export default function SocialPage() {
         {tab === 'plan' && (
           <section className="space-y-5">
             {showForm && (
-              <form onSubmit={createManual} className="rounded-2xl border border-neya-border bg-white p-4 space-y-3">
+              <form onSubmit={createManual} className="card rounded-2xl p-4 space-y-3 neya-enter neya-lift">
                 <p className="font-medium text-neya-ink">Composer un post</p>
                 <div>
                   <label className="label">Titre</label>
@@ -554,7 +552,7 @@ export default function SocialPage() {
                         key={value}
                         type="button"
                         onClick={() => togglePlatform(value)}
-                        className={`cf-chip ${active ? 'bg-neya-ink text-white border-neya-ink' : ''}`}
+                        className={`cf-chip ${active ? 'cf-chip-active' : ''}`}
                       >
                         {PLATFORM_LABEL[value] || value}
                       </button>
@@ -596,9 +594,9 @@ export default function SocialPage() {
                   Rien en file. Utilisez Médias ou Composer.
                 </p>
               ) : (
-                <ul className="space-y-2">
+                <ul className="space-y-2 neya-stagger">
                   {scheduled.map(p => (
-                    <li key={p.id} className="rounded-xl border border-neya-border bg-white px-4 py-3 flex flex-wrap gap-3 items-start">
+                    <li key={p.id} className="card rounded-xl px-4 py-3 flex flex-wrap gap-3 items-start neya-lift">
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-neya-ink">{p.title || 'Sans titre'}</p>
                         <p className="text-xs text-neya-muted mt-0.5 line-clamp-2 whitespace-pre-wrap">{p.caption}</p>
@@ -662,15 +660,15 @@ export default function SocialPage() {
         )}
 
         {tab === 'analytics' && (
-          <section className="space-y-4">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <section className="space-y-4 neya-enter">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 neya-stagger">
               {[
                 { label: 'Posts', value: analytics?.totals?.posts ?? posts.length },
                 { label: 'Publiés', value: analytics?.totals?.published ?? published.length },
                 { label: 'Likes', value: analytics?.totals?.likes ?? 0 },
                 { label: 'Reach', value: analytics?.totals?.reach ?? 0 },
               ].map(c => (
-                <div key={c.label} className="rounded-2xl border border-neya-border bg-white px-4 py-3">
+                <div key={c.label} className="card rounded-2xl px-4 py-3 neya-lift">
                   <p className="text-[11px] uppercase tracking-wider text-neya-muted font-semibold">{c.label}</p>
                   <p className="font-display text-2xl font-semibold tabular-nums mt-1">{c.value}</p>
                 </div>
@@ -679,7 +677,7 @@ export default function SocialPage() {
             {analytics?.note && (
               <p className="text-xs text-neya-muted">{analytics.note}</p>
             )}
-            <div className="rounded-2xl border border-neya-border bg-white overflow-hidden">
+            <div className="cf-table-wrap overflow-hidden">
               <table className="w-full text-sm">
                 <thead className="bg-neya-surface text-left text-xs text-neya-muted">
                   <tr>

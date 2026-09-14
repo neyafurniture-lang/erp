@@ -9,15 +9,27 @@ Référence visuelle officielle pour **toute** l’app ERP.
 
 | Zone | Statut |
 |------|--------|
-| Tokens / typo / shell / login | Fait |
-| Dashboard | Fait (composition Craft Flow : KPIs + Production + Agenda + Courriel) |
+| Tokens / typo / shell / login | Fait + polish pro motion (2026-09) |
+| Motion system | `.neya-enter` / `.neya-stagger` / `.neya-lift` / reduced-motion |
+| Dashboard | Fait (composition Craft Flow + animations entrée) |
 | Calendrier | Fait (grille mois Craft Flow + vue équipe) |
 | Clients | Fait (table Craft Flow : projets, total, statut, dernier contact) |
 | Projets / Production | Fait |
-| Factures / Dépenses / Stock / Achats | Fait |
-| Settings / Admin / Sauna / Web / Drive / Roadmap / Manuel | Fait |
+| Factures / Dépenses / Stock / Achats | Fait + motion ARGENT |
+| Finance / Paie | Fait (PIN gate préservé + KPI lift) |
+| Standards / Web / Marketplace / Social | Fait + motion COMMERCIAL |
+| Marchés | Grille Müller-Brockmann intacte + fade entrée |
+| Settings / Admin / Sauna / Drive / Roadmap / Manuel | Fait |
 | Courriel | Fait (parity Lovable : flush 3–4 col, chips, preview, compose card ; APIs Gmail inchangées) |
 | Plans de coupe | Shell aligné |
+
+## Direction UX pro (réfs Pinterest / SaaS)
+
+- Composition bento / panneaux clairs, ombres douces (`--shadow-soft` / `--shadow-lift`)
+- Accent orange NEYA uniquement (pas de violet « AI »)
+- Micro-interactions : boutons lift, KPI hover, barres de progression animées
+- Typo Urbanist + Epilogue (déjà Craft Flow) — pas Inter/Roboto
+- Respect `prefers-reduced-motion`
 
 ## Fichiers clés
 

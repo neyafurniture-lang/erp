@@ -106,11 +106,11 @@ function NeedRow({ item, suppliers, projects, onChange, onUpdated }) {
   }
 
   return (
-    <div className={`card rounded-2xl space-y-3 shadow-sm hover:shadow-md transition-shadow ${draft.priority === 'urgent' && draft.status === 'needed' ? 'border-red-200 bg-red-50/30' : ''}`}>
+    <div className={`card neya-lift space-y-3 ${draft.priority === 'urgent' && draft.status === 'needed' ? 'border-red-200 bg-red-50/30' : ''}`}>
       <div className="flex flex-wrap items-center gap-2">
         <span className={`text-[10px] px-2 py-0.5 rounded-full ${st.cls}`}>{st.label}</span>
         {draft.priority === 'urgent' && draft.status === 'needed' && (
-          <span className="text-[10px] font-bold uppercase tracking-wide text-red-700 bg-red-100 px-2 py-0.5 rounded-full">Urgent</span>
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-red-700 bg-red-100 px-2 py-0.5 rounded-full">Urgent</span>
         )}
         <span className="text-[10px] text-neya-muted ml-auto">
           {saving ? 'Enregistrement…' : saveHint || 'Modifiable'}
@@ -216,8 +216,8 @@ function NeedRow({ item, suppliers, projects, onChange, onUpdated }) {
           <button type="button" onClick={() => save()} disabled={saving} className="btn-secondary text-xs py-1.5 px-3">
             Sauver
           </button>
-          <button type="button" onClick={remove} className="btn-secondary text-xs py-1.5 px-3 text-red-600 border-red-200">
-            ✕
+          <button type="button" onClick={remove} className="btn-ghost text-xs py-1.5 px-3 text-red-600">
+            Retirer
           </button>
         </div>
       </div>
@@ -338,42 +338,42 @@ export default function PurchasesPage({ title = 'Liste de courses', subtitle = '
   return (
     <AuthGuard>
       <AppShell title={title} subtitle={subtitle} wide>
-        <p className="text-sm text-neya-muted mb-6 lg:hidden">
+        <p className="text-sm text-neya-muted mb-6 lg:hidden neya-enter">
           {subtitle}
         </p>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-          <div className="rounded-2xl border border-neya-border bg-white shadow-sm text-center py-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6 neya-stagger">
+          <div className="cf-panel text-center py-3 px-3">
             <p className="text-2xl font-display font-semibold text-neya-orange tabular-nums">{summary?.to_buy ?? 0}</p>
             <p className="text-xs text-neya-muted">À acheter</p>
           </div>
-          <div className="rounded-2xl border border-neya-border bg-white shadow-sm text-center py-3">
+          <div className="cf-panel text-center py-3 px-3">
             <p className="text-2xl font-display font-semibold text-red-600 tabular-nums">{summary?.urgent ?? 0}</p>
             <p className="text-xs text-neya-muted">Urgents</p>
           </div>
-          <div className="rounded-2xl border border-neya-border bg-white shadow-sm text-center py-3">
+          <div className="cf-panel text-center py-3 px-3">
             <p className="text-2xl font-display font-semibold tabular-nums">{summary?.ordered ?? 0}</p>
             <p className="text-xs text-neya-muted">Commandés</p>
           </div>
-          <div className="rounded-2xl border border-neya-border bg-white shadow-sm text-center py-3">
+          <div className="cf-panel text-center py-3 px-3">
             <p className="text-2xl font-display font-semibold text-green-700 tabular-nums">{summary?.received ?? 0}</p>
             <p className="text-xs text-neya-muted">Reçus</p>
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2 mb-6">
+        <div className="flex flex-wrap gap-2 mb-6 neya-enter" style={{ animationDelay: '80ms' }}>
           <button type="button" onClick={() => setView('needs')} className={`cf-chip ${view === 'needs' ? 'cf-chip-active' : ''}`}>
             À acheter
           </button>
           <button type="button" onClick={() => setView('orders')} className={`cf-chip ${view === 'orders' ? 'cf-chip-active' : ''}`}>
             Bons de commande
           </button>
-          <Link href="/inventory" className="btn-secondary text-sm ml-auto">Voir le stock →</Link>
+          <Link href="/inventory" className="btn-secondary text-sm ml-auto">Voir le stock</Link>
         </div>
 
         {view === 'needs' && (
           <>
-            <form onSubmit={addNeed} className="card rounded-2xl mb-6 grid sm:grid-cols-2 lg:grid-cols-6 gap-3">
+            <form onSubmit={addNeed} className="cf-panel mb-6 grid sm:grid-cols-2 lg:grid-cols-6 gap-3 neya-enter">
               <input
                 className="input sm:col-span-2"
                 placeholder="Ex. Lames scie, colle, papier abrasif…"
@@ -389,7 +389,7 @@ export default function PurchasesPage({ title = 'Liste de courses', subtitle = '
               <input type="number" min={0.001} step="any" className="input" placeholder="Qté" value={form.quantity} onChange={e => setForm({ ...form, quantity: e.target.value })} />
               <input className="input" placeholder="Unité" value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })} />
               <button type="submit" disabled={saving} className="btn-primary disabled:opacity-50">
-                {saving ? '…' : '+ Ajouter'}
+                {saving ? '…' : 'Ajouter'}
               </button>
               <input
                 className="input sm:col-span-5 lg:col-span-6"
@@ -400,11 +400,11 @@ export default function PurchasesPage({ title = 'Liste de courses', subtitle = '
             </form>
 
             {suggestions?.low_stock?.length > 0 && (
-              <div className="card rounded-2xl mb-6 border-amber-200 bg-amber-50/50">
+              <div className="cf-panel mb-6 border-amber-200 bg-amber-50/50 neya-enter">
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                  <p className="text-sm font-medium text-amber-900">Stock bas détecté — consommables & atelier</p>
+                  <p className="text-sm font-medium text-amber-900">Stock bas — consommables & atelier</p>
                   <button type="button" onClick={syncStock} disabled={syncing} className="btn-secondary text-xs">
-                    {syncing ? 'Sync…' : '↻ Tout importer'}
+                    {syncing ? 'Sync…' : 'Tout importer'}
                   </button>
                 </div>
                 <ul className="text-sm space-y-2">
@@ -419,8 +419,8 @@ export default function PurchasesPage({ title = 'Liste de courses', subtitle = '
                         {already ? (
                           <span className="text-xs text-green-700">Déjà listé</span>
                         ) : (
-                          <button type="button" onClick={() => addFromSuggestion(i)} className="text-xs text-neya-orange hover:underline">
-                            + Ajouter
+                          <button type="button" onClick={() => addFromSuggestion(i)} className="btn-ghost text-xs text-neya-orange">
+                            Ajouter
                           </button>
                         )}
                       </li>
@@ -430,7 +430,7 @@ export default function PurchasesPage({ title = 'Liste de courses', subtitle = '
               </div>
             )}
 
-            <div className="flex flex-wrap gap-1.5 mb-4">
+            <div className="flex flex-wrap gap-1.5 mb-4 neya-enter" style={{ animationDelay: '100ms' }}>
               {[
                 { id: 'needed', label: 'À acheter' },
                 { id: 'ordered', label: 'Commandés' },
@@ -454,11 +454,12 @@ export default function PurchasesPage({ title = 'Liste de courses', subtitle = '
               ))}
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-3 neya-stagger">
               {filteredNeeds.length === 0 ? (
-                <div className="card rounded-2xl text-center py-12">
-                  <p className="text-sm text-neya-muted mb-2">Aucun article à acheter pour l&apos;instant</p>
-                  <p className="text-xs text-neya-muted">Ajoutez un consommable manquant ou importez depuis le stock bas</p>
+                <div className="cf-panel text-center py-12">
+                  <p className="font-display text-lg font-semibold text-neya-ink mb-1">Liste vide</p>
+                  <p className="text-sm text-neya-muted mb-1">Aucun article à acheter pour l&apos;instant</p>
+                  <p className="text-xs text-neya-muted">Ajoutez un consommable ou importez depuis le stock bas</p>
                 </div>
               ) : (
                 filteredNeeds.map(n => (
@@ -477,12 +478,15 @@ export default function PurchasesPage({ title = 'Liste de courses', subtitle = '
         )}
 
         {view === 'orders' && (
-          <div className="space-y-2">
+          <div className="space-y-2 neya-stagger">
             {orders.length === 0 ? (
-              <p className="text-sm text-neya-muted card rounded-2xl py-8 text-center">Aucun bon de commande</p>
+              <div className="cf-panel py-8 text-center">
+                <p className="font-display text-lg font-semibold text-neya-ink mb-1">Aucun bon</p>
+                <p className="text-sm text-neya-muted">Pas encore de bons de commande</p>
+              </div>
             ) : (
               orders.map(o => (
-                <div key={o.id} className="card rounded-2xl flex flex-wrap justify-between gap-2 shadow-sm hover:shadow-md transition-shadow">
+                <div key={o.id} className="card neya-lift flex flex-wrap justify-between gap-2">
                   <div>
                     <p className="font-semibold text-sm text-neya-ink">{o.title || `Commande #${o.id}`}</p>
                     <p className="text-xs text-neya-muted">{o.supplier_name} · {o.project_name || 'Stock général'}</p>

@@ -197,16 +197,16 @@ export default function DashboardPage() {
   return (
     <AuthGuard>
       <AppShell
-        title={`${greeting} ${firstName} 👋`}
-        subtitle={`Voici l'atelier · ${todayLabel}`}
+        title={`${greeting} ${firstName}`}
+        subtitle={`Atelier · ${todayLabel}`}
         wide
       >
         {error && (
-          <div className="mb-6 text-sm text-red-700 bg-red-50 border border-red-200 px-4 py-3 rounded-xl">{error}</div>
+          <div className="mb-6 text-sm text-red-700 bg-red-50 border border-red-200 px-4 py-3 rounded-xl neya-enter">{error}</div>
         )}
 
         {/* Hero mobile */}
-        <header className="dash-hero lg:hidden mb-6">
+        <header className="dash-hero lg:hidden mb-6 neya-enter">
           <div>
             <p className="dash-hero-kicker capitalize">{todayLabel}</p>
             <h1 className="dash-hero-title">
@@ -221,7 +221,7 @@ export default function DashboardPage() {
         </header>
 
         {/* KPIs Craft Flow */}
-        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-6">
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-6 neya-stagger">
           <KpiCard
             label="Chiffre du mois"
             value={formatMoney(s.revenueMonth || 0)}
@@ -272,9 +272,9 @@ export default function DashboardPage() {
 
         <DashboardLiveTodo initial={data?.liveTodo} />
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6 neya-enter" style={{ animationDelay: '120ms' }}>
           {/* Production en cours */}
-          <section className="cf-panel lg:col-span-2">
+          <section className="cf-panel lg:col-span-2 neya-lift">
             <div className="cf-panel-head">
               <div>
                 <h2 className="cf-panel-title">Production en cours</h2>
@@ -324,7 +324,7 @@ export default function DashboardPage() {
           </section>
 
           {/* Agenda du jour */}
-          <section className="cf-panel">
+          <section className="cf-panel neya-lift">
             <div className="cf-panel-head">
               <div>
                 <h2 className="cf-panel-title">Agenda du jour</h2>
@@ -371,7 +371,7 @@ export default function DashboardPage() {
 
         {/* Courriel — à répondre */}
         {canMail && (
-        <section className="cf-panel mb-6">
+        <section className="cf-panel mb-6 neya-enter neya-lift" style={{ animationDelay: '180ms' }}>
           <div className="cf-panel-head">
             <div>
               <h2 className="cf-panel-title">Courriel — à répondre</h2>

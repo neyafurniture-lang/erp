@@ -18,11 +18,21 @@
   --sidebar-w: 16rem;
   --dock-clearance: calc(var(--mobile-nav-h) + var(--safe-bottom) + 0.75rem);
   --ui-scale: 1.08;
-  --radius: 0.75rem;
+  --radius: 1rem;
+  --radius-sm: 0.625rem;
+  --radius-lg: 1.25rem;
+  --radius-xl: 1.5rem;
 
-  /* Tokens Craft Flow (source : neya-craft-flow/src/styles.css) */
-  --background: oklch(1 0 0);
-  --surface: oklch(0.985 0.002 60);
+  /* Motion — pro, discret (respecte prefers-reduced-motion) */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.2, 0.64, 1);
+  --dur-fast: 140ms;
+  --dur: 220ms;
+  --dur-slow: 380ms;
+
+  /* Tokens Craft Flow (source : neya-craft-flow/src/styles.css) + polish pro */
+  --background: oklch(0.985 0.004 70);
+  --surface: oklch(0.978 0.003 65);
   --surface-elevated: oklch(1 0 0);
   --foreground: oklch(0.15 0.005 60);
   --ink: oklch(0.15 0.005 60);
@@ -35,12 +45,16 @@
   --muted-foreground: oklch(0.5 0.006 60);
   --accent: oklch(0.96 0.028 55);
   --accent-foreground: oklch(0.44 0.14 40);
-  --border: oklch(0.92 0.003 60);
-  --border-strong: oklch(0.85 0.004 60);
-  --sidebar: oklch(0.985 0.002 60);
+  --border: oklch(0.91 0.004 60);
+  --border-strong: oklch(0.84 0.005 60);
+  --sidebar: oklch(0.99 0.002 60);
   --sidebar-accent: oklch(0.96 0.028 55);
   --sidebar-accent-foreground: oklch(0.44 0.14 40);
   --ring: oklch(0.66 0.16 42);
+  --shadow-soft: 0 1px 2px rgb(13 11 9 / 0.04), 0 8px 24px -12px rgb(13 11 9 / 0.1);
+  --shadow-lift: 0 2px 4px rgb(13 11 9 / 0.04), 0 16px 40px -16px rgb(13 11 9 / 0.14);
+  --ambient: radial-gradient(1200px 600px at 12% -10%, oklch(0.96 0.03 55 / 0.55), transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, oklch(0.97 0.01 80 / 0.4), transparent 50%);
 }
 
 @media (min-width: 1024px) {
@@ -113,6 +127,7 @@ h1, h2, h3, h4, h5, h6 {
   .mobile-dock {
     @apply fixed bottom-0 left-0 right-0 z-[55] bg-white/95 backdrop-blur-md border-t border-neya-border;
     padding-bottom: env(safe-area-inset-bottom, 0px);
+    box-shadow: 0 -8px 32px -16px rgb(13 11 9 / 0.12);
   }
 
   .mobile-dock-inner {
@@ -121,10 +136,25 @@ h1, h2, h3, h4, h5, h6 {
 
   .mobile-dock-item {
     @apply flex-1 flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium text-neya-ink/55 min-w-0;
+    transition: color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+  }
+
+  .mobile-dock-item:active {
+    transform: scale(0.94);
   }
 
   .mobile-dock-item-active {
-    @apply text-neya-orange font-semibold;
+    @apply relative text-neya-orange font-semibold;
+  }
+
+  .mobile-dock-item-active::before {
+    content: "";
+    position: absolute;
+    top: 6px;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--primary);
   }
 
   .mobile-menu-sheet {
@@ -368,27 +398,85 @@ h1, h2, h3, h4, h5, h6 {
   .voice-dots span:nth-child(3) { animation-delay: 0.3s; }
 
   .btn-primary {
-    @apply bg-neya-orange hover:bg-neya-orange-dark text-white px-4 py-2.5 rounded-lg font-semibold text-sm transition-all min-h-[48px] sm:min-h-[44px] inline-flex items-center justify-center border border-transparent shadow-sm hover:shadow-orange;
+    @apply bg-neya-orange text-white px-4 py-2.5 font-semibold text-sm min-h-[48px] sm:min-h-[44px] inline-flex items-center justify-center border border-transparent;
+    border-radius: var(--radius-sm);
+    box-shadow: 0 1px 2px rgb(13 11 9 / 0.06), 0 8px 20px -10px rgb(216 107 48 / 0.45);
+    transition:
+      background-color var(--dur-fast) var(--ease-out),
+      box-shadow var(--dur) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
+  }
+  .btn-primary:hover {
+    @apply bg-neya-orange-dark;
+    box-shadow: 0 2px 4px rgb(13 11 9 / 0.08), 0 14px 28px -12px rgb(216 107 48 / 0.5);
+    transform: translateY(-1px);
+  }
+  .btn-primary:active {
+    transform: translateY(0) scale(0.985);
   }
 
   .btn-secondary {
-    @apply bg-white border border-neya-border hover:bg-neya-surface text-neya-ink px-4 py-2.5 rounded-lg font-semibold text-sm transition-colors min-h-[48px] sm:min-h-[44px] inline-flex items-center justify-center;
+    @apply bg-white border border-neya-border text-neya-ink px-4 py-2.5 font-semibold text-sm min-h-[48px] sm:min-h-[44px] inline-flex items-center justify-center;
+    border-radius: var(--radius-sm);
+    transition:
+      background-color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out),
+      box-shadow var(--dur) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
+  }
+  .btn-secondary:hover {
+    @apply bg-neya-surface border-neya-border-strong;
+    box-shadow: var(--shadow-soft);
+    transform: translateY(-1px);
+  }
+  .btn-secondary:active {
+    transform: translateY(0) scale(0.985);
   }
 
   .btn-ghost {
-    @apply text-neya-muted hover:text-neya-ink hover:bg-neya-orange-soft/60 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors;
+    @apply text-neya-muted hover:text-neya-ink hover:bg-neya-orange-soft/60 px-3 py-1.5 text-sm font-medium;
+    border-radius: var(--radius-sm);
+    transition: color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+  }
+
+  .btn-ink {
+    @apply bg-neya-ink text-white px-4 py-2.5 font-semibold text-sm min-h-[44px] inline-flex items-center justify-center;
+    border-radius: var(--radius-sm);
+    transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+  }
+  .btn-ink:hover {
+    background: oklch(0.22 0.01 60);
+    transform: translateY(-1px);
   }
 
   .card {
-    @apply bg-white rounded-xl border border-neya-border p-4 sm:p-5 shadow-sm;
+    @apply bg-white p-4 sm:p-5 border border-neya-border;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-soft);
+    transition:
+      box-shadow var(--dur) var(--ease-out),
+      border-color var(--dur) var(--ease-out),
+      transform var(--dur) var(--ease-out);
+  }
+  .card:hover {
+    box-shadow: var(--shadow-lift);
+    border-color: oklch(0.88 0.01 55);
   }
 
   .card-flat {
-    @apply bg-neya-surface rounded-xl border border-neya-border p-4;
+    @apply bg-neya-surface border border-neya-border p-4;
+    border-radius: var(--radius);
   }
 
   .input {
-    @apply w-full border border-neya-border rounded-lg px-3.5 py-3 sm:py-2.5 text-base sm:text-sm bg-white focus:outline-none focus:border-neya-orange focus:ring-2 focus:ring-neya-orange/15 min-h-[48px] sm:min-h-[44px];
+    @apply w-full border border-neya-border px-3.5 py-3 sm:py-2.5 text-base sm:text-sm bg-white focus:outline-none focus:border-neya-orange focus:ring-2 focus:ring-neya-orange/15 min-h-[48px] sm:min-h-[44px];
+    border-radius: var(--radius-sm);
+    transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+  }
+
+  /* Icône absolute left-3 : évite le chevauchement texte (px-3.5 insuffisant) */
+  .input-icon {
+    padding-left: 2.5rem;
   }
 
   .label {
@@ -425,7 +513,8 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .nav-item {
-    @apply relative flex w-full items-center gap-2.5 h-9 px-3 rounded-lg text-[13.5px] font-medium transition-all duration-150;
+    @apply relative flex w-full items-center gap-2.5 h-9 px-3 rounded-lg text-[13.5px] font-medium;
+    transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
   }
 
   .nav-item-dot {
@@ -436,12 +525,17 @@ h1, h2, h3, h4, h5, h6 {
     @apply text-neya-ink-light hover:bg-white/80 hover:text-neya-ink;
   }
 
+  .nav-item-idle:hover {
+    transform: translateX(2px);
+  }
+
   .nav-item-idle .nav-item-dot {
     @apply bg-neya-ink/15;
   }
 
   .nav-item-active {
     @apply bg-neya-orange-soft text-[var(--sidebar-accent-foreground)] font-semibold;
+    box-shadow: inset 0 0 0 1px oklch(0.9 0.02 50);
   }
 
   .nav-item-active::before {
@@ -566,16 +660,28 @@ h1, h2, h3, h4, h5, h6 {
     @apply flex items-center gap-1.5 overflow-x-auto pb-0.5 mt-3;
   }
   .mail-filter-chip {
-    @apply shrink-0 rounded-full border px-3 py-1 text-[11.5px] font-medium transition-colors;
+    @apply shrink-0 rounded-full border px-3 py-1 text-[11.5px] font-medium;
     border-color: var(--border, #e6e4e2);
     background: #fff;
     color: var(--ink-light, #5c5752);
+    transition:
+      background-color var(--dur-fast, 0.15s) var(--ease-out, ease),
+      border-color var(--dur-fast, 0.15s) var(--ease-out, ease),
+      color var(--dur-fast, 0.15s) var(--ease-out, ease),
+      transform var(--dur-fast, 0.15s) var(--ease-out, ease),
+      box-shadow var(--dur-fast, 0.15s) var(--ease-out, ease);
   }
   .mail-filter-chip:hover {
     background: var(--surface, #f7f5f2);
+    transform: translateY(-1px);
   }
   .mail-filter-chip--active {
     border-color: #0d0b09;
+    background: #0d0b09;
+    color: #fff;
+    box-shadow: 0 4px 12px -6px rgb(13 11 9 / 0.45);
+  }
+  .mail-filter-chip--active:hover {
     background: #0d0b09;
     color: #fff;
   }
@@ -593,9 +699,15 @@ h1, h2, h3, h4, h5, h6 {
     @apply flex h-10 w-full items-center justify-center gap-2 rounded-lg text-[13px] font-semibold text-white;
     background: #D86B30;
     box-shadow: 0 4px 14px -4px rgba(216, 107, 48, 0.55);
+    transition: background var(--dur-fast, 0.15s) ease, transform var(--dur-fast, 0.15s) ease, box-shadow var(--dur, 0.22s) ease;
   }
   .mail-compose-new:hover {
     background: #c45f2a;
+    transform: translateY(-1px);
+    box-shadow: 0 8px 20px -8px rgba(216, 107, 48, 0.6);
+  }
+  .mail-compose-new:active {
+    transform: translateY(0) scale(0.985);
   }
 
   .mail-folder {
@@ -627,6 +739,7 @@ h1, h2, h3, h4, h5, h6 {
     background: rgba(250, 249, 247, 0.92);
     backdrop-filter: blur(8px);
     border-bottom: 1px solid rgba(10, 10, 10, 0.05);
+    letter-spacing: 0.1em;
   }
 
   .mail-list {
@@ -669,12 +782,12 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .mail-row:hover {
-    background: rgba(10, 10, 10, 0.025);
+    background: rgba(216, 107, 48, 0.04);
   }
 
   .mail-row-active {
     background: #ffeee3;
-    box-shadow: none;
+    box-shadow: inset 3px 0 0 #D86B30;
   }
 
   .mail-row-body {
@@ -1030,6 +1143,7 @@ h1, h2, h3, h4, h5, h6 {
 
   .mail-empty {
     @apply flex-1 flex flex-col items-center justify-center text-center px-8 py-16;
+    animation: neya-enter-fade var(--dur-slow, 0.35s) var(--ease-out, ease) both;
   }
   .mail-empty__orb {
     width: 72px;
@@ -1048,6 +1162,7 @@ h1, h2, h3, h4, h5, h6 {
   }
   .mail-empty__title {
     @apply text-lg font-semibold text-neya-ink tracking-tight mb-1.5;
+    font-family: var(--font-display, inherit);
   }
   .mail-empty__text {
     @apply text-sm text-neya-muted max-w-xs leading-relaxed;
@@ -1411,7 +1526,16 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Craft Flow dashboard composition */
 .cf-kpi {
-  @apply rounded-2xl border border-neya-border bg-white shadow-sm px-4 py-4 min-h-[110px];
+  @apply border border-neya-border bg-white px-4 py-4 min-h-[110px] h-full;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+  transition: transform var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out);
+}
+a:hover .cf-kpi,
+.cf-kpi:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lift);
+  border-color: oklch(0.86 0.02 50);
 }
 .cf-kpi-label {
   @apply text-[10px] font-semibold uppercase tracking-[0.12em] text-neya-muted mb-1.5;
@@ -1431,7 +1555,13 @@ h1, h2, h3, h4, h5, h6 {
 .cf-kpi-icon-neutral { @apply bg-neya-surface text-neya-ink; }
 
 .cf-panel {
-  @apply rounded-2xl border border-neya-border bg-white shadow-sm p-4 sm:p-5;
+  @apply border border-neya-border bg-white p-4 sm:p-5;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+  transition: box-shadow var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out), transform var(--dur) var(--ease-out);
+}
+.cf-panel:hover {
+  box-shadow: var(--shadow-lift);
 }
 .cf-panel-head {
   @apply flex items-start justify-between gap-3 mb-4;
@@ -1450,7 +1580,9 @@ h1, h2, h3, h4, h5, h6 {
   @apply h-1.5 rounded-full bg-neya-surface overflow-hidden;
 }
 .cf-prod-bar-fill {
-  @apply h-full rounded-full bg-neya-orange transition-all;
+  @apply h-full rounded-full bg-neya-orange origin-left;
+  transform-origin: left center;
+  animation: neya-bar-fill 0.7s var(--ease-out) both;
 }
 
 .cf-agenda-row {
@@ -2132,3 +2264,111 @@ h1, h2, h3, h4, h5, h6 {
   @apply h-10 w-full rounded-lg border border-neya-border bg-neya-surface pl-9 pr-3 text-[13px] outline-none placeholder:text-neya-muted focus:border-neya-orange/40 focus:bg-white focus:ring-2 focus:ring-neya-orange/15;
 }
 
+
+/* ═══════════════════════════════════════════
+   UX Pro Motion — entrée, lift, bento, reduced-motion
+   ═══════════════════════════════════════════ */
+
+@keyframes neya-enter-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes neya-enter-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes neya-bar-fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+@keyframes neya-pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+.neya-enter {
+  animation: neya-enter-up var(--dur-slow) var(--ease-out) both;
+}
+.neya-enter-fade {
+  animation: neya-enter-fade var(--dur-slow) var(--ease-out) both;
+}
+.neya-stagger > * {
+  animation: neya-enter-up var(--dur-slow) var(--ease-out) both;
+}
+.neya-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.neya-stagger > *:nth-child(2) { animation-delay: 45ms; }
+.neya-stagger > *:nth-child(3) { animation-delay: 90ms; }
+.neya-stagger > *:nth-child(4) { animation-delay: 135ms; }
+.neya-stagger > *:nth-child(5) { animation-delay: 180ms; }
+.neya-stagger > *:nth-child(6) { animation-delay: 225ms; }
+.neya-stagger > *:nth-child(7) { animation-delay: 270ms; }
+.neya-stagger > *:nth-child(8) { animation-delay: 315ms; }
+.neya-stagger > *:nth-child(n+9) { animation-delay: 360ms; }
+
+.neya-lift {
+  transition:
+    transform var(--dur) var(--ease-out),
+    box-shadow var(--dur) var(--ease-out),
+    border-color var(--dur) var(--ease-out);
+}
+.neya-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lift);
+}
+
+.neya-ambient {
+  background-color: var(--background);
+  background-image: var(--ambient);
+  background-attachment: fixed;
+}
+
+.neya-segment {
+  @apply inline-flex items-center gap-0.5 p-1 bg-neya-surface border border-neya-border;
+  border-radius: 999px;
+}
+.neya-segment-btn {
+  @apply px-3 py-1.5 text-[12px] font-medium text-neya-muted;
+  border-radius: 999px;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.neya-segment-btn.is-active {
+  @apply bg-neya-ink text-white shadow-sm;
+}
+
+.cf-prod-bar {
+  @apply h-1.5 rounded-full bg-neya-surface overflow-hidden;
+}
+.cf-prod-bar-fill {
+  @apply h-full rounded-full bg-neya-orange origin-left;
+  transform-origin: left center;
+  animation: neya-bar-fill 0.7s var(--ease-out) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .neya-enter,
+  .neya-enter-fade,
+  .neya-stagger > *,
+  .cf-prod-bar-fill,
+  .mobile-menu-sheet,
+  .animate-mobile-sheet-in,
+  .animate-voice-card-in,
+  .mail-empty,
+  .mail-empty__orb,
+  .mail-reading.is-open {
+    animation: none !important;
+  }
+  .btn-primary:hover,
+  .btn-secondary:hover,
+  .btn-ink:hover,
+  .cf-kpi:hover,
+  a:hover .cf-kpi,
+  .neya-lift:hover,
+  .nav-item-idle:hover,
+  .mail-filter-chip:hover,
+  .mail-compose-new:hover {
+    transform: none !important;
+  }
+  html {
+    scroll-behavior: auto;
+  }
+}

@@ -112,11 +112,7 @@ function FilterChip({ label, active, dot, onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-medium transition-colors ${
-        active
-          ? 'border-neya-ink bg-neya-ink text-white'
-          : 'border-neya-border bg-white text-neya-ink-light hover:bg-neya-surface'
-      }`}
+      className={`cf-chip inline-flex items-center gap-1.5 ${active ? 'cf-chip-active' : ''}`}
     >
       {dot ? <span className={`h-1.5 w-1.5 rounded-full ${active ? 'bg-white' : dot}`} /> : null}
       {label}
@@ -362,18 +358,18 @@ function CraftCalendar() {
 
   return (
     <div className="space-y-4">
-      <p className="text-[12px] text-neya-muted">
+      <p className="text-[12px] text-neya-muted neya-enter">
         <strong className="text-neya-ink font-medium">Clic</strong> pour modifier une tâche ·{' '}
         <strong className="text-neya-ink font-medium">glisser-déposer</strong> pour la déplacer.
         Les quarts s’affichent ici ; pour les poser, onglet <strong className="text-neya-ink font-medium">Quarts</strong>.
       </p>
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="inline-flex items-center rounded-lg border border-neya-border bg-white p-0.5">
+      <div className="flex flex-wrap items-center gap-2 neya-enter" style={{ animationDelay: '45ms' }}>
+        <div className="neya-segment">
           <button
             type="button"
             onClick={() => setView(new Date(view.getFullYear(), view.getMonth() - 1, 1))}
-            className="grid h-8 w-8 place-items-center rounded-md text-neya-muted hover:bg-neya-surface hover:text-neya-ink"
+            className="neya-segment-btn !px-2"
             aria-label="Mois précédent"
           >
             <ChevronLeft className="h-4 w-4" />
@@ -381,14 +377,14 @@ function CraftCalendar() {
           <button
             type="button"
             onClick={() => { setView(new Date(today)); setSelected(todayIso); }}
-            className="h-8 rounded-md px-2.5 text-[12px] font-medium text-neya-ink hover:bg-neya-surface"
+            className="neya-segment-btn"
           >
             Aujourd&apos;hui
           </button>
           <button
             type="button"
             onClick={() => setView(new Date(view.getFullYear(), view.getMonth() + 1, 1))}
-            className="grid h-8 w-8 place-items-center rounded-md text-neya-muted hover:bg-neya-surface hover:text-neya-ink"
+            className="neya-segment-btn !px-2"
             aria-label="Mois suivant"
           >
             <ChevronRight className="h-4 w-4" />
@@ -413,12 +409,12 @@ function CraftCalendar() {
       </div>
 
       {err && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{err}</div>
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 neya-enter">{err}</div>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-4">
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-4 neya-enter" style={{ animationDelay: '90ms' }}>
         {/* Month grid */}
-        <div className="overflow-hidden rounded-2xl border border-neya-border bg-white shadow-sm">
+        <div className="overflow-hidden rounded-2xl border border-neya-border bg-white shadow-sm neya-lift">
           <div className="grid grid-cols-7 border-b border-neya-border bg-neya-surface/60">
             {DAYS_FR_SHORT.map(d => (
               <div key={d} className="px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wider text-neya-muted">
@@ -515,7 +511,7 @@ function CraftCalendar() {
         </div>
 
         {/* Day detail */}
-        <aside className="rounded-2xl border border-neya-border bg-white shadow-sm p-4 sm:p-5 flex flex-col min-h-[320px]">
+        <aside className="cf-panel flex flex-col min-h-[320px] neya-lift">
           <div className="mb-4">
             <h3 className="font-display text-[16px] font-semibold text-neya-ink">
               {formatDayLabel(selected)}
@@ -534,7 +530,7 @@ function CraftCalendar() {
           </button>
 
           {showAdd && (
-            <form onSubmit={createEvent} className="mb-4 space-y-2 rounded-xl border border-neya-border bg-neya-surface/40 p-3">
+            <form onSubmit={createEvent} className="mb-4 space-y-2 rounded-xl border border-neya-border bg-neya-surface/40 p-3 neya-enter">
               <input
                 className="input text-sm"
                 placeholder="Titre (ex. Livraison table…)"
@@ -559,7 +555,7 @@ function CraftCalendar() {
             </form>
           )}
 
-          <div className="flex-1 space-y-2.5 overflow-y-auto">
+          <div className="flex-1 space-y-2.5 overflow-y-auto neya-stagger">
             {selectedEvents.length === 0 && !loading && (
               <div className="rounded-xl border border-dashed border-neya-border px-4 py-8 text-center">
                 <p className="text-sm font-medium text-neya-ink">Journée libre</p>
@@ -585,7 +581,7 @@ function CraftCalendar() {
                     }
                     if (canEdit) openTask(e);
                   }}
-                  className={`w-full text-left rounded-xl border border-neya-border border-l-4 px-3 py-2.5 ${meta.bar} ${
+                  className={`neya-lift w-full text-left rounded-xl border border-neya-border border-l-4 px-3 py-2.5 ${meta.bar} ${
                     canEdit || e.category === 'quart' ? 'cursor-pointer hover:opacity-90' : 'cursor-default'
                   } ${canEdit ? 'cursor-grab active:cursor-grabbing' : ''}`}
                   title={canEdit ? 'Clic pour modifier · glisser vers un jour du calendrier' : (e.category === 'quart' ? 'Ouvrir le planning des quarts' : undefined)}
@@ -636,23 +632,19 @@ export default function CalendarPage() {
         subtitle="Mois = tâches + quarts. Onglet Quarts = glisser les horaires employés."
         wide
       >
-        <div className="flex flex-wrap items-center gap-2 mb-5">
-          <div className="inline-flex rounded-lg border border-neya-border bg-white p-0.5">
+        <div className="flex flex-wrap items-center gap-2 mb-5 neya-enter">
+          <div className="neya-segment">
             <button
               type="button"
               onClick={() => setMode('mois')}
-              className={`h-8 rounded-md px-3 text-[12.5px] font-medium ${
-                mode === 'mois' ? 'bg-neya-ink text-white' : 'text-neya-muted hover:text-neya-ink'
-              }`}
+              className={`neya-segment-btn ${mode === 'mois' ? 'is-active' : ''}`}
             >
               Mois
             </button>
             <button
               type="button"
               onClick={() => setMode('equipe')}
-              className={`h-8 rounded-md px-3 text-[12.5px] font-medium ${
-                mode === 'equipe' ? 'bg-neya-ink text-white' : 'text-neya-muted hover:text-neya-ink'
-              }`}
+              className={`neya-segment-btn ${mode === 'equipe' ? 'is-active' : ''}`}
             >
               Quarts
             </button>

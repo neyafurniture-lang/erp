@@ -45,22 +45,30 @@ export default function ProjectDetailPage() {
   } : null);
 
   if (!project) {
-    return <AuthGuard><AppShell title="Projet"><div className="text-neya-muted py-12">Chargement…</div></AppShell></AuthGuard>;
+    return (
+      <AuthGuard>
+        <AppShell title="Projet">
+          <div className="text-neya-muted py-12 neya-enter-fade">Chargement…</div>
+        </AppShell>
+      </AuthGuard>
+    );
   }
 
   return (
     <AuthGuard>
       <AppShell title={project.name} subtitle={project.client_name || 'Workspace projet'}>
-        <Suspense fallback={<div className="text-neya-muted py-8">Chargement…</div>}>
-          <ProjectWorkspace
-            project={project}
-            costs={costs}
-            materials={materials}
-            quoteSource={quoteSource}
-            purchases={purchases}
-            onReload={load}
-          />
-        </Suspense>
+        <div className="neya-enter">
+          <Suspense fallback={<div className="text-neya-muted py-8">Chargement…</div>}>
+            <ProjectWorkspace
+              project={project}
+              costs={costs}
+              materials={materials}
+              quoteSource={quoteSource}
+              purchases={purchases}
+              onReload={load}
+            />
+          </Suspense>
+        </div>
       </AppShell>
     </AuthGuard>
   );
