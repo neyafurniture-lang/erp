@@ -39,4 +39,20 @@ describe('drive-preview tableurs', () => {
     assert.deepEqual(rows[1], ['H2013, special', '20']);
     assert.deepEqual(rows[2], ['H3726', '10']);
   });
+
+  it('prévisualise GLB / GLTF et marque SketchUp comme CAD', () => {
+    assert.equal(
+      getPreviewMode({ id: '1', name: 'atelier.glb', mimeType: 'model/gltf-binary' }),
+      'model3d'
+    );
+    assert.equal(
+      getPreviewMode({ id: '2', name: 'assemblage.gltf', mimeType: 'application/octet-stream' }),
+      'model3d'
+    );
+    assert.equal(
+      getPreviewMode({ id: '3', name: 'atelier.skp', mimeType: 'application/octet-stream' }),
+      'cad3d'
+    );
+    assert.equal(canPreview({ id: '1', name: 'a.glb', mimeType: 'model/gltf-binary' }), true);
+  });
 });

@@ -47,6 +47,26 @@ export function isSpreadsheetMime(mime = '', name = '') {
   );
 }
 
+/** GLB / GLTF — visualisable dans le navigateur (model-viewer). */
+export function isModel3dFile(file) {
+  if (!file || file.isFolder) return false;
+  const mime = String(file.mimeType || '').toLowerCase();
+  const name = String(file.name || '').toLowerCase();
+  if (mime === 'model/gltf-binary' || mime === 'model/gltf+json') return true;
+  if (mime.includes('gltf') || mime.includes('glb')) return true;
+  return /\.(glb|gltf)$/i.test(name);
+}
+
+/** SketchUp / CAD — pas de viewer web natif ; ouvrir Drive ou exporter GLB. */
+export function isCad3dFile(file) {
+  if (!file || file.isFolder) return false;
+  const name = String(file.name || '').toLowerCase();
+  const mime = String(file.mimeType || '').toLowerCase();
+  if (/\.(skp|obj|stl|fbx|3ds|step|stp|iges|igs)$/i.test(name)) return true;
+  if (mime.includes('sketchup') || mime.includes('x-sketchup')) return true;
+  return false;
+}
+
 export function getPreviewMode(file) {
   if (!file || file.isFolder) return null;
   const mime = file.mimeType || '';
@@ -58,6 +78,8 @@ export function getPreviewMode(file) {
   if (mime === 'application/pdf') return 'pdf';
   if (mime.startsWith('video/')) return 'video';
   if (mime.startsWith('audio/')) return 'audio';
+  if (isModel3dFile(file)) return 'model3d';
+  if (isCad3dFile(file)) return 'cad3d';
   if (mime.startsWith('text/') || mime === 'application/json' || mime === 'application/xml') return 'text';
   return null;
 }
