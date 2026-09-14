@@ -30,7 +30,8 @@ async function resolveFinancePin() {
     || ''
   ).trim();
   if (fromEnv) return fromEnv;
-  // Défaut historique — à changer en prod via Paramètres / env
+  // Prod : pas de PIN public par défaut. Dev/local : legacy 31250 pour bootstrap.
+  if (process.env.NODE_ENV === 'production') return null;
   return '31250';
 }
 
@@ -38,6 +39,11 @@ router.post('/unlock', requireFinanceData, unlockLimiter, async (req, res) => {
   try {
     const code = String(req.body?.code ?? '').trim();
     const expected = await resolveFinancePin();
+    if (!expected) {
+      return res.status(503).json({
+        error: 'Code Finance non configuré — définissez-le dans Paramètres ou FINANCE_SESSION_PIN',
+      });
+    }
     if (!code || code !== expected) {
       // 403 (pas 401) : sinon le client api() déconnecte toute la session ERP
       return res.status(403).json({ error: 'Code incorrect' });

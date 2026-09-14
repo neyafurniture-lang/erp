@@ -34,15 +34,10 @@ Fichiers clés : `backend/src/routes/analytics.js`, `middleware/finance-unlock.j
 - N’importe quel JWT pouvait démarrer OAuth ou `POST /integrations/google/disconnect` et remplacer/supprimer le token entreprise.
 - **Fichier** : `backend/src/routes/integrations.js` (`authorize` / `disconnect`).
 
-### 5. Élevé — PIN Finance / bootstrap encore `31250` par défaut
-- **Sévérité** : élevée (connaissance publique dans le repo / UI).
-- **Lignes** :
-  - `backend/src/routes/analytics.js:34` (fallback resolve PIN)
-  - `backend/src/services/settings.js:46` (`DEFAULTS.project_admin_pin`)
-  - `backend/src/services/settings.js:123` (`project_admin_pin_configured` toujours vrai à cause de `|| '31250'`)
-  - `frontend/app/login/page.js:41` (préremplissage setup)
-  - `backend/src/db/init.js` (seed Mehdi / admin faibles en non-prod)
-- **Reco** : forcer un PIN fort en production (fail-closed si défaut), retirer le défaut des DEFAULTS, corriger le booléen `configured`.
+### 5. Élevé → **partiellement patché** — PIN Finance / bootstrap `31250`
+- **Avant** : défaut toujours actif + `project_admin_pin_configured` toujours vrai (`|| '31250'`).
+- **Désormais** : `DEFAULTS.project_admin_pin` vide ; booléen `configured` honnête ; en **production** unlock refuse si aucun PIN settings/env (503). Dev garde `31250` pour bootstrap local.
+- **Reste** : seed Mehdi / login setup peuvent encore préremplir `31250` en non-prod (`db/init.js`, `login/page.js`).
 
 ### 6. Élevé — permissions métier surtout côté UI
 - **Sévérité** : élevée.
