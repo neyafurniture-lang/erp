@@ -8,15 +8,15 @@ export const metadata = {
   manifest: '/site.webmanifest',
   icons: {
     icon: [
-      { url: '/favicon.ico', sizes: 'any' },
-      { url: '/brand/favicon-16.png', sizes: '16x16', type: 'image/png' },
-      { url: '/brand/favicon-32.png', sizes: '32x32', type: 'image/png' },
-      { url: '/brand/icon-192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/favicon.ico?v=2', sizes: 'any' },
+      { url: '/brand/favicon-16.png?v=2', sizes: '16x16', type: 'image/png' },
+      { url: '/brand/favicon-32.png?v=2', sizes: '32x32', type: 'image/png' },
+      { url: '/brand/icon-192.png?v=2', sizes: '192x192', type: 'image/png' },
     ],
     apple: [
-      { url: '/brand/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
+      { url: '/brand/apple-touch-icon.png?v=2', sizes: '180x180', type: 'image/png' },
     ],
-    shortcut: ['/brand/apple-touch-icon.png'],
+    shortcut: ['/brand/apple-touch-icon.png?v=2'],
   },
   appleWebApp: {
     capable: true,
