@@ -55,6 +55,7 @@ const MENU_GROUPS = [
       { href: '/inventory', label: 'Stock', permission: 'inventory' },
       { href: '/liste-courses', label: 'Liste de courses', permission: 'purchases' },
       { href: '/purchases', label: 'Achats atelier', permission: 'purchases' },
+      { href: '/atelier-zotique', label: 'Atelier Zotique', permission: 'purchases' },
       { href: '/marketplace', label: 'Ventes marketplace', permission: 'marketplace' },
       { href: '/social', label: 'Réseaux sociaux', permission: 'social' },
     ],
