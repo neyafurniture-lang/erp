@@ -525,7 +525,7 @@ export default function CuttingStudio() {
         </aside>
 
         {/* Canvas */}
-        <main className={`cut-studio__canvas ${mobilePane === 'canvas' ? 'is-open' : ''}`}>
+        <main className={`cut-studio__canvas neya-enter ${mobilePane === 'canvas' ? 'is-open' : ''}`} style={{ animationDelay: '90ms' }}>
           {mode === '1d' ? (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
