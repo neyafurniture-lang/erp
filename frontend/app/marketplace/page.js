@@ -142,20 +142,20 @@ export default function MarketplacePage() {
         wide
       >
         {err && (
-          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{err}</div>
+          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 neya-enter">{err}</div>
         )}
         {ok && (
-          <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">{ok}</div>
+          <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 neya-enter">{ok}</div>
         )}
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6 neya-stagger">
           {[
             { label: 'Ventes', value: String(totals.count || 0) },
             { label: 'Brut', value: formatMoney(totals.gross || 0) },
             { label: 'Frais', value: formatMoney(totals.fees || 0) },
             { label: 'Net', value: formatMoney(totals.net || 0) },
           ].map(card => (
-            <div key={card.label} className="rounded-2xl border border-neya-border bg-white px-4 py-3 shadow-sm">
+            <div key={card.label} className="card rounded-2xl px-4 py-3 neya-lift">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-neya-muted">{card.label}</p>
               <p className="mt-1 font-display text-xl font-semibold tabular-nums text-neya-ink">{card.value}</p>
             </div>
@@ -163,11 +163,11 @@ export default function MarketplacePage() {
         </div>
 
         {(summary?.by_channel || []).length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-5">
+          <div className="flex flex-wrap gap-2 mb-5 neya-enter" style={{ animationDelay: '60ms' }}>
             <button
               type="button"
               onClick={() => setFilter('all')}
-              className={`cf-chip ${filter === 'all' ? 'bg-neya-ink text-white border-neya-ink' : ''}`}
+              className={`cf-chip ${filter === 'all' ? 'cf-chip-active' : ''}`}
             >
               Tous
             </button>
@@ -176,7 +176,7 @@ export default function MarketplacePage() {
                 key={c.channel}
                 type="button"
                 onClick={() => setFilter(c.channel)}
-                className={`cf-chip ${filter === c.channel ? 'bg-neya-ink text-white border-neya-ink' : ''}`}
+                className={`cf-chip ${filter === c.channel ? 'cf-chip-active' : ''}`}
               >
                 {CHANNEL_LABEL[c.channel] || c.channel}
                 <span className="ml-1 opacity-70 tabular-nums">{c.count}</span>
@@ -185,7 +185,7 @@ export default function MarketplacePage() {
           </div>
         )}
 
-        <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
+        <div className="flex flex-wrap justify-between items-center gap-3 mb-4 neya-enter" style={{ animationDelay: '90ms' }}>
           <div className="flex flex-wrap items-center gap-3">
             <label className="text-xs text-neya-muted flex items-center gap-2">
               Année
@@ -236,7 +236,7 @@ export default function MarketplacePage() {
         </div>
 
         {showForm && (
-          <form onSubmit={create} className="card rounded-2xl mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <form onSubmit={create} className="card rounded-2xl mb-6 grid grid-cols-1 md:grid-cols-2 gap-4 neya-enter neya-lift">
             <div className="md:col-span-2 flex flex-wrap gap-2">
               {PRODUCT_PRESETS.map(p => (
                 <button
@@ -368,7 +368,7 @@ export default function MarketplacePage() {
           </form>
         )}
 
-        <div className="cf-table-wrap overflow-x-auto">
+        <div className="cf-table-wrap overflow-x-auto neya-enter" style={{ animationDelay: '120ms' }}>
           <table className="w-full text-sm">
             <thead>
               <tr>

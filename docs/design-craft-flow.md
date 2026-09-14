@@ -15,8 +15,11 @@ Référence visuelle officielle pour **toute** l’app ERP.
 | Calendrier | Fait (grille mois Craft Flow + vue équipe) |
 | Clients | Fait (table Craft Flow : projets, total, statut, dernier contact) |
 | Projets / Production | Fait |
-| Factures / Dépenses / Stock / Achats | Fait |
-| Settings / Admin / Sauna / Web / Drive / Roadmap / Manuel | Fait |
+| Factures / Dépenses / Stock / Achats | Fait + motion ARGENT |
+| Finance / Paie | Fait (PIN gate préservé + KPI lift) |
+| Standards / Web / Marketplace / Social | Fait + motion COMMERCIAL |
+| Marchés | Grille Müller-Brockmann intacte + fade entrée |
+| Settings / Admin / Sauna / Drive / Roadmap / Manuel | Fait |
 | Courriel | Fait (parity Lovable : flush 3–4 col, chips, preview, compose card ; APIs Gmail inchangées) |
 | Plans de coupe | Shell aligné |
 

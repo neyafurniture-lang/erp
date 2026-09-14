@@ -34,7 +34,7 @@ function formatDateOnly(value) {
 
 function Kpi({ label, value, hint }) {
   return (
-    <div className="rounded-2xl border border-neya-border bg-white px-4 py-3 shadow-sm">
+    <div className="card rounded-2xl px-4 py-3 neya-lift">
       <p className="text-[11px] font-semibold uppercase tracking-wider text-neya-muted">{label}</p>
       <p className="mt-1 font-display text-2xl font-semibold tabular-nums text-neya-ink">{value}</p>
       {hint ? <p className="mt-0.5 text-[11px] text-neya-muted">{hint}</p> : null}
@@ -183,13 +183,13 @@ export default function PaiePage() {
         wide
       >
         {err && (
-          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{err}</div>
+          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 neya-enter">{err}</div>
         )}
         {msg && (
-          <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">{msg}</div>
+          <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 neya-enter">{msg}</div>
         )}
 
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-5 neya-enter">
           <div className="flex items-center gap-2">
             <button type="button" className="btn-secondary min-h-[36px] px-2" onClick={() => navigate(-1)} disabled={!!busy}>
               <ChevronLeft className="h-4 w-4" />
@@ -242,14 +242,14 @@ export default function PaiePage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6 neya-stagger">
           <Kpi label="Heures travaillées" value={loading ? '…' : `${totals?.hours_worked ?? 0} h`} hint={`Planifié : ${totals?.hours_scheduled ?? 0} h`} />
           <Kpi label="Brut" value={loading ? '…' : formatMoney(totals?.gross || 0)} />
           <Kpi label="Déductions + avances" value={loading ? '…' : formatMoney((totals?.deductions || 0) + (totals?.advances || 0))} />
           <Kpi label="Net à verser" value={loading ? '…' : formatMoney(totals?.net || 0)} hint="Somme des nets employés" />
         </div>
 
-        <div className="grid lg:grid-cols-3 gap-5">
+        <div className="grid lg:grid-cols-3 gap-5 neya-enter" style={{ animationDelay: '120ms' }}>
           <section className="lg:col-span-2 space-y-3">
             <h2 className="font-display text-base font-semibold text-neya-ink">Détail par employé</h2>
             {loading ? (
@@ -259,9 +259,9 @@ export default function PaiePage() {
                 Aucun employé actif. Ajoutez Olive / Mehdi dans Équipe.
               </p>
             ) : (
-              <ul className="space-y-2">
+              <ul className="space-y-2 neya-stagger">
                 {data.lines.map(line => (
-                  <li key={line.employee_id} className="rounded-2xl border border-neya-border bg-white px-4 py-3">
+                  <li key={line.employee_id} className="card rounded-2xl px-4 py-3 neya-lift">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
@@ -337,7 +337,7 @@ export default function PaiePage() {
             )}
           </section>
 
-          <section className="space-y-3">
+          <section className="cf-panel neya-lift space-y-3">
             <div className="flex items-center justify-between gap-2">
               <h2 className="font-display text-base font-semibold text-neya-ink inline-flex items-center gap-1.5">
                 <ListChecks className="h-4 w-4 text-neya-orange" />
@@ -356,7 +356,7 @@ export default function PaiePage() {
             <ul className="space-y-1.5">
               {(data?.todos || []).map(todo => (
                 <li key={todo.id}>
-                  <label className="flex items-start gap-2.5 rounded-xl border border-neya-border bg-white px-3 py-2.5 cursor-pointer hover:border-neya-orange/40">
+                  <label className="flex items-start gap-2.5 rounded-xl border border-neya-border bg-white px-3 py-2.5 cursor-pointer hover:border-neya-orange/40 neya-lift">
                     <input
                       type="checkbox"
                       className="mt-0.5"

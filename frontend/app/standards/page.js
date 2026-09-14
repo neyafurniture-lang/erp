@@ -20,7 +20,7 @@ function ProductCard({ standard }) {
   return (
     <Link
       href={`/standards/${standard.id}`}
-      className="block rounded-2xl border border-neya-border bg-white shadow-sm hover:shadow-md transition-all group cursor-pointer overflow-hidden"
+      className="card block rounded-2xl group cursor-pointer overflow-hidden neya-lift"
     >
       {image && (
         <div className="relative h-36 bg-neya-surface border-b border-neya-border">
@@ -68,7 +68,7 @@ function GuideCard({ standard }) {
   return (
     <Link
       href={`/standards/${standard.id}`}
-      className="block rounded-2xl border border-neya-orange/30 bg-neya-cream/40 p-4 shadow-sm hover:border-neya-orange hover:shadow-md transition-all group"
+      className="card block rounded-2xl p-4 border-neya-orange/30 bg-neya-cream/40 group neya-lift"
     >
       <div className="flex items-center justify-between">
         <h3 className="font-display font-semibold text-base text-neya-ink group-hover:text-neya-orange transition-colors">
@@ -124,7 +124,7 @@ export default function StandardsPage() {
   return (
     <AuthGuard>
       <AppShell title="Standards de fabrication" subtitle="Catalogue atelier — fiches produit et guides">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6 neya-enter">
           <p className="text-neya-muted text-sm">
             Cliquez sur une fiche pour voir le détail complet — catalogue atelier v1.1
           </p>
@@ -138,19 +138,19 @@ export default function StandardsPage() {
           </button>
         </div>
         {syncMsg && (
-          <p className={`text-sm mb-4 px-3 py-2 rounded-lg ${syncMsg.includes('échou') || syncMsg.includes('manquant') ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-800'}`}>
+          <p className={`text-sm mb-4 px-3 py-2 rounded-lg neya-enter ${syncMsg.includes('échou') || syncMsg.includes('manquant') ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-800'}`}>
             {syncMsg}
           </p>
         )}
 
         {guides.length > 0 && (
-          <section className="mb-10">
+          <section className="mb-10 neya-enter" style={{ animationDelay: '60ms' }}>
             <h2 className="font-display font-semibold text-base text-neya-ink mb-3">Guides atelier</h2>
-            <div className="grid gap-3">{guides.map(s => <GuideCard key={s.id} standard={s} />)}</div>
+            <div className="grid gap-3 neya-stagger">{guides.map(s => <GuideCard key={s.id} standard={s} />)}</div>
           </section>
         )}
 
-        <section>
+        <section className="neya-enter" style={{ animationDelay: '90ms' }}>
           <h2 className="font-display font-semibold text-base text-neya-ink mb-3">
             Fiches produit ({products.length})
           </h2>
@@ -159,7 +159,7 @@ export default function StandardsPage() {
               Aucune fiche — lancez <code className="bg-neya-cream px-1 rounded">npm run db:seed-standards</code>
             </p>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 neya-stagger">
               {products.map(s => <ProductCard key={s.id} standard={s} />)}
             </div>
           )}

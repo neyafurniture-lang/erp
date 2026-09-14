@@ -215,13 +215,13 @@ function InvoicesPageInner() {
         subtitle={`${quotes.length} devis · ${invoices.length} factures`}
       >
         {toast && (
-          <div className="fixed top-4 right-4 z-50 bg-neya-ink text-white px-4 py-2 rounded-lg shadow-lg text-sm">
+          <div className="fixed top-4 right-4 z-50 bg-neya-ink text-white px-4 py-2 rounded-lg shadow-lg text-sm neya-enter">
             {toast}
           </div>
         )}
 
         {/* Workflow guide */}
-        <div className="card rounded-none mb-6 bg-neya-cream/50 border-neya-orange/30">
+        <div className="card rounded-none mb-6 bg-neya-cream/50 border-neya-orange/30 neya-enter">
           <p className="text-sm text-neya-muted">
             <span className="font-medium text-neya-orange">1. Devis</span> → créer et envoyer au client
             <span className="mx-2">→</span>
@@ -231,7 +231,7 @@ function InvoicesPageInner() {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 mb-6">
+        <div className="flex flex-wrap items-center gap-3 mb-6 neya-enter" style={{ animationDelay: '60ms' }}>
           <div className="flex items-center gap-1.5 overflow-x-auto">
             <button
               type="button"
@@ -260,7 +260,7 @@ function InvoicesPageInner() {
         </div>
 
         {showForm && (
-          <form onSubmit={createDoc} className="card rounded-none mb-6 space-y-4">
+          <form onSubmit={createDoc} className="card rounded-none mb-6 space-y-4 neya-enter neya-lift">
             <h3 className="font-display font-semibold text-lg">{tab === 'quotes' ? 'Nouveau devis' : 'Nouvelle facture'}</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -320,7 +320,7 @@ function InvoicesPageInner() {
           </form>
         )}
 
-        <div className="cf-table-wrap overflow-x-auto">
+        <div className="cf-table-wrap overflow-x-auto neya-enter" style={{ animationDelay: '120ms' }}>
           <table className="w-full text-sm">
             <thead>
               <tr>
