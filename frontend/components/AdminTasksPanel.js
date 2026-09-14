@@ -42,13 +42,13 @@ function TaskItem({ task, onUpdate, onDelete }) {
   }
 
   return (
-    <li className="flex items-start gap-2 py-1.5 border-b border-neya-border/40 last:border-0">
+    <li className="neya-lift flex items-start gap-2.5 rounded-xl border border-neya-border/70 bg-neya-surface/30 px-2.5 py-2 mb-1.5 last:mb-0">
       <button
         type="button"
         onClick={cycleStatus}
-        className={`shrink-0 w-6 h-6 rounded border text-[10px] font-bold ${
+        className={`shrink-0 w-6 h-6 rounded-lg border text-[10px] font-bold transition-colors ${
           task.status === 'done'
-            ? 'bg-green-500 border-green-500 text-white'
+            ? 'bg-emerald-500 border-emerald-500 text-white'
             : task.status === 'doing'
               ? 'bg-neya-warning border-neya-warning text-white'
               : 'border-neya-border hover:border-neya-orange bg-white'
@@ -61,33 +61,33 @@ function TaskItem({ task, onUpdate, onDelete }) {
         {task.link_href ? (
           <Link
             href={task.link_href}
-            className={`text-xs font-medium leading-snug hover:text-neya-orange ${task.status === 'done' ? 'line-through opacity-50' : ''}`}
+            className={`text-[13px] font-medium leading-snug hover:text-neya-orange ${task.status === 'done' ? 'line-through opacity-50' : ''}`}
           >
             {task.title}
           </Link>
         ) : (
-          <p className={`text-xs font-medium leading-snug ${task.status === 'done' ? 'line-through opacity-50' : ''}`}>
+          <p className={`text-[13px] font-medium leading-snug ${task.status === 'done' ? 'line-through opacity-50' : ''}`}>
             {task.title}
           </p>
         )}
-        <div className="flex flex-wrap items-center gap-1 mt-0.5">
-          <span className={`text-[9px] px-1 py-0 rounded ${cat.color}`}>{cat.label}</span>
+        <div className="flex flex-wrap items-center gap-1.5 mt-1">
+          <span className={`cf-chip !px-2 !py-0.5 !text-[10px] ${cat.color}`}>{cat.label}</span>
           {task.due_date && (
-            <span className={`text-[9px] ${overdue ? 'text-red-600' : 'text-neya-muted'}`}>
+            <span className={`text-[10px] ${overdue ? 'text-red-600 font-medium' : 'text-neya-muted'}`}>
               {formatDate(task.due_date)}
             </span>
           )}
           {task.notes && (
-            <span className="text-[9px] text-neya-muted truncate max-w-[140px]" title={task.notes}>
+            <span className="text-[10px] text-neya-muted truncate max-w-[160px]" title={task.notes}>
               · {task.notes.split('\n')[0]}
             </span>
           )}
         </div>
       </div>
       {task.link_href && (
-        <Link href={task.link_href} className="text-[10px] text-neya-orange shrink-0" aria-label="Ouvrir">→</Link>
+        <Link href={task.link_href} className="text-[11px] text-neya-orange shrink-0 font-medium" aria-label="Ouvrir">→</Link>
       )}
-      <button type="button" onClick={remove} className="text-neya-muted hover:text-red-600 text-[10px] shrink-0">✕</button>
+      <button type="button" onClick={remove} className="btn-ghost !px-1.5 !py-0.5 text-neya-muted hover:text-red-600 text-[11px] shrink-0">✕</button>
     </li>
   );
 }
@@ -224,13 +224,13 @@ export default function AdminTasksPanel() {
   }
 
   return (
-    <div className="max-w-lg mx-auto space-y-3">
-      <div className="flex items-center justify-between gap-2">
+    <div className="max-w-lg mx-auto space-y-4">
+      <div className="flex items-center justify-between gap-2 neya-enter">
         <div>
-          <p className="text-sm font-medium text-neya-ink">Notes admin</p>
+          <p className="font-display text-[15px] font-semibold text-neya-ink">Notes admin</p>
           {summary && (
-            <p className="text-[10px] text-neya-muted">
-              {openTasks.length} ouvertes
+            <p className="text-[11px] text-neya-muted mt-0.5">
+              {openTasks.length} ouverte{openTasks.length > 1 ? 's' : ''}
               {summary.overdue > 0 && (
                 <span className="text-red-600"> · {summary.overdue} en retard</span>
               )}
@@ -242,7 +242,7 @@ export default function AdminTasksPanel() {
             type="button"
             onClick={scanMailInvoices}
             disabled={scanning}
-            className="text-[11px] border border-neya-border rounded-lg px-2.5 py-1 hover:border-neya-orange disabled:opacity-50"
+            className="btn-secondary text-[11px] !min-h-[32px] !px-2.5 !py-1 disabled:opacity-50"
             title="Scanner Gmail + factures ERP"
           >
             {scanning ? 'Scan…' : 'Scanner factures'}
@@ -250,7 +250,7 @@ export default function AdminTasksPanel() {
           <button
             type="button"
             onClick={() => setShowAdd(v => !v)}
-            className="text-[11px] border border-neya-border rounded-lg px-2.5 py-1 hover:border-neya-orange"
+            className="btn-primary text-[11px] !min-h-[32px] !px-2.5 !py-1"
           >
             {showAdd ? 'Annuler' : '+ Note'}
           </button>
@@ -258,13 +258,13 @@ export default function AdminTasksPanel() {
       </div>
 
       {(scanInfo || scanErr) && (
-        <p className={`text-[11px] px-2 py-1.5 rounded-lg ${scanErr ? 'bg-red-50 text-red-700' : 'bg-neya-cream/50 text-neya-muted'}`}>
+        <p className={`text-[11px] px-3 py-2 rounded-xl border neya-enter ${scanErr ? 'border-red-200 bg-red-50 text-red-700' : 'border-neya-border bg-neya-orange-soft/40 text-neya-ink'}`}>
           {scanErr || scanInfo}
         </p>
       )}
 
       {showAdd && (
-        <form onSubmit={addTask} className="border border-neya-border rounded-xl p-2.5 space-y-2 bg-neya-cream/30">
+        <form onSubmit={addTask} className="card rounded-2xl p-3 space-y-2 neya-enter">
           <input
             className="input text-sm h-9"
             placeholder="Titre… ex. À payer — facture Olive"
@@ -295,7 +295,7 @@ export default function AdminTasksPanel() {
         </form>
       )}
 
-      <div className="flex gap-1">
+      <div className="flex flex-wrap gap-1.5 neya-enter" style={{ animationDelay: '45ms' }}>
         {[
           { id: 'open', label: 'À faire' },
           { id: 'done', label: 'Fait' },
@@ -307,28 +307,27 @@ export default function AdminTasksPanel() {
             key={f.id}
             type="button"
             onClick={() => setFilter(f.id)}
-            className={`text-[10px] px-2 py-1 rounded-md border ${
-              filter === f.id ? 'bg-neya-orange text-white border-neya-orange' : 'border-neya-border text-neya-muted'
-            }`}
+            className={`cf-chip ${filter === f.id ? 'cf-chip-active' : ''}`}
           >
             {f.label}
           </button>
         ))}
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-3 neya-stagger">
         {sections.length === 0 ? (
-          <div className="border border-neya-border rounded-xl px-2.5 py-4 bg-white">
-            <p className="text-[11px] text-neya-muted text-center">Rien ici — lancez « Scanner factures »</p>
+          <div className="rounded-xl border border-dashed border-neya-border bg-neya-surface/40 px-4 py-8 text-center">
+            <p className="text-sm font-medium text-neya-ink">Rien ici</p>
+            <p className="text-[12px] text-neya-muted mt-1">Lancez « Scanner factures » ou ajoutez une note.</p>
           </div>
         ) : (
           sections.map(sec => (
-              <div key={sec.key} className="border border-neya-border rounded-xl bg-white overflow-hidden">
-                <div className="px-2.5 py-1.5 border-b border-neya-border/50 flex items-center gap-2 bg-neya-cream/20">
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${sec.meta.color}`}>{sec.meta.label}</span>
-                  <span className="text-[10px] text-neya-muted">{sec.tasks.length}</span>
+              <div key={sec.key} className="card !p-0 overflow-hidden neya-lift">
+                <div className="px-3 py-2 border-b border-neya-border/60 flex items-center gap-2 bg-neya-surface/50">
+                  <span className={`cf-chip !px-2 !py-0.5 !text-[10px] ${sec.meta.color}`}>{sec.meta.label}</span>
+                  <span className="text-[11px] text-neya-muted tabular-nums">{sec.tasks.length}</span>
                 </div>
-                <ul className="px-2.5 py-1">
+                <ul className="px-2.5 py-2">
                   {sec.tasks.map(t => (
                     <TaskItem key={t.id} task={t} onUpdate={updateTask} onDelete={removeTask} />
                   ))}

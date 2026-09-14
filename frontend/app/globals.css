@@ -660,16 +660,28 @@ h1, h2, h3, h4, h5, h6 {
     @apply flex items-center gap-1.5 overflow-x-auto pb-0.5 mt-3;
   }
   .mail-filter-chip {
-    @apply shrink-0 rounded-full border px-3 py-1 text-[11.5px] font-medium transition-colors;
+    @apply shrink-0 rounded-full border px-3 py-1 text-[11.5px] font-medium;
     border-color: var(--border, #e6e4e2);
     background: #fff;
     color: var(--ink-light, #5c5752);
+    transition:
+      background-color var(--dur-fast, 0.15s) var(--ease-out, ease),
+      border-color var(--dur-fast, 0.15s) var(--ease-out, ease),
+      color var(--dur-fast, 0.15s) var(--ease-out, ease),
+      transform var(--dur-fast, 0.15s) var(--ease-out, ease),
+      box-shadow var(--dur-fast, 0.15s) var(--ease-out, ease);
   }
   .mail-filter-chip:hover {
     background: var(--surface, #f7f5f2);
+    transform: translateY(-1px);
   }
   .mail-filter-chip--active {
     border-color: #0d0b09;
+    background: #0d0b09;
+    color: #fff;
+    box-shadow: 0 4px 12px -6px rgb(13 11 9 / 0.45);
+  }
+  .mail-filter-chip--active:hover {
     background: #0d0b09;
     color: #fff;
   }
@@ -687,9 +699,15 @@ h1, h2, h3, h4, h5, h6 {
     @apply flex h-10 w-full items-center justify-center gap-2 rounded-lg text-[13px] font-semibold text-white;
     background: #D86B30;
     box-shadow: 0 4px 14px -4px rgba(216, 107, 48, 0.55);
+    transition: background var(--dur-fast, 0.15s) ease, transform var(--dur-fast, 0.15s) ease, box-shadow var(--dur, 0.22s) ease;
   }
   .mail-compose-new:hover {
     background: #c45f2a;
+    transform: translateY(-1px);
+    box-shadow: 0 8px 20px -8px rgba(216, 107, 48, 0.6);
+  }
+  .mail-compose-new:active {
+    transform: translateY(0) scale(0.985);
   }
 
   .mail-folder {
@@ -721,6 +739,7 @@ h1, h2, h3, h4, h5, h6 {
     background: rgba(250, 249, 247, 0.92);
     backdrop-filter: blur(8px);
     border-bottom: 1px solid rgba(10, 10, 10, 0.05);
+    letter-spacing: 0.1em;
   }
 
   .mail-list {
@@ -763,12 +782,12 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .mail-row:hover {
-    background: rgba(10, 10, 10, 0.025);
+    background: rgba(216, 107, 48, 0.04);
   }
 
   .mail-row-active {
     background: #ffeee3;
-    box-shadow: none;
+    box-shadow: inset 3px 0 0 #D86B30;
   }
 
   .mail-row-body {
@@ -1124,6 +1143,7 @@ h1, h2, h3, h4, h5, h6 {
 
   .mail-empty {
     @apply flex-1 flex flex-col items-center justify-center text-center px-8 py-16;
+    animation: neya-enter-fade var(--dur-slow, 0.35s) var(--ease-out, ease) both;
   }
   .mail-empty__orb {
     width: 72px;
@@ -1142,6 +1162,7 @@ h1, h2, h3, h4, h5, h6 {
   }
   .mail-empty__title {
     @apply text-lg font-semibold text-neya-ink tracking-tight mb-1.5;
+    font-family: var(--font-display, inherit);
   }
   .mail-empty__text {
     @apply text-sm text-neya-muted max-w-xs leading-relaxed;
@@ -2330,7 +2351,10 @@ a:hover .cf-kpi,
   .cf-prod-bar-fill,
   .mobile-menu-sheet,
   .animate-mobile-sheet-in,
-  .animate-voice-card-in {
+  .animate-voice-card-in,
+  .mail-empty,
+  .mail-empty__orb,
+  .mail-reading.is-open {
     animation: none !important;
   }
   .btn-primary:hover,
@@ -2339,7 +2363,9 @@ a:hover .cf-kpi,
   .cf-kpi:hover,
   a:hover .cf-kpi,
   .neya-lift:hover,
-  .nav-item-idle:hover {
+  .nav-item-idle:hover,
+  .mail-filter-chip:hover,
+  .mail-compose-new:hover {
     transform: none !important;
   }
   html {

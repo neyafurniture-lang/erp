@@ -102,8 +102,8 @@ function AssignModal({ item, projects, onClose, onDone }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <button type="button" aria-label="Fermer" className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative bg-white w-full sm:max-w-lg rounded sm:rounded border border-neya-border p-5">
-        <h3 className="font-heading text-lg mb-1">Où va cette facture ?</h3>
+      <div className="relative bg-white w-full sm:max-w-lg rounded-2xl border border-neya-border p-5 shadow-lg neya-enter">
+        <h3 className="font-display text-lg font-semibold mb-1">Où va cette facture ?</h3>
         <p className="text-sm text-neya-muted mb-4">
           <span className="font-medium text-neya-ink">{item.supplier_label}</span>
           {' — '}{item.subject}
@@ -266,7 +266,7 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
     return (
       <>
         <div className="mail-supplier-strip px-3 pt-3 lg:px-4">
-          <div className="border border-neya-border bg-neya-surface/40 mb-0">
+          <div className="rounded-xl border border-neya-border bg-neya-surface/40 mb-0 overflow-hidden">
             <div className="flex items-center gap-2 px-3 py-1.5">
               <button
                 type="button"
@@ -281,10 +281,10 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
                     : 'Factures fournisseurs'}
                 </span>
                 {pending.length > 0 && !expanded && (
-                  <span className="text-[10px] text-neya-muted shrink-0">Cliquer pour ouvrir</span>
+                  <span className="cf-chip !px-2 !py-0.5 !text-[10px] shrink-0">Ouvrir</span>
                 )}
               </button>
-              <button type="button" onClick={scan} disabled={scanning} className="text-[11px] text-neya-muted hover:text-neya-ink shrink-0 px-1">
+              <button type="button" onClick={scan} disabled={scanning} className="btn-ghost text-[11px] shrink-0 !px-2 !py-1">
                 {scanning ? '…' : 'Scanner'}
               </button>
             </div>
@@ -308,7 +308,7 @@ export default function SupplierInvoiceQueue({ compact = false, onChange }) {
                         </p>
                         <ul className="space-y-1">
                           {group.items.map(item => (
-                            <li key={item.id} className="flex items-center justify-between gap-2 px-2 py-1.5 border border-neya-border bg-white">
+                            <li key={item.id} className="neya-lift flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border border-neya-border bg-white">
                               <p className="text-xs font-medium truncate min-w-0 flex-1">{item.subject}</p>
                               <button type="button" onClick={() => setActive(item)} className="btn-primary text-[11px] shrink-0 min-h-[28px] py-0.5 px-2">
                                 Classer

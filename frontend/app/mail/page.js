@@ -28,8 +28,14 @@ export default function MailPage() {
         flush
         flushMobile
       >
-        <div className="mail-page-flush">
-          <Suspense fallback={<p className="p-4 text-sm text-neya-muted">Chargement de la boîte…</p>}>
+        <div className="mail-page-flush neya-enter-fade">
+          <Suspense fallback={
+            <div className="mail-empty">
+              <div className="mail-empty__orb" aria-hidden />
+              <p className="mail-empty__title">Chargement de la boîte…</p>
+              <p className="mail-empty__text">Synchronisation Gmail en cours.</p>
+            </div>
+          }>
             <MailPageInner />
           </Suspense>
         </div>
