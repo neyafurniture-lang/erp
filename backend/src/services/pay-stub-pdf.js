@@ -1,5 +1,14 @@
 import PDFDocument from 'pdfkit';
+import { existsSync } from 'fs';
+import { fileURLToPath } from 'url';
+import path from 'path';
 import { getCompanyConfig } from './company-config.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const LOGO_PATH = path.join(__dirname, '../../brand/logo-orange.png');
+/** Logo officiel 842×596 — largeur PDF × ratio hauteur. */
+const LOGO_W = 78;
+const LOGO_RATIO = 596 / 842;
 
 const C = {
   ink: '#1A1A1A',
@@ -77,23 +86,30 @@ export async function generatePayStubPdf(stub, res) {
 
   let y = M;
 
-  // En-tête employeur (coin supérieur gauche)
-  cell(doc, co.legalName || co.tradeName, M, y, 260, { bold: true, size: 10 });
-  y += 12;
-  cell(doc, co.addressLine1 || co.address?.line1 || '', M, y, 260, { size: 8, color: C.muted });
-  y += 10;
-  cell(doc, co.addressLine2 || co.address?.line2 || '', M, y, 260, { size: 8, color: C.muted });
+  // Logo NEYA (gauche) + titre / net (droite)
+  if (existsSync(LOGO_PATH)) {
+    doc.image(LOGO_PATH, M, y, { width: LOGO_W });
+  } else {
+    cell(doc, 'Neya', M, y, 120, { bold: true, size: 18, color: C.accent });
+  }
+  const logoBottom = y + LOGO_W * LOGO_RATIO;
 
-  // Coin supérieur droit — net + date
-  cell(doc, 'Détails sur la fiche de paie', M + 280, M, 260, { bold: true, size: 9, align: 'right' });
-  cell(doc, `DATE DE PAIE ${fmtDate(period.payDate)}`, M + 280, M + 14, 260, {
+  cell(doc, 'Détails sur la fiche de paie', M + 280, y, 260, { bold: true, size: 9, align: 'right' });
+  cell(doc, `DATE DE PAIE ${fmtDate(period.payDate)}`, M + 280, y + 14, 260, {
     size: 8, color: C.muted, align: 'right',
   });
-  cell(doc, `RÉMUNÉRATION NETTE : ${money(line.net)}`, M + 280, M + 28, 260, {
+  cell(doc, `RÉMUNÉRATION NETTE : ${money(line.net)}`, M + 280, y + 28, 260, {
     bold: true, size: 10, align: 'right',
   });
 
-  y = M + 70;
+  // Raison sociale sous le logo
+  y = Math.max(logoBottom, y + 44) + 8;
+  cell(doc, co.legalName || co.tradeName, M, y, 260, { bold: true, size: 9 });
+  y += 11;
+  cell(doc, co.addressLine1 || co.address?.line1 || '', M, y, 260, { size: 8, color: C.muted });
+  y += 10;
+  cell(doc, co.addressLine2 || co.address?.line2 || '', M, y, 260, { size: 8, color: C.muted });
+  y += 16;
 
   // Blocs employeur / période
   cell(doc, 'EMPLOYEUR', M, y, 250, { bold: true, size: 7, color: C.faint });
