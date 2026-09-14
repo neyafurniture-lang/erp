@@ -127,6 +127,7 @@ h1, h2, h3, h4, h5, h6 {
   .mobile-dock {
     @apply fixed bottom-0 left-0 right-0 z-[55] bg-white/95 backdrop-blur-md border-t border-neya-border;
     padding-bottom: env(safe-area-inset-bottom, 0px);
+    box-shadow: 0 -8px 32px -16px rgb(13 11 9 / 0.12);
   }
 
   .mobile-dock-inner {
@@ -135,10 +136,25 @@ h1, h2, h3, h4, h5, h6 {
 
   .mobile-dock-item {
     @apply flex-1 flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium text-neya-ink/55 min-w-0;
+    transition: color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+  }
+
+  .mobile-dock-item:active {
+    transform: scale(0.94);
   }
 
   .mobile-dock-item-active {
-    @apply text-neya-orange font-semibold;
+    @apply relative text-neya-orange font-semibold;
+  }
+
+  .mobile-dock-item-active::before {
+    content: "";
+    position: absolute;
+    top: 6px;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--primary);
   }
 
   .mobile-menu-sheet {
@@ -458,6 +474,11 @@ h1, h2, h3, h4, h5, h6 {
     transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
   }
 
+  /* Icône absolute left-3 : évite le chevauchement texte (px-3.5 insuffisant) */
+  .input-icon {
+    padding-left: 2.5rem;
+  }
+
   .label {
     @apply block text-[10px] font-semibold text-neya-muted uppercase tracking-[0.14em] mb-1.5;
   }
@@ -492,7 +513,8 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .nav-item {
-    @apply relative flex w-full items-center gap-2.5 h-9 px-3 rounded-lg text-[13.5px] font-medium transition-all duration-150;
+    @apply relative flex w-full items-center gap-2.5 h-9 px-3 rounded-lg text-[13.5px] font-medium;
+    transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
   }
 
   .nav-item-dot {
@@ -503,12 +525,17 @@ h1, h2, h3, h4, h5, h6 {
     @apply text-neya-ink-light hover:bg-white/80 hover:text-neya-ink;
   }
 
+  .nav-item-idle:hover {
+    transform: translateX(2px);
+  }
+
   .nav-item-idle .nav-item-dot {
     @apply bg-neya-ink/15;
   }
 
   .nav-item-active {
     @apply bg-neya-orange-soft text-[var(--sidebar-accent-foreground)] font-semibold;
+    box-shadow: inset 0 0 0 1px oklch(0.9 0.02 50);
   }
 
   .nav-item-active::before {
@@ -1478,12 +1505,13 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Craft Flow dashboard composition */
 .cf-kpi {
-  @apply border border-neya-border bg-white px-4 py-4 min-h-[110px];
+  @apply border border-neya-border bg-white px-4 py-4 min-h-[110px] h-full;
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-soft);
   transition: transform var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out);
 }
-a:hover .cf-kpi {
+a:hover .cf-kpi,
+.cf-kpi:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-lift);
   border-color: oklch(0.86 0.02 50);
@@ -2286,28 +2314,6 @@ a:hover .cf-kpi {
   @apply bg-neya-ink text-white shadow-sm;
 }
 
-.cf-panel {
-  @apply bg-white border border-neya-border p-4 sm:p-5;
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-soft);
-  transition: box-shadow var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out), transform var(--dur) var(--ease-out);
-}
-.cf-panel:hover {
-  box-shadow: var(--shadow-lift);
-}
-.cf-kpi {
-  @apply bg-white border border-neya-border p-4 h-full;
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-soft);
-  transition: transform var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out);
-}
-a:hover .cf-kpi,
-.cf-kpi:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-lift);
-  border-color: oklch(0.86 0.02 50);
-}
-
 .cf-prod-bar {
   @apply h-1.5 rounded-full bg-neya-surface overflow-hidden;
 }
@@ -2315,40 +2321,6 @@ a:hover .cf-kpi,
   @apply h-full rounded-full bg-neya-orange origin-left;
   transform-origin: left center;
   animation: neya-bar-fill 0.7s var(--ease-out) both;
-}
-
-.nav-item {
-  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
-}
-.nav-item-idle:hover {
-  transform: translateX(2px);
-}
-.nav-item-active {
-  box-shadow: inset 0 0 0 1px oklch(0.9 0.02 50);
-}
-
-.mobile-dock {
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  box-shadow: 0 -8px 32px -16px rgb(13 11 9 / 0.12);
-}
-.mobile-dock-item {
-  transition: color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
-}
-.mobile-dock-item:active {
-  transform: scale(0.94);
-}
-.mobile-dock-item-active {
-  position: relative;
-}
-.mobile-dock-item-active::before {
-  content: "";
-  position: absolute;
-  top: 6px;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--primary);
 }
 
 @media (prefers-reduced-motion: reduce) {

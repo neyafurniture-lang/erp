@@ -162,7 +162,7 @@ export default function LoginPage() {
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="Mehdi"
-                    className="input pl-10"
+                    className="input input-icon"
                     autoComplete="name"
                     required
                   />
@@ -180,7 +180,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="mehdi@neya.local"
-                  className="input pl-10"
+                  className="input input-icon"
                   autoComplete="username"
                   autoCapitalize="none"
                   autoCorrect="off"
@@ -200,7 +200,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder={setupMode ? '31250' : '••••••••'}
-                  className="input pl-10"
+                  className="input input-icon"
                   autoComplete={setupMode ? 'new-password' : 'current-password'}
                   required
                 />
