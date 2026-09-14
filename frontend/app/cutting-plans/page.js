@@ -8,7 +8,9 @@ export default function CuttingPlansPage() {
   return (
     <AuthGuard>
       <AppShell title="Plans de coupe" subtitle="Studio CutList — planches 8 pi & panneaux 4×8">
-        <CuttingStudio />
+        <div className="neya-enter">
+          <CuttingStudio />
+        </div>
       </AppShell>
     </AuthGuard>
   );

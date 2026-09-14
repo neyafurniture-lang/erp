@@ -11,7 +11,9 @@ export default function MesHeuresPage() {
         title="Mes heures"
         subtitle="Inscrire les shifts effectués et le temps atelier"
       >
-        <MyHoursBoard />
+        <div className="neya-enter">
+          <MyHoursBoard />
+        </div>
       </AppShell>
     </AuthGuard>
   );

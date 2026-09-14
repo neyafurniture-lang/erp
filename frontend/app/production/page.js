@@ -36,7 +36,7 @@ function ProductionCard({ item, onAdvance, advancing }) {
   const nextTask = item.tasks?.find(t => t.status !== 'done');
 
   return (
-    <div className="card p-0 overflow-hidden flex flex-col h-full rounded-2xl shadow-sm">
+    <div className="card neya-lift p-0 overflow-hidden flex flex-col h-full">
       <div className="relative h-36 bg-neya-surface border-b border-neya-border">
         {image ? (
           <Image src={image} alt="" fill className="object-contain p-2" unoptimized />
@@ -174,30 +174,30 @@ export default function ProductionPage() {
   return (
     <AuthGuard>
       <AppShell title="Production" subtitle="File atelier — bancs catalogue et sur mesure">
-        <p className="text-sm text-neya-muted mb-6 lg:hidden">
+        <p className="text-sm text-neya-muted mb-6 lg:hidden neya-enter">
           Suivez la fabrication des bancs catalogue et de vos meubles sur mesure — étape par étape.
         </p>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-          <div className="card py-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6 neya-stagger">
+          <div className="cf-panel py-3 px-4">
             <p className="text-[10px] font-medium uppercase tracking-wide text-neya-muted">En cours</p>
-            <p className="text-2xl font-semibold text-neya-ink mt-0.5">{summary.total_active ?? '—'}</p>
+            <p className="text-2xl font-display font-semibold text-neya-ink mt-0.5 tabular-nums">{summary.total_active ?? '—'}</p>
           </div>
-          <div className="card py-3">
+          <div className="cf-panel py-3 px-4">
             <p className="text-[10px] font-medium uppercase tracking-wide text-neya-muted">Bancs / catalogue</p>
-            <p className="text-2xl font-semibold text-neya-ink mt-0.5">{summary.catalog ?? '—'}</p>
+            <p className="text-2xl font-display font-semibold text-neya-ink mt-0.5 tabular-nums">{summary.catalog ?? '—'}</p>
           </div>
-          <div className="card py-3">
+          <div className="cf-panel py-3 px-4">
             <p className="text-[10px] font-medium uppercase tracking-wide text-neya-muted">Sur mesure</p>
-            <p className="text-2xl font-semibold text-neya-ink mt-0.5">{summary.custom ?? '—'}</p>
+            <p className="text-2xl font-display font-semibold text-neya-ink mt-0.5 tabular-nums">{summary.custom ?? '—'}</p>
           </div>
-          <div className="card py-3 col-span-2 sm:col-span-1">
+          <div className="cf-panel py-3 px-4 col-span-2 sm:col-span-1">
             <p className="text-[10px] font-medium uppercase tracking-wide text-neya-muted">En finition</p>
-            <p className="text-2xl font-semibold text-neya-ink mt-0.5">{summary.by_stage?.finition ?? 0}</p>
+            <p className="text-2xl font-display font-semibold text-neya-ink mt-0.5 tabular-nums">{summary.by_stage?.finition ?? 0}</p>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6 neya-enter" style={{ animationDelay: '80ms' }}>
           <div className="flex flex-wrap gap-2">
             {TABS.map(t => (
               <button
@@ -223,21 +223,21 @@ export default function ProductionPage() {
               <option value="all">Tous</option>
             </select>
             <button type="button" onClick={() => setShowForm(!showForm)} className="btn-primary min-h-[44px]">
-              + Production
+              Nouvelle production
             </button>
           </div>
         </div>
 
         {showForm && (
-          <form onSubmit={create} className="card mb-6 grid gap-4 sm:grid-cols-2">
+          <form onSubmit={create} className="cf-panel mb-6 grid gap-4 sm:grid-cols-2 neya-enter">
             <div className="sm:col-span-2">
               <label className="label">Type</label>
               <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={() => setForm({ ...form, kind: 'catalog' })}
-                  className={`flex-1 py-3 rounded-xl text-sm font-medium border min-h-[44px] ${
-                    form.kind === 'catalog' ? 'border-neya-orange bg-neya-orange/10 text-neya-orange' : 'border-neya-border'
+                  className={`flex-1 min-h-[44px] ${
+                    form.kind === 'catalog' ? 'btn-primary' : 'btn-secondary'
                   }`}
                 >
                   Banc / fiche catalogue
@@ -245,8 +245,8 @@ export default function ProductionPage() {
                 <button
                   type="button"
                   onClick={() => setForm({ ...form, kind: 'custom' })}
-                  className={`flex-1 py-3 rounded-xl text-sm font-medium border min-h-[44px] ${
-                    form.kind === 'custom' ? 'border-neya-orange bg-neya-orange/10 text-neya-orange' : 'border-neya-border'
+                  className={`flex-1 min-h-[44px] ${
+                    form.kind === 'custom' ? 'btn-primary' : 'btn-secondary'
                   }`}
                 >
                   Meuble sur mesure
@@ -333,14 +333,17 @@ export default function ProductionPage() {
         )}
 
         {data.items?.length === 0 ? (
-          <div className="card text-center py-12">
-            <p className="text-neya-muted mb-4">Aucune production {statusFilter === 'active' ? 'en cours' : ''}.</p>
+          <div className="cf-panel text-center py-12 neya-enter">
+            <p className="font-display text-lg font-semibold text-neya-ink mb-1">Aucune production</p>
+            <p className="text-sm text-neya-muted mb-4">
+              {statusFilter === 'active' ? 'Rien en cours dans ce filtre.' : 'Aucun élément pour ce filtre.'}
+            </p>
             <button type="button" onClick={() => setShowForm(true)} className="btn-primary">
-              + Ajouter une production
+              Ajouter une production
             </button>
           </div>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 neya-stagger">
             {data.items.map(item => (
               <ProductionCard
                 key={item.id}

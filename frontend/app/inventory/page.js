@@ -146,10 +146,10 @@ export default function InventoryPage() {
       <AppShell title="Stock" subtitle={`${items.length} article${items.length > 1 ? 's' : ''} en inventaire`}>
         <div className="space-y-5">
           {err && (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{err}</div>
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 neya-enter">{err}</div>
           )}
 
-          <div className="flex flex-wrap items-center gap-3 justify-between">
+          <div className="flex flex-wrap items-center gap-3 justify-between neya-enter">
             <div className="relative max-w-md flex-1 min-w-[200px]">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neya-muted" aria-hidden />
               <input
@@ -165,7 +165,7 @@ export default function InventoryPage() {
             </button>
           </div>
 
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-1.5 neya-enter" style={{ animationDelay: '60ms' }}>
             <button
               type="button"
               onClick={() => setCat('')}
@@ -186,14 +186,14 @@ export default function InventoryPage() {
           </div>
 
           {showForm && (
-            <form onSubmit={save} className="card rounded-2xl grid grid-cols-1 md:grid-cols-2 gap-4">
+            <form onSubmit={save} className="cf-panel grid grid-cols-1 md:grid-cols-2 gap-4 neya-enter">
               <div className="md:col-span-2 flex items-center justify-between gap-2">
                 <h3 className="font-display text-[15px] font-semibold text-neya-ink">
                   {editingId ? 'Modifier l’article' : 'Nouvel article'}
                 </h3>
                 <button
                   type="button"
-                  className="btn-secondary text-xs"
+                  className="btn-ghost text-xs"
                   onClick={() => { setShowForm(false); setEditingId(null); }}
                 >
                   Fermer
@@ -305,7 +305,7 @@ export default function InventoryPage() {
             </form>
           )}
 
-          <div className="cf-table-wrap overflow-x-auto">
+          <div className="cf-table-wrap overflow-x-auto neya-enter" style={{ animationDelay: '100ms' }}>
             <table className="w-full text-sm">
               <thead>
                 <tr>
@@ -339,7 +339,7 @@ export default function InventoryPage() {
                         <div className="inline-flex items-center gap-1">
                           <button
                             type="button"
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-neya-muted hover:bg-neya-surface hover:text-neya-ink"
+                            className="btn-ghost inline-flex h-8 w-8 items-center justify-center p-0"
                             title="Modifier"
                             onClick={() => openEdit(i)}
                           >
@@ -347,7 +347,7 @@ export default function InventoryPage() {
                           </button>
                           <button
                             type="button"
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-neya-muted hover:bg-red-50 hover:text-red-600"
+                            className="btn-ghost inline-flex h-8 w-8 items-center justify-center p-0 text-neya-muted hover:text-red-600"
                             title="Supprimer"
                             onClick={() => remove(i.id)}
                           >
@@ -362,8 +362,11 @@ export default function InventoryPage() {
             </table>
             {filtered.length === 0 && !showForm && (
               <div className="p-8 text-center">
+                <p className="font-display text-lg font-semibold text-neya-ink mb-1">
+                  {items.length === 0 ? 'Inventaire vide' : 'Aucun résultat'}
+                </p>
                 <p className="text-sm text-neya-muted mb-3">
-                  {items.length === 0 ? 'Inventaire vide — ajoutez votre premier article.' : 'Aucun résultat pour cette recherche.'}
+                  {items.length === 0 ? 'Ajoutez votre premier article en stock.' : 'Aucun résultat pour cette recherche.'}
                 </p>
                 {items.length === 0 && (
                   <button type="button" onClick={openCreate} className="btn-primary gap-1.5 inline-flex">

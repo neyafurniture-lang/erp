@@ -404,7 +404,7 @@ export default function MyHoursBoard() {
 
   if (!canManageAll && !myEmployeeId) {
     return (
-      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-6 max-w-xl">
+      <div className="cf-panel border-amber-200 bg-amber-50 neya-enter max-w-xl">
         <h2 className="font-display text-lg font-semibold text-neya-ink mb-2">Profil atelier manquant</h2>
         <p className="text-sm text-neya-muted leading-relaxed">
           Votre compte n’est pas lié à un employé (ex. Olive). Demandez à un admin dans{' '}
@@ -416,7 +416,7 @@ export default function MyHoursBoard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-3 neya-enter">
         <div>
           <p className="text-sm text-neya-muted">
             Cette semaine :{' '}
@@ -448,10 +448,10 @@ export default function MyHoursBoard() {
       </div>
 
       {err && (
-        <div className="text-sm text-red-700 bg-red-50 border border-red-200 px-3 py-2 rounded-lg">{err}</div>
+        <div className="text-sm text-red-700 bg-red-50 border border-red-200 px-3 py-2 rounded-xl neya-enter">{err}</div>
       )}
 
-      <section>
+      <section className="neya-enter" style={{ animationDelay: '60ms' }}>
         <div className="flex items-center gap-2 mb-3">
           <Clock className="h-4 w-4 text-neya-orange" aria-hidden />
           <h2 className="font-display text-base font-semibold text-neya-ink">
@@ -468,11 +468,11 @@ export default function MyHoursBoard() {
             Aucun shift planifié en attente. Vous pouvez aussi inscrire des heures manuellement.
           </p>
         ) : (
-          <ul className="space-y-2">
+          <ul className="space-y-2 neya-stagger">
             {pending.map(shift => (
               <li
                 key={shift.id}
-                className="rounded-xl border border-neya-border bg-white px-4 py-3 flex flex-wrap items-center gap-3"
+                className="card neya-lift px-4 py-3 flex flex-wrap items-center gap-3"
               >
                 <span
                   className="w-2.5 h-2.5 rounded-full shrink-0"
@@ -510,7 +510,7 @@ export default function MyHoursBoard() {
         )}
       </section>
 
-      <section>
+      <section className="neya-enter" style={{ animationDelay: '120ms' }}>
         <h2 className="font-display text-base font-semibold text-neya-ink mb-3">
           Heures inscrites
         </h2>
@@ -521,13 +521,13 @@ export default function MyHoursBoard() {
             Aucune heure inscrite sur la période. Utilisez « Inscrire un shift » après une journée d’atelier.
           </p>
         ) : (
-          <ul className="space-y-2">
+          <ul className="space-y-2 neya-stagger">
             {entries.map(entry => (
               <li key={entry.id}>
                 <button
                   type="button"
                   onClick={() => openEdit(entry)}
-                  className="w-full text-left rounded-xl border border-neya-border bg-white px-4 py-3 hover:border-neya-orange/40 transition-colors"
+                  className="w-full text-left card neya-lift px-4 py-3"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
