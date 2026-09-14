@@ -4,38 +4,24 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
+import Drive3dPicker from '../../components/Drive3dPicker';
 import DriveFilePreview from '../../components/DriveFilePreview';
 import Viewer3D from '../../components/Viewer3D';
 import { api, PURCHASE_NEED_STATUS } from '../../lib/api';
-
-function extractDriveFileId(raw) {
-  const s = String(raw || '').trim();
-  if (!s) return '';
-  if (/^[a-zA-Z0-9_-]{10,}$/.test(s) && !s.includes('/')) return s;
-  const m = s.match(/\/(?:file\/d|open\?id=|uc\?id=)([a-zA-Z0-9_-]+)/)
-    || s.match(/[?&]id=([a-zA-Z0-9_-]+)/);
-  return m ? m[1] : s;
-}
 
 export default function AtelierZotiquePage() {
   const [data, setData] = useState(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [seedMsg, setSeedMsg] = useState('');
-  const [driveInput, setDriveInput] = useState('');
-  const [glbInput, setGlbInput] = useState('');
   const [notes, setNotes] = useState('');
-  const [found, setFound] = useState([]);
-  const [findQ, setFindQ] = useState('');
-  const [finding, setFinding] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const load = useCallback(async () => {
     setErr('');
     try {
       const res = await api('/atelier');
       setData(res);
-      setDriveInput(res.drive_file_id || '');
-      setGlbInput(res.glb_url || '');
       setNotes(res.notes || '');
     } catch (e) {
       setErr(e.message);
@@ -62,9 +48,14 @@ export default function AtelierZotiquePage() {
     }
   }
 
-  async function linkDriveFile() {
-    const id = extractDriveFileId(driveInput);
-    await saveConfig({ drive_file_id: id || null, glb_url: glbInput.trim() || '' });
+  async function pick3d(file) {
+    setPickerOpen(false);
+    await saveConfig({ drive_file_id: file.id });
+  }
+
+  async function clear3d() {
+    if (!confirm('Retirer le modèle 3D lié ?')) return;
+    await saveConfig({ drive_file_id: '' });
   }
 
   async function saveNotes() {
@@ -86,26 +77,6 @@ export default function AtelierZotiquePage() {
     }
   }
 
-  async function find3d(q = findQ) {
-    setFinding(true);
-    setErr('');
-    try {
-      const qs = q ? `?q=${encodeURIComponent(q)}` : '';
-      const res = await api(`/atelier/find-3d${qs}`);
-      setFound(res.files || []);
-    } catch (e) {
-      setErr(e.message);
-      setFound([]);
-    } finally {
-      setFinding(false);
-    }
-  }
-
-  async function selectFound(file) {
-    setDriveInput(file.id);
-    await saveConfig({ drive_file_id: file.id });
-  }
-
   async function toggleNeedStatus(item) {
     const next = item.status === 'needed' ? 'ordered' : item.status === 'ordered' ? 'received' : 'needed';
     try {
@@ -121,6 +92,7 @@ export default function AtelierZotiquePage() {
 
   const needs = data?.needs || [];
   const neededCount = needs.filter((n) => n.status === 'needed').length;
+  const hasModel = !!(data?.drive_file || data?.glb_url);
 
   return (
     <AuthGuard>
@@ -147,90 +119,38 @@ export default function AtelierZotiquePage() {
           )}
 
           <section className="card rounded-2xl space-y-4 p-4 sm:p-5">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h2 className="text-base font-semibold text-neya-ink">Modèle 3D</h2>
-              <p className="text-xs text-neya-muted">
-                GLB / GLTF = viewer ici · SketchUp (.skp) = ouvrir Drive ou exporter GLB
-              </p>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-neya-ink">Modèle 3D</h2>
+                <p className="text-xs text-neya-muted mt-0.5">
+                  Choisissez uniquement le fichier 3D (GLB / GLTF / SketchUp) sur le Drive.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="btn-primary text-sm min-h-[40px]"
+                  disabled={busy}
+                  onClick={() => setPickerOpen(true)}
+                >
+                  {hasModel ? 'Changer le 3D' : 'Sélectionner le 3D'}
+                </button>
+                {data?.drive_file_id && (
+                  <button type="button" className="btn-ghost text-sm min-h-[40px]" disabled={busy} onClick={clear3d}>
+                    Retirer
+                  </button>
+                )}
+              </div>
             </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block space-y-1">
-                <span className="text-xs text-neya-muted">Fichier Drive (ID ou lien)</span>
-                <input
-                  className="input w-full"
-                  value={driveInput}
-                  onChange={(e) => setDriveInput(e.target.value)}
-                  placeholder="ID Drive ou https://drive.google.com/file/d/…"
-                />
-              </label>
-              <label className="block space-y-1">
-                <span className="text-xs text-neya-muted">URL GLB publique (optionnel)</span>
-                <input
-                  className="input w-full"
-                  value={glbInput}
-                  onChange={(e) => setGlbInput(e.target.value)}
-                  placeholder="https://…/atelier.glb"
-                />
-              </label>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <button type="button" className="btn-primary text-sm min-h-[40px]" disabled={busy} onClick={linkDriveFile}>
-                Enregistrer le modèle
-              </button>
-              <button type="button" className="btn-secondary text-sm min-h-[40px]" disabled={finding} onClick={() => find3d()}>
-                {finding ? 'Recherche…' : 'Chercher sur Drive'}
-              </button>
-              <Link href="/drive" className="btn-ghost text-sm min-h-[40px] inline-flex items-center">
-                Ouvrir Drive
-              </Link>
-            </div>
-
-            <div className="flex flex-wrap gap-2 items-end">
-              <label className="block space-y-1 flex-1 min-w-[160px]">
-                <span className="text-xs text-neya-muted">Recherche ciblée</span>
-                <input
-                  className="input w-full"
-                  value={findQ}
-                  onChange={(e) => setFindQ(e.target.value)}
-                  placeholder="zotique, assemblage, atelier…"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') find3d(findQ);
-                  }}
-                />
-              </label>
-              <button type="button" className="btn-secondary text-sm min-h-[40px]" disabled={finding} onClick={() => find3d(findQ)}>
-                OK
-              </button>
-            </div>
-
-            {found.length > 0 && (
-              <ul className="divide-y divide-neya-border border border-neya-border rounded-xl overflow-hidden">
-                {found.map((f) => (
-                  <li key={f.id} className="flex flex-wrap items-center gap-2 px-3 py-2 bg-neya-surface/40">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm text-neya-ink truncate">{f.name}</p>
-                      <p className="text-[11px] text-neya-muted">
-                        {f.kind === 'model3d' ? 'GLB/GLTF — viewer' : 'CAD — export GLB recommandé'}
-                      </p>
-                    </div>
-                    <button type="button" className="btn-secondary text-xs min-h-[32px]" onClick={() => selectFound(f)}>
-                      Utiliser
-                    </button>
-                    {f.webViewLink && (
-                      <a href={f.webViewLink} target="_blank" rel="noopener noreferrer" className="btn-ghost text-xs min-h-[32px]">
-                        Drive
-                      </a>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
 
             {data?.drive_file && (
-              <div className="border border-neya-border rounded-xl overflow-hidden min-h-[320px]">
-                <DriveFilePreview file={data.drive_file} />
+              <div className="space-y-2">
+                <p className="text-xs text-neya-muted truncate">
+                  Fichier : <span className="text-neya-ink font-medium">{data.drive_file.name}</span>
+                </p>
+                <div className="border border-neya-border rounded-xl overflow-hidden min-h-[320px]">
+                  <DriveFilePreview file={data.drive_file} />
+                </div>
               </div>
             )}
 
@@ -238,10 +158,10 @@ export default function AtelierZotiquePage() {
               <Viewer3D url={data.glb_url} title="Atelier 200 Zotique" />
             )}
 
-            {!data?.drive_file && !data?.glb_url && (
+            {!hasModel && (
               <p className="text-sm text-neya-muted">
-                Pas encore de fichier lié. Sur le Drive : Production → Clients (ou dossier atelier),
-                liez l’assemblage 3D ici. Si c’est un .skp, exportez aussi un .glb pour le voir dans le navigateur.
+                Aucun modèle lié. Cliquez « Sélectionner le 3D », puis naviguez jusqu’à l’assemblage
+                (ex. Production → Clients). Les autres types de fichiers sont masqués.
               </p>
             )}
           </section>
@@ -317,6 +237,13 @@ export default function AtelierZotiquePage() {
             )}
           </section>
         </div>
+
+        <Drive3dPicker
+          open={pickerOpen}
+          onClose={() => setPickerOpen(false)}
+          onPick={pick3d}
+          title="Sélectionner le modèle 3D"
+        />
       </AppShell>
     </AuthGuard>
   );
