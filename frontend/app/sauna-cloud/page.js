@@ -138,16 +138,46 @@ function entriesFromLogs(raw) {
   }).filter((r) => r.cm > 0);
 }
 
-/** Dimensions uniques d’un SKU (côtés + traverses) pour le tableau global. */
-export function formatSkuDimensions(bom) {
-  if (!bom) return null;
-  const sides = [];
-  if (bom.long_in && bom.long_count) sides.push(`${formatLengthCm(bom.long_in)}×${bom.long_count}`);
-  if (bom.short_in && bom.short_count) sides.push(`${formatLengthCm(bom.short_in)}×${bom.short_count}`);
-  const traverses = formatTraversesLabel(bom);
+/** Formate des entrées size_logs → "50.8 cm×4 · 33 cm×2". */
+function formatSizeLogLabel(entries = []) {
+  const rows = (entries || [])
+    .filter((e) => Number(e.cm) > 0)
+    .slice()
+    .sort((a, b) => Number(b.cm) - Number(a.cm));
+  if (!rows.length) return null;
+  return rows
+    .map((e) => {
+      const cm = Math.round(Number(e.cm) * 10) / 10;
+      const label = e.length || `${Number.isInteger(cm) ? cm : cm} cm`;
+      const qty = Math.max(0, Math.round(Number(e.qty) || 0));
+      return `${label}×${qty}`;
+    })
+    .join(' · ');
+}
+
+/**
+ * Dimensions uniques d’un SKU pour le tableau.
+ * Priorité aux saisies atelier (size_logs) ; sinon BOM Sierra.
+ */
+export function formatSkuDimensions(bom, saved = {}) {
+  const sidesFromLogs = formatSizeLogLabel(saved.sides);
+  const travFromLogs = formatSizeLogLabel(saved.traverses);
+
+  let sidesBom = null;
+  if (bom) {
+    const sides = [];
+    if (bom.long_in && bom.long_count) sides.push(`${formatLengthCm(bom.long_in)}×${bom.long_count}`);
+    if (bom.short_in && bom.short_count) sides.push(`${formatLengthCm(bom.short_in)}×${bom.short_count}`);
+    sidesBom = sides.join(' · ') || null;
+  }
+  const travBom = bom ? formatTraversesLabel(bom) : null;
+
+  if (!bom && !sidesFromLogs && !travFromLogs) return null;
   return {
-    sides: sides.join(' · ') || '—',
-    traverses: traverses || '—',
+    sides: sidesFromLogs || sidesBom || '—',
+    traverses: travFromLogs || travBom || '—',
+    sidesCustom: Boolean(sidesFromLogs),
+    traversesCustom: Boolean(travFromLogs),
   };
 }
 
@@ -155,11 +185,22 @@ function sizeRowKey(sku, cm) {
   return `${sku || '_'}|${cm}`;
 }
 
-/** Lignes BOM + saisies, une entrée unique par (SKU, cm). */
+/**
+ * Lignes éditables par (SKU, cm).
+ * Si un SKU a déjà des saisies atelier pour ce kind, on n’y réinjecte PAS le BOM
+ * (sinon modifier une longueur laisse l’ancienne taille BOM à côté).
+ */
 function buildPerSkuEditableRows(frames = [], kind = 'sides', savedEntries = []) {
   const byKey = new Map();
+  const skusWithSaved = new Set(
+    (savedEntries || [])
+      .filter((e) => e.sku && Number(e.cm) > 0)
+      .map((e) => String(e.sku).toUpperCase())
+  );
+
   for (const frame of frames) {
     const sku = String(frame.sku || '').toUpperCase();
+    if (skusWithSaved.has(sku)) continue; // saisies atelier = source de vérité
     const bom = SIERRA_BOM[sku];
     if (!bom) continue;
     const qty = Math.max(0, Math.round(Number(frame.qty) || 0));
@@ -190,6 +231,7 @@ function buildPerSkuEditableRows(frames = [], kind = 'sides', savedEntries = [])
       add(bom.short_in, bom.short_count, 'short');
     }
   }
+
   for (const e of savedEntries || []) {
     const cm = Number(e.cm);
     if (!cm) continue;
@@ -213,6 +255,7 @@ function buildPerSkuEditableRows(frames = [], kind = 'sides', savedEntries = [])
       ...prev,
       qty: e.qty > 0 ? Number(e.qty) : prev.qty,
       note: e.note || prev.note,
+      fromBom: false,
     });
   }
   return [...byKey.values()].sort((a, b) => {
@@ -1058,9 +1101,17 @@ export default function SaunaCloudPage() {
               {frames.map((row) => {
                 const busy = savingSku === row.sku;
                 const over = row.placed > row.qty;
-                const dims = formatSkuDimensions(row.bom);
+                const skuLogs = {
+                  sides: (sizeLogs.sides || []).filter(
+                    (e) => String(e.sku || '').toUpperCase() === String(row.sku || '').toUpperCase()
+                  ),
+                  traverses: (sizeLogs.traverses || []).filter(
+                    (e) => String(e.sku || '').toUpperCase() === String(row.sku || '').toUpperCase()
+                  ),
+                };
+                const dims = formatSkuDimensions(row.bom, skuLogs);
                 const bomHint = row.bom
-                  ? `${row.sides_per_frame} côtés/frame + ${row.traverses_per_frame} trav./frame · Côtés ${dims.sides} · Trav. ${dims.traverses}`
+                  ? `${row.sides_per_frame} côtés/frame + ${row.traverses_per_frame} trav./frame · Côtés ${dims?.sides} · Trav. ${dims?.traverses}`
                   : 'Hors plan Sierra';
                 const doneish = (row.counts?.done || 0) + (row.counts?.delivered || 0) > 0
                   && row.remaining === 0;
@@ -1085,8 +1136,24 @@ export default function SaunaCloudPage() {
                     <td className="px-3 py-3 text-[11px] tabular-nums text-neya-ink">
                       {dims ? (
                         <div className="space-y-0.5 leading-snug">
-                          <p><span className="text-neya-muted">Côtés</span> {dims.sides}</p>
-                          <p><span className="text-neya-muted">Trav.</span> {dims.traverses}</p>
+                          <button
+                            type="button"
+                            className={`block text-left hover:text-neya-orange ${dims.sidesCustom ? 'font-semibold text-neya-ink' : ''}`}
+                            title="Modifier les dimensions des côtés"
+                            onClick={() => openSizePanel('sides', row.sku)}
+                          >
+                            <span className="text-neya-muted">Côtés</span> {dims.sides}
+                            {dims.sidesCustom ? <span className="text-neya-orange ml-1">✎</span> : null}
+                          </button>
+                          <button
+                            type="button"
+                            className={`block text-left hover:text-neya-orange ${dims.traversesCustom ? 'font-semibold text-neya-ink' : ''}`}
+                            title="Modifier les dimensions des traverses"
+                            onClick={() => openSizePanel('traverses', row.sku)}
+                          >
+                            <span className="text-neya-muted">Trav.</span> {dims.traverses}
+                            {dims.traversesCustom ? <span className="text-neya-orange ml-1">✎</span> : null}
+                          </button>
                         </div>
                       ) : (
                         <span className="text-neya-muted">—</span>
@@ -1304,8 +1371,8 @@ export default function SaunaCloudPage() {
             <p>3. Prête → <span className="text-emerald-800 font-medium">Terminé</span> (vert)</p>
             <p>4. Expédiée → <span className="text-green-900 font-medium">Livré</span> (vert fort, % progress)</p>
             <p className="pt-1 border-t border-neya-border/60">
-              Colonne <strong className="text-neya-ink">Dimensions</strong> = tailles uniques par SKU.
-              Clique une cellule <strong className="text-neya-ink">Côtés</strong> / <strong className="text-neya-ink">Traverses</strong> pour éditer ce SKU.
+              Colonne <strong className="text-neya-ink">Dimensions</strong> : clique Côtés / Trav. pour modifier
+              les longueurs — les valeurs saisies remplacent le BOM et s’affichent tout de suite.
             </p>
             <p className="pt-1 border-t border-neya-border/60">
               BOM Sierra : H2013, H2026, H2226, H3313, H3726 — traverses = 2 de chaque cote (ex. 26×13 → 2×13 + 2×26). FS750 / autres = hors plan.
