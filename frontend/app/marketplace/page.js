@@ -242,7 +242,7 @@ export default function MarketplacePage() {
                 <button
                   key={p}
                   type="button"
-                  className={`cf-chip ${form.product_name === p ? 'bg-neya-ink text-white border-neya-ink' : ''}`}
+                  className={`cf-chip ${form.product_name === p ? 'cf-chip-active' : ''}`}
                   onClick={() => setForm({ ...form, product_name: p })}
                 >
                   {p}
