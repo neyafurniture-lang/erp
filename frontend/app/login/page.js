@@ -123,13 +123,13 @@ export default function LoginPage() {
   const setupMode = needsSetup === true;
 
   return (
-    <div className="grid min-h-screen min-h-[100dvh] lg:grid-cols-[1fr_1.1fr]">
-      <div className="flex flex-col justify-between px-6 py-10 sm:px-10 lg:px-16 bg-white">
-        <div className="flex items-center">
+    <div className="grid min-h-screen min-h-[100dvh] lg:grid-cols-[1fr_1.1fr] neya-ambient">
+      <div className="flex flex-col justify-between px-6 py-10 sm:px-10 lg:px-16 bg-white/90 backdrop-blur-sm">
+        <div className="flex items-center neya-enter">
           <NeyaMark className="h-10 w-auto max-w-[168px]" />
         </div>
 
-        <div className="mx-auto w-full max-w-sm py-10">
+        <div className="mx-auto w-full max-w-sm py-10 neya-enter" style={{ animationDelay: '60ms' }}>
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-neya-orange">
             Atelier Furniture · Québec
           </p>
@@ -144,7 +144,7 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="mt-8 space-y-4">
             {error && (
-              <div className="bg-red-50 text-red-700 text-sm px-4 py-3 rounded-xl border border-red-200" role="alert">
+              <div className="bg-red-50 text-red-700 text-sm px-4 py-3 rounded-xl border border-red-200 neya-enter" role="alert">
                 {error}
                 {apiHint && (
                   <p className="text-[11px] text-red-500 mt-2 break-all">API : {apiHint}</p>
@@ -162,7 +162,7 @@ export default function LoginPage() {
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="Mehdi"
-                    className="h-11 w-full rounded-lg border border-neya-border bg-white pl-10 pr-3 text-[14px] outline-none focus:border-neya-orange/50 focus:ring-2 focus:ring-neya-orange/15"
+                    className="input pl-10"
                     autoComplete="name"
                     required
                   />
@@ -180,7 +180,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="mehdi@neya.local"
-                  className="h-11 w-full rounded-lg border border-neya-border bg-white pl-10 pr-3 text-[14px] outline-none focus:border-neya-orange/50 focus:ring-2 focus:ring-neya-orange/15"
+                  className="input pl-10"
                   autoComplete="username"
                   autoCapitalize="none"
                   autoCorrect="off"
@@ -200,7 +200,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder={setupMode ? '31250' : '••••••••'}
-                  className="h-11 w-full rounded-lg border border-neya-border bg-white pl-10 pr-3 text-[14px] outline-none focus:border-neya-orange/50 focus:ring-2 focus:ring-neya-orange/15"
+                  className="input pl-10"
                   autoComplete={setupMode ? 'new-password' : 'current-password'}
                   required
                 />
@@ -220,7 +220,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading || needsSetup === null}
-              className="mt-2 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-neya-orange text-[14px] font-semibold text-white shadow-orange transition-colors hover:bg-neya-orange-dark disabled:opacity-60"
+              className="btn-primary mt-2 w-full gap-2 disabled:opacity-60 disabled:pointer-events-none"
             >
               {loading ? (setupMode ? 'Création…' : 'Connexion…') : (
                 <>
@@ -244,8 +244,10 @@ export default function LoginPage() {
         </p>
       </div>
 
-      <div className="relative hidden overflow-hidden bg-neya-ink text-white lg:block grain">
+      <div className="relative hidden overflow-hidden bg-neya-ink text-white lg:block grain neya-enter-fade">
         <div className="absolute inset-0 bg-gradient-to-br from-neya-ink via-neya-ink to-neya-orange/40" />
+        <div className="absolute -right-20 top-24 h-64 w-64 rounded-full bg-neya-orange/20 blur-3xl animate-[neya-pulse-soft_6s_ease-in-out_infinite]" />
+        <div className="absolute -left-16 bottom-32 h-48 w-48 rounded-full bg-white/10 blur-3xl" />
         <div className="relative z-10 flex h-full flex-col justify-between p-16">
           <div className="flex items-center justify-between gap-4">
             <NeyaMark className="h-11 w-auto max-w-[190px]" alt="Neya" />
