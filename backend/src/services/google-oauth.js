@@ -61,7 +61,10 @@ export async function buildAuthUrl(userId) {
     );
   }
 
-  const state = jwt.sign({ uid: userId, t: Date.now() }, getJwtSecret(), { expiresIn: '15m' });
+  const state = jwt.sign({ uid: userId, t: Date.now() }, getJwtSecret(), {
+    expiresIn: '15m',
+    algorithm: 'HS256',
+  });
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
@@ -168,5 +171,5 @@ export async function disconnectGoogle() {
 }
 
 export function verifyOAuthState(state) {
-  return jwt.verify(state, getJwtSecret());
+  return jwt.verify(state, getJwtSecret(), { algorithms: ['HS256'] });
 }

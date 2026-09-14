@@ -1,30 +1,36 @@
-/** Code pour ouvrir le gestionnaire Finance (P&L total). */
-export const FINANCE_SESSION_PIN = '31250';
-
+/** Session Finance (P&L) — jeton serveur après POST /analytics/unlock. */
 const STORAGE_KEY = 'neya_finance_session';
-/** Durée de session : 4 h (ferme l’onglet = sessionStorage perdu). */
+/** Durée de session : 4 h (alignée TTL backend). */
 const TTL_MS = 4 * 60 * 60 * 1000;
 
-export function isFinanceSessionOpen() {
-  if (typeof window === 'undefined') return false;
+export function getFinanceToken() {
+  if (typeof window === 'undefined') return null;
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return false;
+    if (!raw) return null;
     const data = JSON.parse(raw);
-    if (!data?.ok || !data?.at) return false;
+    if (!data?.ok || !data?.at || !data?.token) return null;
     if (Date.now() - Number(data.at) > TTL_MS) {
       sessionStorage.removeItem(STORAGE_KEY);
-      return false;
+      return null;
     }
-    return true;
+    return String(data.token);
   } catch {
-    return false;
+    return null;
   }
 }
 
-export function openFinanceSession() {
+export function isFinanceSessionOpen() {
+  return Boolean(getFinanceToken());
+}
+
+export function openFinanceSession(financeToken) {
   if (typeof window === 'undefined') return;
-  sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ ok: true, at: Date.now() }));
+  if (!financeToken) return;
+  sessionStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({ ok: true, at: Date.now(), token: String(financeToken) })
+  );
 }
 
 export function closeFinanceSession() {

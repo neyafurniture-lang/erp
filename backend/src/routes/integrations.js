@@ -10,6 +10,7 @@ import {
   getGoogleConfig,
 } from '../services/google-oauth.js';
 import { logAgentAction } from '../services/assistant-memory.js';
+import { requireAdmin } from '../middleware/permissions.js';
 
 const router = Router();
 
@@ -40,7 +41,7 @@ router.get('/status', async (_req, res) => {
   }
 });
 
-router.get('/google/authorize', async (req, res) => {
+router.get('/google/authorize', requireAdmin, async (req, res) => {
   try {
     const url = await buildAuthUrl(req.user.id);
     if (req.query.redirect === '1') return res.redirect(url);
@@ -67,7 +68,7 @@ export async function handleGoogleCallback(req, res) {
   }
 }
 
-router.post('/google/disconnect', async (req, res) => {
+router.post('/google/disconnect', requireAdmin, async (req, res) => {
   try {
     await disconnectGoogle();
     await logAgentAction({ agent: 'general', action: 'google_disconnect', resource: 'integration', userId: req.user?.id });

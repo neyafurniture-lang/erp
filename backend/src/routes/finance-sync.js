@@ -4,8 +4,15 @@ import {
   syncIssuedInvoicesToGains,
   syncWebOrdersToMarketplace,
 } from '../services/finance-sync.js';
+import { requireAnyPermission } from '../middleware/permissions.js';
+import { requireFinanceUnlock } from '../middleware/finance-unlock.js';
 
 const router = Router();
+
+const requireFinanceData = requireAnyPermission('finance', 'invoices', 'expenses');
+
+router.use(requireFinanceData);
+router.use(requireFinanceUnlock);
 
 router.post('/import-supplier-invoices', async (req, res) => {
   try {

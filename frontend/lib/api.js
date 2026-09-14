@@ -1,3 +1,5 @@
+import { getFinanceToken } from './finance-session.js';
+
 const API_URL_DEFAULT = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4001/api';
 const API_ROOT_KEY = 'neya_api_url';
 const FETCH_TIMEOUT_MS = 45000;
@@ -170,6 +172,16 @@ export async function api(path, options = {}) {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...options.headers,
   };
+
+  // Jeton PIN Finance pour P&L / sync (émis par POST /analytics/unlock)
+  if (
+    !headers['X-Finance-Token']
+    && !headers['x-finance-token']
+    && (/^\/analytics\/(monthly-pnl|profitability)/.test(path) || path.startsWith('/finance-sync'))
+  ) {
+    const ft = getFinanceToken();
+    if (ft) headers['X-Finance-Token'] = ft;
+  }
 
   let res;
   const controller = new AbortController();

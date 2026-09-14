@@ -4,21 +4,37 @@ import { computeProjectCosts } from '../services/project-costs.js';
 import { syncMaterialsFromQuote, findQuoteForProject } from '../services/project-materials.js';
 import { computeMonthlyPnl } from '../services/monthly-pnl.js';
 import { getSetting } from '../services/settings.js';
+import { requireAnyPermission } from '../middleware/permissions.js';
+import { rateLimit } from '../middleware/security.js';
+import { requireFinanceUnlock, signFinanceUnlockToken } from '../middleware/finance-unlock.js';
 
 const router = Router();
+
+const unlockLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 10,
+  keyFn: (req) => `${req.ip || 'ip'}:finance-unlock:${req.user?.id || 'anon'}`,
+});
+
+/** Accès données finance / P&L (aligné frontend canAccessPath). */
+const requireFinanceData = requireAnyPermission('finance', 'invoices', 'expenses');
 
 /** Code gestionnaire Finance (P&L). Paramètres → Code Finance, sinon FINANCE_SESSION_PIN / ADMIN_SESSION_PIN. */
 async function resolveFinancePin() {
   const fromSettings = String(await getSetting('project_admin_pin') || '').trim();
   if (fromSettings) return fromSettings;
-  return String(
+  const fromEnv = String(
     process.env.FINANCE_SESSION_PIN
     || process.env.ADMIN_SESSION_PIN
-    || '31250'
+    || process.env.PROJECT_ADMIN_PIN
+    || ''
   ).trim();
+  if (fromEnv) return fromEnv;
+  // Défaut historique — à changer en prod via Paramètres / env
+  return '31250';
 }
 
-router.post('/unlock', async (req, res) => {
+router.post('/unlock', requireFinanceData, unlockLimiter, async (req, res) => {
   try {
     const code = String(req.body?.code ?? '').trim();
     const expected = await resolveFinancePin();
@@ -26,13 +42,14 @@ router.post('/unlock', async (req, res) => {
       // 403 (pas 401) : sinon le client api() déconnecte toute la session ERP
       return res.status(403).json({ error: 'Code incorrect' });
     }
-    res.json({ ok: true });
+    const finance_token = signFinanceUnlockToken(req.user.id);
+    res.json({ ok: true, finance_token, expires_in: 4 * 60 * 60 });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-router.get('/monthly-pnl', async (req, res) => {
+router.get('/monthly-pnl', requireFinanceData, requireFinanceUnlock, async (req, res) => {
   try {
     const year = Number(req.query.year) || new Date().getFullYear();
     const meName = String(req.query.me || req.user?.employee_name || 'Mehdi').trim() || 'Mehdi';
@@ -43,7 +60,7 @@ router.get('/monthly-pnl', async (req, res) => {
   }
 });
 
-router.get('/profitability', async (_req, res) => {
+router.get('/profitability', requireFinanceData, requireFinanceUnlock, async (_req, res) => {
   try {
     const [
       revenue,
@@ -81,7 +98,7 @@ router.get('/profitability', async (_req, res) => {
   }
 });
 
-router.get('/projects/:id/costs', async (req, res) => {
+router.get('/projects/:id/costs', requireAnyPermission('finance', 'invoices', 'expenses', 'projects'), async (req, res) => {
   try {
     const costs = await computeProjectCosts(Number(req.params.id));
     if (!costs) return res.status(404).json({ error: 'Projet introuvable' });
@@ -91,7 +108,7 @@ router.get('/projects/:id/costs', async (req, res) => {
   }
 });
 
-router.get('/projects/:id/materials', async (req, res) => {
+router.get('/projects/:id/materials', requireAnyPermission('finance', 'invoices', 'expenses', 'projects', 'production'), async (req, res) => {
   try {
     if (req.query.sync !== '0') {
       await syncMaterialsFromQuote(Number(req.params.id));
@@ -107,7 +124,7 @@ router.get('/projects/:id/materials', async (req, res) => {
   }
 });
 
-router.post('/projects/:id/materials/sync-quote', async (req, res) => {
+router.post('/projects/:id/materials/sync-quote', requireAnyPermission('finance', 'invoices', 'projects', 'production'), async (req, res) => {
   try {
     const result = await syncMaterialsFromQuote(Number(req.params.id));
     const { rows } = await pool.query(
@@ -120,7 +137,7 @@ router.post('/projects/:id/materials/sync-quote', async (req, res) => {
   }
 });
 
-router.post('/projects/:id/materials', async (req, res) => {
+router.post('/projects/:id/materials', requireAnyPermission('finance', 'invoices', 'projects', 'production'), async (req, res) => {
   try {
     const b = req.body;
     const { rows } = await pool.query(
