@@ -8,7 +8,9 @@ export default function RoadmapPage() {
   return (
     <AuthGuard>
       <AppShell title="Roadmap ERP" subtitle="Priorités produit et backlog">
-        <ErpRoadmapContent />
+        <div className="neya-enter">
+          <ErpRoadmapContent />
+        </div>
       </AppShell>
     </AuthGuard>
   );

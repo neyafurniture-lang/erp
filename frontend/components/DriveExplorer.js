@@ -460,7 +460,7 @@ export default function DriveExplorer({ projectId = null, initialFolderId = 'roo
 
   if (connected === null) {
     return (
-      <div className="drive-shell items-center justify-center">
+      <div className="drive-shell items-center justify-center neya-enter">
         <div className="flex flex-col items-center gap-3 py-16">
           <div className="w-6 h-6 border-2 border-neya-border border-t-neya-ink rounded-full animate-spin" />
           <p className="text-sm text-neya-muted">Connexion à Google Drive…</p>
@@ -471,7 +471,7 @@ export default function DriveExplorer({ projectId = null, initialFolderId = 'roo
 
   if (!connected) {
     return (
-      <div className="drive-shell">
+      <div className="drive-shell neya-enter">
         <EmptyDrive title="Google Drive non connecté">
           <p className="mb-4">Connectez votre compte Google pour parcourir et gérer vos fichiers.</p>
           <div className="flex flex-wrap justify-center gap-2">
@@ -485,7 +485,7 @@ export default function DriveExplorer({ projectId = null, initialFolderId = 'roo
 
   if (driveCtx?.restricted && !driveCtx.roots.length) {
     return (
-      <div className="drive-shell">
+      <div className="drive-shell neya-enter">
         <EmptyDrive title="Accès restreint">
           Aucun dossier Drive autorisé pour votre compte. Contactez un administrateur.
         </EmptyDrive>
@@ -498,7 +498,7 @@ export default function DriveExplorer({ projectId = null, initialFolderId = 'roo
   const listCompact = showPreview;
 
   return (
-    <div className="drive-shell">
+    <div className="drive-shell neya-enter">
       {!projectId && adminUser && (
         <div className="flex items-center gap-1 px-3 py-1.5 border-b border-neya-border bg-neya-surface/40">
           <button
@@ -775,13 +775,13 @@ export default function DriveExplorer({ projectId = null, initialFolderId = 'roo
             {showRootsGrid ? (
               <div>
                 <p className="text-sm text-neya-muted mb-4 px-1">Choisissez un dossier auquel vous avez accès</p>
-                <div className="drive-grid">
+                <div className="drive-grid neya-stagger">
                   {driveCtx.roots.map(root => (
                     <button
                       key={root.folder_id}
                       type="button"
                       onClick={() => pickRoot(root)}
-                      className="drive-card"
+                      className="drive-card neya-lift"
                     >
                       <span className="drive-card-media">
                         <span className="drive-file-icon bg-neya-surface text-neya-muted border border-neya-border">
@@ -814,7 +814,7 @@ export default function DriveExplorer({ projectId = null, initialFolderId = 'roo
                   : 'Glissez-déposez un fichier ou cliquez sur Importer pour commencer.'}
               </EmptyDrive>
             ) : view === 'grid' && !listCompact ? (
-              <div className="drive-grid">
+              <div className="drive-grid neya-stagger">
                 {files.map(f => {
                   const kind = fileKind(f.mimeType, f.isFolder);
                   const meta = MIME[kind];
@@ -826,7 +826,7 @@ export default function DriveExplorer({ projectId = null, initialFolderId = 'roo
                       type="button"
                       onClick={() => selectItem(f)}
                       onDoubleClick={() => openItem(f)}
-                      className={`drive-card ${isSelected ? 'drive-card-selected' : ''}`}
+                      className={`drive-card neya-lift ${isSelected ? 'drive-card-selected' : ''}`}
                     >
                       <span className="drive-card-media">
                         {thumb ? (
@@ -846,7 +846,7 @@ export default function DriveExplorer({ projectId = null, initialFolderId = 'roo
                 })}
               </div>
             ) : (
-              <div className="drive-list">
+              <div className="drive-list neya-stagger">
                 <div className="hidden sm:grid grid-cols-[1fr_100px_80px] gap-2 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-neya-muted">
                   <span>Nom</span>
                   <span>Modifié</span>
@@ -860,7 +860,7 @@ export default function DriveExplorer({ projectId = null, initialFolderId = 'roo
                       type="button"
                       onClick={() => selectItem(f)}
                       onDoubleClick={() => openItem(f)}
-                      className={`drive-row w-full text-left ${isSelected ? 'drive-row-selected' : ''}`}
+                      className={`drive-row w-full text-left neya-lift ${isSelected ? 'drive-row-selected' : ''}`}
                     >
                       <FileTypeIcon mimeType={f.mimeType} isFolder={f.isFolder} />
                       <span className="flex-1 min-w-0">

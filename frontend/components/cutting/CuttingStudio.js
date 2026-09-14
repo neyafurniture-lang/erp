@@ -245,7 +245,7 @@ export default function CuttingStudio() {
   }
 
   return (
-    <div className="cut-studio">
+    <div className="cut-studio neya-enter">
       {/* Top bar */}
       <header className="cut-studio__top">
         <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -268,7 +268,7 @@ export default function CuttingStudio() {
           </button>
         </div>
 
-        <div className="cut-studio__stats">
+        <div className="cut-studio__stats neya-enter" style={{ animationDelay: '60ms' }}>
           {mode === '1d' ? (
             <>
               <span><b>{stats.boards}</b> planches</span>
@@ -302,7 +302,7 @@ export default function CuttingStudio() {
       </header>
 
       {error && (
-        <div className="mx-3 mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+        <div className="mx-3 mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 neya-enter">
           {error}
         </div>
       )}
@@ -319,7 +319,7 @@ export default function CuttingStudio() {
 
       <div className="cut-studio__body">
         {/* Left input */}
-        <aside className={`cut-studio__sidebar ${mobilePane === 'input' ? 'is-open' : ''}`}>
+        <aside className={`cut-studio__sidebar neya-enter ${mobilePane === 'input' ? 'is-open' : ''}`} style={{ animationDelay: '45ms' }}>
           {/* Réglages panneau toujours visibles — pas besoin de défiler */}
           <section className="cut-side-block cut-side-block--pinned">
             <h3>Réglages panneau</h3>

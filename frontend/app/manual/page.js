@@ -8,7 +8,9 @@ export default function ManualPage() {
   return (
     <AuthGuard>
       <AppShell title="Manuel ERP" subtitle="Guide d'utilisation de l'atelier numérique">
-        <ErpManualContent />
+        <div className="neya-enter">
+          <ErpManualContent />
+        </div>
       </AppShell>
     </AuthGuard>
   );

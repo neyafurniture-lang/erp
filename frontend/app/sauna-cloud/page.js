@@ -481,7 +481,7 @@ function QtyInput({ value, onCommit, disabled, className = '' }) {
 
 function SummaryCard({ label, value, accent, sub, style }) {
   return (
-    <div className={`rounded-2xl border border-neya-border bg-white px-4 py-3 ${accent || ''}`} style={style}>
+    <div className={`neya-lift rounded-2xl border border-neya-border bg-white px-4 py-3 ${accent || ''}`} style={style}>
       <p className="text-[11px] uppercase tracking-wide text-neya-muted">{label}</p>
       <p className="text-2xl font-display font-semibold tabular-nums text-neya-ink">{value}</p>
       {sub ? <p className="text-[11px] text-neya-muted mt-0.5">{sub}</p> : null}
@@ -848,7 +848,7 @@ export default function SaunaCloudPage() {
   return (
     <AuthGuard>
       <AppShell title="Sauna Cloud" subtitle="Tableau de suivi des frames — pièces manquantes (plan Sierra)" wide>
-        <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
+        <div className="flex flex-wrap items-end justify-between gap-4 mb-6 neya-enter">
           <div>
             <p className="text-sm text-neya-muted max-w-xl">
               Saisissez les quantités par étape. Les <strong className="font-medium text-neya-ink">éléments manquants</strong> se
@@ -889,21 +889,21 @@ export default function SaunaCloudPage() {
         </div>
 
         {error && (
-          <div className="mb-4 text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">
+          <div className="mb-4 text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl neya-enter">
             {error}
           </div>
         )}
 
-        <div className="h-2.5 bg-neya-surface rounded-full overflow-hidden mb-6">
+        <div className="h-2.5 bg-neya-surface rounded-full overflow-hidden mb-6 neya-enter" style={{ animationDelay: '45ms' }}>
           <div className="h-full bg-neya-orange transition-all" style={{ width: `${totals.pct}%` }} />
         </div>
 
         {/* Totaux commande — cliquables pour noter les tailles */}
-        <div className="grid sm:grid-cols-2 gap-3 mb-4">
+        <div className="grid sm:grid-cols-2 gap-3 mb-4 neya-stagger">
           <button
             type="button"
             onClick={() => openSizePanel('sides')}
-            className="text-left rounded-2xl border-2 border-neya-orange/50 bg-neya-orange/[0.07] px-5 py-4 hover:border-neya-orange transition-colors"
+            className="neya-lift text-left rounded-2xl border-2 border-neya-orange/50 bg-neya-orange/[0.07] px-5 py-4 hover:border-neya-orange transition-colors"
           >
             <p className="text-[12px] font-semibold uppercase tracking-wide text-neya-orange">
               Côtés de cadre
@@ -922,7 +922,7 @@ export default function SaunaCloudPage() {
           <button
             type="button"
             onClick={() => openSizePanel('traverses')}
-            className="text-left rounded-2xl border-2 border-neya-orange/50 bg-neya-orange/[0.07] px-5 py-4 hover:border-neya-orange transition-colors"
+            className="neya-lift text-left rounded-2xl border-2 border-neya-orange/50 bg-neya-orange/[0.07] px-5 py-4 hover:border-neya-orange transition-colors"
           >
             <p className="text-[12px] font-semibold uppercase tracking-wide text-neya-orange">
               Traverses
@@ -941,8 +941,8 @@ export default function SaunaCloudPage() {
         </div>
 
         {/* Bois déjà débité vs encore à couper */}
-        <div className="grid sm:grid-cols-2 gap-3 mb-4">
-          <div className={`rounded-2xl border px-5 py-4 ${STAGE_STYLE.debited.card}`}>
+        <div className="grid sm:grid-cols-2 gap-3 mb-4 neya-stagger">
+          <div className={`neya-lift rounded-2xl border px-5 py-4 ${STAGE_STYLE.debited.card}`}>
             <p className="text-[12px] font-semibold uppercase tracking-wide text-stone-700">
               Déjà débités
             </p>
@@ -964,7 +964,7 @@ export default function SaunaCloudPage() {
               Frames placées (≥ Débité) · colonne Débité seule : {totals.sides_debited} côtés · {totals.traverses_debited} trav.
             </p>
           </div>
-          <div className="rounded-2xl border border-neya-border bg-neya-cream/30 px-5 py-4">
+          <div className="neya-lift rounded-2xl border border-neya-border bg-neya-cream/30 px-5 py-4">
             <p className="text-[12px] font-semibold uppercase tracking-wide text-neya-muted">
               Encore à débiter
             </p>
@@ -988,7 +988,7 @@ export default function SaunaCloudPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 mb-6 neya-stagger">
           <SummaryCard label="Commande" value={totals.qty} />
           <SummaryCard label="À faire" value={totals.remaining} />
           <SummaryCard
@@ -1008,7 +1008,7 @@ export default function SaunaCloudPage() {
           <SummaryCard label="Livré" value={totals.delivered} accent={STAGE_STYLE.delivered.card} style={{ backgroundColor: STAGE_STYLE.delivered.bgSoft }} />
         </div>
 
-        <div className="rounded-2xl border border-neya-border bg-white overflow-x-auto mb-6 shadow-sm">
+        <div className="rounded-2xl border border-neya-border bg-white overflow-x-auto mb-6 shadow-sm neya-enter neya-lift" style={{ animationDelay: '90ms' }}>
           <table className="w-full text-sm min-w-[1180px]">
             <thead>
               <tr className="border-b border-neya-border bg-neya-cream/40">
@@ -1202,7 +1202,7 @@ export default function SaunaCloudPage() {
         )}
 
         {/* Plan Sierra — manquants par étape + longueurs */}
-        <section className="mb-8 rounded-2xl border border-neya-border bg-white p-5 shadow-sm">
+        <section className="mb-8 rounded-2xl border border-neya-border bg-white p-5 shadow-sm neya-enter neya-lift" style={{ animationDelay: '120ms' }}>
           <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
             <div>
               <h2 className="font-display font-semibold text-base text-neya-ink">
@@ -1219,8 +1219,8 @@ export default function SaunaCloudPage() {
             </a>
           </div>
 
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
-            <div className={`rounded-xl border px-3 py-3 sm:col-span-2 ${STAGE_STYLE.debited.card}`}>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5 neya-stagger">
+            <div className={`neya-lift rounded-xl border px-3 py-3 sm:col-span-2 ${STAGE_STYLE.debited.card}`}>
               <p className="text-[11px] uppercase tracking-wide text-stone-600">Déjà débités (Sierra)</p>
               <div className="mt-1 flex flex-wrap gap-6">
                 <p className="text-xl font-display font-semibold tabular-nums text-neya-ink">
@@ -1240,7 +1240,7 @@ export default function SaunaCloudPage() {
             {stageMissing.map((s) => (
               <div
                 key={s.key}
-                className={`rounded-xl border px-3 py-3 ${STAGE_STYLE[s.key]?.card || 'border-neya-border bg-neya-surface/40'}`}
+                className={`neya-lift rounded-xl border px-3 py-3 ${STAGE_STYLE[s.key]?.card || 'border-neya-border bg-neya-surface/40'}`}
               >
                 <p className="text-[11px] uppercase tracking-wide text-neya-muted">Avant {s.label}</p>
                 <p className="text-xl font-display font-semibold tabular-nums text-neya-ink">
@@ -1286,8 +1286,8 @@ export default function SaunaCloudPage() {
           </div>
         </section>
 
-        <div className="grid lg:grid-cols-2 gap-4">
-          <div className="card rounded-2xl">
+        <div className="grid lg:grid-cols-2 gap-4 neya-stagger">
+          <div className="card rounded-2xl neya-lift">
             <h2 className="font-display font-semibold text-base mb-2">Notes projet</h2>
             <textarea
               className="input text-sm min-h-[120px] resize-y"
@@ -1296,7 +1296,7 @@ export default function SaunaCloudPage() {
               onChange={(e) => scheduleProjectNotes(e.target.value)}
             />
           </div>
-          <div className="rounded-2xl border border-neya-border bg-neya-surface p-4 text-sm text-neya-muted space-y-2">
+          <div className="neya-lift rounded-2xl border border-neya-border bg-neya-surface p-4 text-sm text-neya-muted space-y-2">
             <p className="font-medium text-neya-ink">Comment remplir</p>
             <p>Chaque frame ne compte que dans <em>une</em> colonne à la fois.</p>
             <p>1. Débit → <span className="text-stone-700 font-medium">Débité</span> (gris)</p>
