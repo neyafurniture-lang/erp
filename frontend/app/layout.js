@@ -46,8 +46,8 @@ export default function RootLayout({ children }) {
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png" />
-        <link rel="manifest" href="/site.webmanifest" />
+        <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png?v=2" />
+        <link rel="manifest" href="/site.webmanifest?v=2" />
       </head>
       <body className="overscroll-none font-body">
         <Providers>{children}</Providers>
