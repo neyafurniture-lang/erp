@@ -13,6 +13,20 @@ function num(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** Toujours YYYY-MM-DD (évite « Tue Sep 01 » via String(Date).slice). */
+function toDateOnly(d) {
+  if (!d) return null;
+  if (d instanceof Date) {
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toISOString().slice(0, 10);
+  }
+  const s = String(d).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const parsed = new Date(s);
+  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+  return null;
+}
+
 function parseBreakdown(raw) {
   if (!raw) return null;
   if (typeof raw === 'string') {
@@ -42,7 +56,9 @@ export async function ensurePayStubSchema() {
 }
 
 function defaultPayDate(endDate) {
-  const d = new Date(`${endDate}T12:00:00`);
+  const iso = toDateOnly(endDate);
+  if (!iso) throw new Error(`Date de fin de période invalide: ${endDate}`);
+  const d = new Date(`${iso}T12:00:00`);
   d.setDate(d.getDate() + 4);
   while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
   return d.toISOString().slice(0, 10);
@@ -95,8 +111,15 @@ export async function computeLineBreakdown(line, period, employee, ytdBefore, ov
 export async function refreshLineBreakdown(periodId, employeeId) {
   await ensurePayStubSchema();
   const { rows: periods } = await pool.query('SELECT * FROM payroll_periods WHERE id = $1', [periodId]);
-  const period = periods[0];
-  if (!period) throw new Error('Période introuvable');
+  const raw = periods[0];
+  if (!raw) throw new Error('Période introuvable');
+  const period = {
+    ...raw,
+    start_date: toDateOnly(raw.start_date),
+    end_date: toDateOnly(raw.end_date),
+    pay_date: toDateOnly(raw.pay_date),
+  };
+  if (!period.end_date) throw new Error('Date de fin de période invalide');
 
   const { rows: lines } = await pool.query(
     `SELECT pl.*, e.name AS employee_name
@@ -112,7 +135,7 @@ export async function refreshLineBreakdown(periodId, employeeId) {
     return parseBreakdown(line.deduction_breakdown);
   }
 
-  const taxYear = new Date(`${period.end_date}T12:00:00`).getFullYear();
+  const taxYear = Number(period.end_date.slice(0, 4));
   const ytdBefore = await fetchYtdBeforePeriod(employeeId, period.end_date, taxYear);
 
   const existing = parseBreakdown(line.deduction_breakdown);
@@ -146,8 +169,17 @@ export async function buildPayStub(periodId, employeeId) {
   await ensurePayStubSchema();
 
   const { rows: periods } = await pool.query('SELECT * FROM payroll_periods WHERE id = $1', [periodId]);
-  const period = periods[0];
-  if (!period) throw new Error('Période introuvable');
+  const raw = periods[0];
+  if (!raw) throw new Error('Période introuvable');
+  const period = {
+    ...raw,
+    start_date: toDateOnly(raw.start_date),
+    end_date: toDateOnly(raw.end_date),
+    pay_date: toDateOnly(raw.pay_date),
+  };
+  if (!period.end_date || !period.start_date) {
+    throw new Error('Dates de période invalides');
+  }
 
   const payDate = period.pay_date || defaultPayDate(period.end_date);
 
@@ -166,7 +198,7 @@ export async function buildPayStub(periodId, employeeId) {
   );
   const line = lines[0];
 
-  const taxYear = new Date(`${period.end_date}T12:00:00`).getFullYear();
+  const taxYear = Number(period.end_date.slice(0, 4));
   const ytdBefore = await fetchYtdBeforePeriod(employeeId, period.end_date, taxYear);
   const ytd = mergeYtd(ytdBefore, breakdown);
 
@@ -192,8 +224,8 @@ export async function buildPayStub(periodId, employeeId) {
     },
     period: {
       id: period.id,
-      startDate: String(period.start_date).slice(0, 10),
-      endDate: String(period.end_date).slice(0, 10),
+      startDate: period.start_date,
+      endDate: period.end_date,
       payDate,
       status: period.status,
     },

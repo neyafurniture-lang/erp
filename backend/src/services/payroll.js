@@ -10,6 +10,20 @@ function round2(n) {
   return Math.round(num(n) * 100) / 100;
 }
 
+/** Toujours YYYY-MM-DD (évite « Tue Sep 01 » via String(Date).slice). */
+function toDateOnly(d) {
+  if (!d) return null;
+  if (d instanceof Date) {
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toISOString().slice(0, 10);
+  }
+  const s = String(d).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const parsed = new Date(s);
+  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+  return null;
+}
+
 function normalizeName(name) {
   return String(name || '')
     .toLowerCase()
@@ -207,8 +221,10 @@ async function ensurePeriodRow(start, end) {
  */
 export async function computePayrollOverview({ start, end } = {}) {
   await ensurePayrollTables();
-  const periodDates = start && end
-    ? { start, end, label: `${start} → ${end}` }
+  const startIso = start ? toDateOnly(start) : null;
+  const endIso = end ? toDateOnly(end) : null;
+  const periodDates = startIso && endIso
+    ? { start: startIso, end: endIso, label: `${startIso} → ${endIso}` }
     : resolvePayPeriod(new Date());
 
   const period = await ensurePeriodRow(periodDates.start, periodDates.end);
@@ -350,13 +366,15 @@ export async function computePayrollOverview({ start, end } = {}) {
 
   const todosDone = todos.filter(t => t.done).length;
 
+  const periodStart = toDateOnly(periodOut.start_date);
+  const periodEnd = toDateOnly(periodOut.end_date);
   return {
     period: {
       ...periodOut,
-      label: periodDates.label || `${periodOut.start_date} → ${periodOut.end_date}`,
-      start_date: String(periodOut.start_date).slice(0, 10),
-      end_date: String(periodOut.end_date).slice(0, 10),
-      pay_date: periodOut.pay_date ? String(periodOut.pay_date).slice(0, 10) : null,
+      label: periodDates.label || `${periodStart} → ${periodEnd}`,
+      start_date: periodStart,
+      end_date: periodEnd,
+      pay_date: toDateOnly(periodOut.pay_date),
     },
     lines: finalLines,
     todos,
@@ -435,4 +453,4 @@ export async function addPayrollTodo(periodId, { title, link_href = null, due_da
   return rows[0];
 }
 
-export { ensurePayrollTables };
+export { ensurePayrollTables, toDateOnly };

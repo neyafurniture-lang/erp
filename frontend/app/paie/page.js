@@ -22,6 +22,16 @@ const STATUS_LABEL = {
   paid: 'Payée',
 };
 
+/** Affiche YYYY-MM-DD même si l’API renvoie un ISO complet ou une Date sérialisée. */
+function formatDateOnly(value) {
+  if (!value) return '—';
+  const s = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const d = new Date(s);
+  if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  return s;
+}
+
 function Kpi({ label, value, hint }) {
   return (
     <div className="rounded-2xl border border-neya-border bg-white px-4 py-3 shadow-sm">
@@ -189,8 +199,8 @@ export default function PaiePage() {
                 {period?.label || 'Période'}
               </p>
               <p className="text-xs text-neya-muted">
-                {period?.start_date} → {period?.end_date}
-                {period?.pay_date ? ` · Paie le ${period.pay_date}` : ''}
+                {formatDateOnly(period?.start_date)} → {formatDateOnly(period?.end_date)}
+                {period?.pay_date ? ` · Paie le ${formatDateOnly(period.pay_date)}` : ''}
                 {' · '}
                 <span className={`font-medium ${
                   period?.status === 'paid' ? 'text-emerald-700' : 'text-neya-orange'
