@@ -80,10 +80,12 @@ function decodeStored(value) {
 export function getSavedLogin() {
   if (typeof window === 'undefined') return { email: '', password: '', remember: false };
   const remember = localStorage.getItem(LOGIN_REMEMBER_KEY) === '1';
+  // Ne plus lire/stocker le mot de passe (base64 ≠ chiffrement) — purge résidus.
+  localStorage.removeItem(LOGIN_PASSWORD_KEY);
   if (!remember) return { email: '', password: '', remember: false };
   return {
     email: localStorage.getItem(LOGIN_EMAIL_KEY) || '',
-    password: decodeStored(localStorage.getItem(LOGIN_PASSWORD_KEY) || ''),
+    password: '',
     remember: true,
   };
 }
@@ -93,7 +95,8 @@ export function saveLoginCredentials(email, password, remember) {
   if (remember) {
     localStorage.setItem(LOGIN_REMEMBER_KEY, '1');
     localStorage.setItem(LOGIN_EMAIL_KEY, email);
-    localStorage.setItem(LOGIN_PASSWORD_KEY, encodeStored(password));
+    // Email seulement — jamais le mot de passe en clair/base64.
+    localStorage.removeItem(LOGIN_PASSWORD_KEY);
   } else {
     clearSavedLoginCredentials();
   }
