@@ -297,8 +297,8 @@ h1, h2, h3, h4, h5, h6 {
   .neya-picto-mask {
     display: block;
     background-color: #0A0A0A;
-    -webkit-mask-image: url('/brand/picto-orange.png');
-    mask-image: url('/brand/picto-orange.png');
+    -webkit-mask-image: url('/brand/picto-orange.png?v=2');
+    mask-image: url('/brand/picto-orange.png?v=2');
     -webkit-mask-size: contain;
     mask-size: contain;
     -webkit-mask-repeat: no-repeat;

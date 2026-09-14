@@ -43,7 +43,8 @@ const PAGE_H = 792;
 const W = PAGE_W - M * 2;
 const R = M + W;
 const LOGO_W = 84;
-const LOGO_RATIO = 596 / 842;
+/** Ratio hauteur/largeur du wordmark recadré (`backend/brand/logo-orange.png`). */
+const LOGO_RATIO = 256 / 606;
 const FOOTER_Y = PAGE_H - 42;
 const BODY_LIMIT = FOOTER_Y - 24;
 
