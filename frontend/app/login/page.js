@@ -214,7 +214,7 @@ export default function LoginPage() {
                 onChange={(e) => setRemember(e.target.checked)}
                 className="w-4 h-4 accent-neya-orange rounded"
               />
-              <span className="text-sm text-neya-ink">Mémoriser le mot de passe</span>
+              <span className="text-sm text-neya-ink">Mémoriser l’adresse courriel</span>
             </label>
 
             <button

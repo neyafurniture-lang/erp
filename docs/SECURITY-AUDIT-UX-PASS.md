@@ -45,15 +45,12 @@ Fichiers clés : `backend/src/routes/analytics.js`, `middleware/finance-unlock.j
 - **Ex.** : `backend/src/index.js` monte `protectedRouter` avec `authMiddleware` seulement ; `payroll.js:28-44` est une exception positive.
 - **Reco** : appliquer `requirePermission` / `requireAnyPermission` route par route (au minimum finance, paie, users, deploy, assistant destructif).
 
-### 7. Moyen — Drive ACL vide = Drive entier
-- **Sévérité** : moyenne (après patch permission `drive`).
-- `backend/src/services/drive-access.js:39` : si `drive_access` est vide et non-admin → `restricted: false` (accès global au Drive connecté).
-- **Reco** : mode « deny by default » pour non-admin (liste vide = aucun dossier), ou flag explicite `drive_full: true`.
+### 7. Moyen → **patché** — Drive ACL vide = Drive entier
+- **Avant** : `drive-access.js` ouvrait tout le Drive si `drive_access` vide (non-admin).
+- **Désormais** : deny-by-default — liste vide → `restricted: true`, `roots: []`.
 
-### 8. Moyen — mot de passe login en `localStorage` (base64)
-- **Sévérité** : moyenne.
-- `frontend/lib/api.js:89-97` (`saveLoginCredentials`) — « Se souvenir » stocke le mot de passe (encodage trivial, pas un chiffrement).
-- **Reco** : ne stocker que l’email ; ou session cookie httpOnly + refresh.
+### 8. Moyen → **patché** — mot de passe login en `localStorage`
+- **Désormais** : « Se souvenir » stocke uniquement l’email ; clé password purgée à la lecture/écriture.
 
 ### 9. Moyen — JWT session dans `?access_token=` pour `/uploads`
 - **Sévérité** : moyenne.
