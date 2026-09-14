@@ -246,7 +246,7 @@ export default function LoginPage() {
 
       <div className="relative hidden overflow-hidden bg-neya-ink text-white lg:block grain neya-enter-fade">
         <div className="absolute inset-0 bg-gradient-to-br from-neya-ink via-neya-ink to-neya-orange/40" />
-        <div className="absolute -right-20 top-24 h-64 w-64 rounded-full bg-neya-orange/20 blur-3xl animate-[neya-pulse-soft_6s_ease-in-out_infinite]" />
+        <div className="absolute -right-20 top-24 h-64 w-64 rounded-full bg-neya-orange/20 blur-3xl" style={{ animation: 'neya-pulse-soft 6s ease-in-out infinite' }} />
         <div className="absolute -left-16 bottom-32 h-48 w-48 rounded-full bg-white/10 blur-3xl" />
         <div className="relative z-10 flex h-full flex-col justify-between p-16">
           <div className="flex items-center justify-between gap-4">
