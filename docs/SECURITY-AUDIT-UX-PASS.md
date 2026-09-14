@@ -39,11 +39,10 @@ Fichiers clés : `backend/src/routes/analytics.js`, `middleware/finance-unlock.j
 - **Désormais** : `DEFAULTS.project_admin_pin` vide ; booléen `configured` honnête ; en **production** unlock refuse si aucun PIN settings/env (503). Dev garde `31250` pour bootstrap local.
 - **Reste** : seed Mehdi / login setup peuvent encore préremplir `31250` en non-prod (`db/init.js`, `login/page.js`).
 
-### 6. Élevé — permissions métier surtout côté UI
-- **Sévérité** : élevée.
-- La plupart des routes (`clients`, `invoices`, `expenses`, `projects`, etc.) n’ont **pas** `requirePermission` ; seul le JWT suffit. Le frontend filtre via `canAccessPath`.
-- **Ex.** : `backend/src/index.js` monte `protectedRouter` avec `authMiddleware` seulement ; `payroll.js:28-44` est une exception positive.
-- **Reco** : appliquer `requirePermission` / `requireAnyPermission` route par route (au minimum finance, paie, users, deploy, assistant destructif).
+### 6. Élevé → **patché** — permissions métier surtout côté UI
+- **Avant** : la plupart des mounts `/api/*` n’avaient que `authMiddleware`.
+- **Désormais** : `backend/src/index.js` applique `requirePermission` / `requireAnyPermission` / `requireAdmin` au montage (clients, projets, factures, paiements, dépenses, production, stock, achats, employés, deploy, cursor-agent, marketplace, social, marchés, etc.). Routes déjà durcies (settings, drive, gmail, analytics, payroll, users) inchangées.
+- **Reste** : affiner les clés (ex. assistant, modules, habits) si besoin métier.
 
 ### 7. Moyen → **patché** — Drive ACL vide = Drive entier
 - **Avant** : `drive-access.js` ouvrait tout le Drive si `drive_access` vide (non-admin).
