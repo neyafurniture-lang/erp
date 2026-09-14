@@ -9,7 +9,10 @@ import {
   addPayrollTodo,
   resolvePayPeriod,
   shiftPeriod,
+  toDateOnly,
 } from '../services/payroll.js';
+import { buildPayStub } from '../services/payroll-stub.js';
+import { generatePayStubPdf } from '../services/pay-stub-pdf.js';
 
 const router = Router();
 
@@ -105,6 +108,46 @@ router.post('/todos', async (req, res) => {
     res.status(201).json(todo);
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+/** Talon de paie PDF — cumuls CDA inclus. */
+router.get('/stubs/:periodId/:employeeId/pdf', async (req, res) => {
+  try {
+    const periodId = Number(req.params.periodId);
+    const employeeId = Number(req.params.employeeId);
+    const { rows: periods } = await pool.query('SELECT start_date, end_date FROM payroll_periods WHERE id = $1', [periodId]);
+    if (!periods[0]) return res.status(404).json({ error: 'Période introuvable' });
+    const start = toDateOnly(periods[0].start_date);
+    const end = toDateOnly(periods[0].end_date);
+    if (!start || !end) return res.status(400).json({ error: 'Dates de période invalides' });
+    await computePayrollOverview({ start, end });
+    const stub = await buildPayStub(periodId, employeeId);
+    const safeName = String(stub.employee.name || 'employe').replace(/[^\w\-]+/g, '_');
+    const endLabel = stub.period?.end_date || stub.period?.endDate || end;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="talon-paie-${safeName}-${endLabel}.pdf"`);
+    await generatePayStubPdf(stub, res);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** JSON talon (aperçu / cumuls). */
+router.get('/stubs/:periodId/:employeeId', async (req, res) => {
+  try {
+    const periodId = Number(req.params.periodId);
+    const employeeId = Number(req.params.employeeId);
+    const { rows: periods } = await pool.query('SELECT start_date, end_date FROM payroll_periods WHERE id = $1', [periodId]);
+    if (!periods[0]) return res.status(404).json({ error: 'Période introuvable' });
+    const start = toDateOnly(periods[0].start_date);
+    const end = toDateOnly(periods[0].end_date);
+    if (!start || !end) return res.status(400).json({ error: 'Dates de période invalides' });
+    await computePayrollOverview({ start, end });
+    const stub = await buildPayStub(periodId, employeeId);
+    res.json(stub);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

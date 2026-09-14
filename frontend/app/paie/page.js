@@ -7,19 +7,30 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  FileText,
   Plus,
   RefreshCw,
   ListChecks,
 } from 'lucide-react';
 import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
-import { api, formatMoney } from '../../lib/api';
+import { api, formatMoney, downloadPdf } from '../../lib/api';
 
 const STATUS_LABEL = {
   open: 'Ouverte',
   review: 'En révision',
   paid: 'Payée',
 };
+
+/** Affiche YYYY-MM-DD même si l’API renvoie un ISO complet ou une Date sérialisée. */
+function formatDateOnly(value) {
+  if (!value) return '—';
+  const s = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const d = new Date(s);
+  if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  return s;
+}
 
 function Kpi({ label, value, hint }) {
   return (
@@ -39,6 +50,24 @@ export default function PaiePage() {
   const [busy, setBusy] = useState('');
   const [newTodo, setNewTodo] = useState('');
   const [editLine, setEditLine] = useState(null);
+  const [pdfLoading, setPdfLoading] = useState(null);
+
+  async function downloadStub(employeeId, employeeName) {
+    if (!data?.period?.id) return;
+    setPdfLoading(employeeId);
+    setErr('');
+    try {
+      const safe = String(employeeName || 'employe').replace(/[^\w\-]+/g, '_');
+      await downloadPdf(
+        `/payroll/stubs/${data.period.id}/${employeeId}/pdf`,
+        `talon-paie-${safe}-${data.period.end_date}.pdf`
+      );
+    } catch (e) {
+      setErr(e.message || 'Impossible de générer le talon');
+    } finally {
+      setPdfLoading(null);
+    }
+  }
 
   const load = useCallback(async (start, end) => {
     setLoading(true);
@@ -170,7 +199,8 @@ export default function PaiePage() {
                 {period?.label || 'Période'}
               </p>
               <p className="text-xs text-neya-muted">
-                {period?.start_date} → {period?.end_date}
+                {formatDateOnly(period?.start_date)} → {formatDateOnly(period?.end_date)}
+                {period?.pay_date ? ` · Paie le ${formatDateOnly(period.pay_date)}` : ''}
                 {' · '}
                 <span className={`font-medium ${
                   period?.status === 'paid' ? 'text-emerald-700' : 'text-neya-orange'
@@ -255,7 +285,15 @@ export default function PaiePage() {
                         </p>
                         {(line.deductions > 0 || line.advances > 0) && (
                           <p className="text-xs text-neya-muted mt-0.5">
-                            Déductions {formatMoney(line.deductions)} · Avances {formatMoney(line.advances)}
+                            Retenues {formatMoney(line.deductions)} · Avances {formatMoney(line.advances)}
+                          </p>
+                        )}
+                        {line.deduction_breakdown?.deductions?.length > 0 && (
+                          <p className="text-[11px] text-neya-muted mt-1">
+                            {line.deduction_breakdown.deductions
+                              .filter(d => Number(d.employee) > 0)
+                              .map(d => `${d.label.split(' ')[0]} ${formatMoney(d.employee)}`)
+                              .join(' · ')}
                           </p>
                         )}
                         {line.notes && <p className="text-xs text-neya-muted mt-0.5">{line.notes}</p>}
@@ -268,7 +306,7 @@ export default function PaiePage() {
                         <p className="text-[11px] text-neya-muted tabular-nums">Brut {formatMoney(line.gross)}</p>
                         <button
                           type="button"
-                          className="text-xs text-neya-orange hover:underline mt-1"
+                          className="text-xs text-neya-orange hover:underline mt-1 block"
                           onClick={() => setEditLine({
                             employee_id: line.employee_id,
                             employee_name: line.employee_name,
@@ -278,6 +316,15 @@ export default function PaiePage() {
                           })}
                         >
                           Ajuster
+                        </button>
+                        <button
+                          type="button"
+                          className="text-xs text-neya-ink hover:underline mt-1 inline-flex items-center gap-1"
+                          disabled={pdfLoading === line.employee_id}
+                          onClick={() => downloadStub(line.employee_id, line.employee_name)}
+                        >
+                          <FileText className="h-3 w-3" />
+                          {pdfLoading === line.employee_id ? 'PDF…' : 'Talon PDF'}
                         </button>
                       </div>
                     </div>
