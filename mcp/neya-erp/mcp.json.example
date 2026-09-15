@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "neya-erp": {
+      "command": "node",
+      "args": ["mcp/neya-erp/src/index.js"],
+      "env": {
+        "NEYA_ERP_URL": "https://erp.neyafurniture.ca",
+        "NEYA_ERP_EMAIL": "admin@neya.local",
+        "NEYA_ERP_PASSWORD": "REMPLACER"
+      }
+    }
+  }
+}
