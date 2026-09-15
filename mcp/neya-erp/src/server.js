@@ -4,7 +4,7 @@
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { erpFetch, erpBaseUrl } from './client.js';
+import { erpFetch, erpBaseUrl, getToken } from './client.js';
 
 function asText(payload) {
   const text = typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2);
@@ -160,7 +160,7 @@ export function createNeyaMcpServer() {
         form.append('message', message);
         if (context) form.append('context', JSON.stringify(context));
 
-        const token = await (await import('./client.js')).getToken();
+        const token = await getToken();
         const base = erpBaseUrl().replace(/\/$/, '');
         const url = `${base.endsWith('/api') ? base : `${base}/api`}/assistant/chat`;
         const res = await fetch(url, {
@@ -170,7 +170,9 @@ export function createNeyaMcpServer() {
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          return asError(new Error(data.error || `chat ${res.status}`));
+          const err = new Error(data.error || `chat ${res.status}`);
+          err.data = data;
+          return asError(err);
         }
         return asText(data);
       } catch (err) {
