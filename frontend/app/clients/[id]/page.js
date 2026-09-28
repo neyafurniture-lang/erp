@@ -188,6 +188,9 @@ export default function ClientDetailPage() {
                 <Sparkles className="h-3.5 w-3.5" />
                 {enriching ? 'Complétion…' : 'Compléter depuis les mails'}
               </button>
+              <Link href={`/clients/${client.id}/achats`} className="btn-secondary text-sm">
+                Listes d’achats
+              </Link>
               <Link href={`/clients?edit=${client.id}`} className="btn-secondary text-sm">
                 Modifier
               </Link>

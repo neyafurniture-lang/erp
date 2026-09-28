@@ -750,6 +750,40 @@ CREATE INDEX IF NOT EXISTS idx_memories_project ON assistant_memories(project_id
 CREATE INDEX IF NOT EXISTS idx_memories_client ON assistant_memories(client_id);
 CREATE INDEX IF NOT EXISTS idx_memories_quote ON assistant_memories(quote_id);
 
+-- Listes d'achats clients (partage public lecture seule via token opaque)
+CREATE TABLE IF NOT EXISTS client_shop_lists (
+  id SERIAL PRIMARY KEY,
+  client_id INT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  subtitle TEXT,
+  public_token TEXT NOT NULL UNIQUE,
+  public_enabled BOOLEAN NOT NULL DEFAULT true,
+  show_client_name BOOLEAN NOT NULL DEFAULT true,
+  expires_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_client_shop_lists_client ON client_shop_lists(client_id);
+CREATE INDEX IF NOT EXISTS idx_client_shop_lists_token ON client_shop_lists(public_token);
+
+CREATE TABLE IF NOT EXISTS client_shop_items (
+  id SERIAL PRIMARY KEY,
+  list_id INT NOT NULL REFERENCES client_shop_lists(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  price NUMERIC(12,2),
+  currency TEXT NOT NULL DEFAULT 'CAD',
+  url TEXT,
+  urgency TEXT NOT NULL DEFAULT 'normal',
+  notes_public TEXT,
+  status TEXT NOT NULL DEFAULT 'todo',
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_client_shop_items_list ON client_shop_items(list_id);
+
 -- Admin créé au démarrage via init.js (ADMIN_PASSWORD)
 
 -- SEED: default assistant skills

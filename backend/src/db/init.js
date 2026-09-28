@@ -516,6 +516,11 @@ export async function initDb() {
   const { seedDefaultAdminTasks, seedPriorityTasks } = await import('../services/admin-task-sync.js');
   await seedDefaultAdminTasks();
   await seedPriorityTasks();
+
+  const { seedSonacloudShopList } = await import('../services/client-shop-lists.js');
+  await seedSonacloudShopList().catch((err) => {
+    console.warn('seedSonacloudShopList (non bloquant):', err.message);
+  });
 }
 
 async function seedV2Extensions() {
