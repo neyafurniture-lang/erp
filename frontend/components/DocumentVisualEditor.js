@@ -567,7 +567,7 @@ export default function DocumentVisualEditor({
                   onReceiveRow={(payload, toIndex) => receiveRowFromOtherSection(section.id, payload, toIndex)}
                   className="doc-table"
                   variant="doc"
-                  sectionTotal={sectionSubtotal(section)}
+                  sectionTotal={meaningful.length ? sectionSubtotal(section) : null}
                   sectionTotalLabel={section.title ? `Sous-total · ${section.title}` : 'Sous-total'}
                 />
               )}
