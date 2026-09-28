@@ -435,6 +435,28 @@ export default function DocumentVisualEditor({
           )}
         </div>
 
+        {isQuote && (
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'baseline',
+              gap: '1rem',
+              margin: '0 0 1.25rem',
+              padding: '0.85rem 1rem',
+              background: 'rgba(216, 107, 48, 0.08)',
+              borderLeft: '3px solid #D86B30',
+            }}
+          >
+            <span style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#6B6B6B' }}>
+              Total HT
+            </span>
+            <span style={{ fontSize: '1.5rem', fontWeight: 700, color: '#D86B30', fontVariantNumeric: 'tabular-nums' }}>
+              {formatMoney(taxes.subtotal)}
+            </span>
+          </div>
+        )}
+
         {sections.map((section, sIdx) => {
           const meaningful = (section.lines || []).filter(isMeaningfulLine);
           if (readOnly && !meaningful.length && !String(section.title || '').trim()) {
@@ -586,15 +608,46 @@ export default function DocumentVisualEditor({
         <footer className={`doc-totals${isQuote ? ' doc-totals--quote' : ''}`}>
           {isQuote ? (
             <>
-              <div className="doc-totals-ht">
+              {/* Styles inline : priorité absolue (évite cache CSS / conflits Tailwind) */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'baseline',
+                  gap: '1rem',
+                  color: '#2A2622',
+                  fontWeight: 700,
+                  fontSize: '1.35rem',
+                  lineHeight: 1.25,
+                  paddingBottom: '0.75rem',
+                  marginBottom: '0.5rem',
+                  borderBottom: '2px solid #D86B30',
+                }}
+              >
                 <span>Total HT</span>
-                <span>{formatMoney(taxes.subtotal)}</span>
+                <span style={{ color: '#D86B30', fontVariantNumeric: 'tabular-nums', fontSize: '1.5rem' }}>
+                  {formatMoney(taxes.subtotal)}
+                </span>
               </div>
               <div className="doc-totals-row"><span>TPS 5 %</span><span className="tabular-nums">{formatMoney(taxes.gst)}</span></div>
               <div className="doc-totals-row"><span>TVQ 9,975 %</span><span className="tabular-nums">{formatMoney(taxes.qst)}</span></div>
-              <div className="doc-totals-ttc">
-                <span>Total TTC</span>
-                <span>{formatMoney(taxes.total)}</span>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'baseline',
+                  gap: '1rem',
+                  color: '#737373',
+                  fontSize: '0.8125rem',
+                  paddingTop: '0.5rem',
+                  marginTop: '0.25rem',
+                  borderTop: '1px solid #E5E5E5',
+                }}
+              >
+                <span>Total TTC (taxes incluses)</span>
+                <span style={{ color: '#525252', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
+                  {formatMoney(taxes.total)}
+                </span>
               </div>
             </>
           ) : (

@@ -361,7 +361,10 @@ export default function ClientDetailPage() {
                         {q.reference && <p className="text-xs text-neya-muted">{q.reference}</p>}
                       </td>
                       <td className="py-3 pr-4 text-neya-muted">{formatDate(q.created_at)}</td>
-                      <td className="py-3 pr-4 font-medium">{formatMoney(q.total)}</td>
+                      <td className="py-3 pr-4">
+                        <p className="font-medium text-neya-orange tabular-nums">{formatMoney(q.subtotal ?? q.total)}</p>
+                        <p className="text-[11px] text-neya-muted tabular-nums">TTC {formatMoney(q.total)}</p>
+                      </td>
                       <td className="py-3 pr-4">
                         <StatusBadge map={QUOTE_STATUS} status={q.status} />
                       </td>
