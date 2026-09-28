@@ -8,7 +8,7 @@ import {
   getShopListAdmin,
   listShopListsForClient,
   rotateShopListToken,
-  seedSonacloudShopList,
+  seedSaunacloudShopList,
   updateShopItem,
   updateShopList,
 } from '../services/client-shop-lists.js';
@@ -20,9 +20,19 @@ async function assertClient(id) {
   return rows[0] || null;
 }
 
+router.post('/seed-saunacloud', async (_req, res) => {
+  try {
+    const result = await seedSaunacloudShopList();
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Alias historique (faute d’orthographe) */
 router.post('/seed-sonacloud', async (_req, res) => {
   try {
-    const result = await seedSonacloudShopList();
+    const result = await seedSaunacloudShopList();
     res.json({ ok: true, ...result });
   } catch (err) {
     res.status(500).json({ error: err.message });

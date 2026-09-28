@@ -35,14 +35,14 @@ const pub = toPublicShopPayload(
     title: 'Atelier',
     subtitle: 'Sub',
     show_client_name: true,
-    client_name: 'Sonacloud',
+    client_name: 'Saunacloud',
     updated_at: '2026-01-01',
     client_id: 99,
     public_token: 'secret',
   },
   [{ id: 1, title: 'Scie', price: '12.5', currency: 'CAD', url: 'https://x.test', urgency: 'high', notes_public: 'note', status: 'todo', internal: 'leak' }]
 );
-assert(pub.client_name === 'Sonacloud', 'client name');
+assert(pub.client_name === 'Saunacloud', 'client name');
 assert(pub.items[0].price === 12.5, 'price number');
 assert(!('client_id' in pub), 'pas de client_id public');
 assert(!('public_token' in pub), 'pas de token dans payload');

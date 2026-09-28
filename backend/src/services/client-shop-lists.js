@@ -254,23 +254,27 @@ export async function deleteShopItem(itemId) {
   return Boolean(rows[0]);
 }
 
-/** Seed idempotent : client Sonacloud + liste aménagement atelier. */
-export async function seedSonacloudShopList() {
+/** Seed idempotent : client Saunacloud + liste aménagement atelier. */
+export async function seedSaunacloudShopList() {
   await ensureClientShopTables();
 
   let { rows: clients } = await pool.query(
     `SELECT id, name FROM clients
-     WHERE LOWER(REPLACE(TRIM(name), ' ', '')) IN ('sonacloud', 'saunacloud')
+     WHERE LOWER(REPLACE(TRIM(name), ' ', '')) IN ('saunacloud', 'sonacloud')
      ORDER BY id ASC
      LIMIT 1`
   );
   if (!clients[0]) {
     const ins = await pool.query(
       `INSERT INTO clients (name, notes)
-       VALUES ('Sonacloud', 'Client — aménagement atelier (liste d’achats partagée)')
+       VALUES ('Saunacloud', 'Client — aménagement atelier (liste d’achats partagée)')
        RETURNING id, name`
     );
     clients = ins.rows;
+  } else if (clients[0].name !== 'Saunacloud') {
+    // Canonicalise l’orthographe affichée
+    await pool.query(`UPDATE clients SET name = 'Saunacloud' WHERE id = $1`, [clients[0].id]);
+    clients[0].name = 'Saunacloud';
   }
   const clientId = clients[0].id;
 
@@ -327,3 +331,6 @@ export async function seedSonacloudShopList() {
 
   return { client_id: clientId, list_id: list.id, created: true, public_token: list.public_token };
 }
+
+/** @deprecated alias — orthographe correcte : Saunacloud */
+export const seedSonacloudShopList = seedSaunacloudShopList;

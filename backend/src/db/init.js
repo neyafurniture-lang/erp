@@ -517,9 +517,9 @@ export async function initDb() {
   await seedDefaultAdminTasks();
   await seedPriorityTasks();
 
-  const { seedSonacloudShopList } = await import('../services/client-shop-lists.js');
-  await seedSonacloudShopList().catch((err) => {
-    console.warn('seedSonacloudShopList (non bloquant):', err.message);
+  const { seedSaunacloudShopList } = await import('../services/client-shop-lists.js');
+  await seedSaunacloudShopList().catch((err) => {
+    console.warn('seedSaunacloudShopList (non bloquant):', err.message);
   });
 }
 

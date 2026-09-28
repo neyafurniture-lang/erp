@@ -11,9 +11,9 @@ import {
   ShieldOff,
   Trash2,
 } from 'lucide-react';
-import AppShell from '../../../components/AppShell';
-import AuthGuard from '../../../components/AuthGuard';
-import { api, formatMoney } from '../../../lib/api';
+import AppShell from '../../../../components/AppShell';
+import AuthGuard from '../../../../components/AuthGuard';
+import { api, formatMoney } from '../../../../lib/api';
 
 const URGENCY_OPTS = [
   { value: 'critical', label: 'Critique' },
@@ -250,7 +250,7 @@ export default function ClientShopListsPage() {
 
         {!lists.length ? (
           <div className="card text-sm text-neya-muted py-10 text-center">
-            Aucune liste. Crée-en une pour Sonacloud ou ce client, puis partage le lien.
+            Aucune liste. Crée-en une pour Saunacloud ou ce client, puis partage le lien.
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-4">
