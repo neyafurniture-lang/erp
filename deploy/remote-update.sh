@@ -32,7 +32,12 @@ if [[ -f "$REMOTE_DIR/docker-compose.prod.yml" ]]; then
 fi
 sudo find "$REMOTE_DIR" -mindepth 1 -not -user "$DEPLOY_USER" -exec chown "$DEPLOY_USER:$DEPLOY_USER" {} + 2>/dev/null || true
 sudo chown -R "$DEPLOY_USER:$DEPLOY_USER" "$REMOTE_DIR"
-# Dossiers public parfois corrompus (permissions ?????) apres builds Docker
+# Dossiers public parfois corrompus (permissions ?????) apres builds Docker.
+# On sauvegarde brand/fiches avant wipe pour ne pas perdre le logo si le zip est incomplet.
+BRAND_BAK="$(mktemp -d)"
+FICHES_BAK="$(mktemp -d)"
+cp -a "$REMOTE_DIR/frontend/public/brand/." "$BRAND_BAK/" 2>/dev/null || true
+cp -a "$REMOTE_DIR/frontend/public/fiches/." "$FICHES_BAK/" 2>/dev/null || true
 sudo rm -rf "$REMOTE_DIR/frontend/public/brand" "$REMOTE_DIR/frontend/public/fiches" 2>/dev/null || true
 sudo chown -R "$DEPLOY_USER:$DEPLOY_USER" "$REMOTE_DIR/frontend" 2>/dev/null || true
 sudo chmod -R u+rwX "$REMOTE_DIR/frontend" 2>/dev/null || true
@@ -47,6 +52,24 @@ if [[ $UNZIP_CODE -ne 0 && $UNZIP_CODE -ne 1 ]]; then
   sudo unzip -o "$ZIP" -d "$REMOTE_DIR"
   sudo chown -R "$DEPLOY_USER:$DEPLOY_USER" "$REMOTE_DIR"
 fi
+# Restaurer brand/logo si absent après unzip (évite [?] cassé sur Accueil)
+if [[ ! -f "$REMOTE_DIR/frontend/public/brand/logo-orange.png" ]]; then
+  mkdir -p "$REMOTE_DIR/frontend/public/brand"
+  if [[ -f "$BRAND_BAK/logo-orange.png" ]]; then
+    cp -a "$BRAND_BAK/." "$REMOTE_DIR/frontend/public/brand/"
+    echo "Brand restauré depuis backup local (logo manquant dans le zip)"
+  else
+    echo "ATTENTION: logo-orange.png toujours manquant après deploy"
+  fi
+fi
+if [[ ! -d "$REMOTE_DIR/frontend/public/fiches" ]] || [[ -z "$(ls -A "$REMOTE_DIR/frontend/public/fiches" 2>/dev/null)" ]]; then
+  if [[ -n "$(ls -A "$FICHES_BAK" 2>/dev/null)" ]]; then
+    mkdir -p "$REMOTE_DIR/frontend/public/fiches"
+    cp -a "$FICHES_BAK/." "$REMOTE_DIR/frontend/public/fiches/"
+    echo "Fiches restaurées depuis backup local"
+  fi
+fi
+rm -rf "$BRAND_BAK" "$FICHES_BAK"
 chmod +x deploy/*.sh back.sh 2>/dev/null || chmod +x deploy/*.sh
 find "$REMOTE_DIR/deploy" -type f -name '*.sh' -exec sed -i 's/\r$//' {} +
 

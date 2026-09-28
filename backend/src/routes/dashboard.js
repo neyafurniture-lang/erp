@@ -380,11 +380,23 @@ router.get('/', async (req, res) => {
       pool.query(`
         SELECT COUNT(*)::int AS count FROM supplier_invoice_emails WHERE status = 'pending'
       `).catch(() => ({ rows: [{ count: 0 }] })),
+      // Encaissements du mois = paiements par date (aligné finance / monthly-pnl).
+      // Fallback : amount_paid des factures créées dans le mois si aucun paiement enregistré.
       pool.query(`
-        SELECT COALESCE(SUM(amount_paid), 0)::float AS total
-        FROM invoices
-        WHERE amount_paid > 0
-          AND created_at >= date_trunc('month', CURRENT_DATE::timestamp)
+        SELECT GREATEST(
+          COALESCE((
+            SELECT SUM(amount)::float FROM payments
+            WHERE date >= date_trunc('month', CURRENT_DATE::timestamp)
+              AND date < date_trunc('month', CURRENT_DATE::timestamp) + INTERVAL '1 month'
+          ), 0),
+          COALESCE((
+            SELECT SUM(amount_paid)::float FROM invoices
+            WHERE amount_paid > 0
+              AND created_at >= date_trunc('month', CURRENT_DATE::timestamp)
+              AND created_at < date_trunc('month', CURRENT_DATE::timestamp) + INTERVAL '1 month'
+              AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.invoice_id = invoices.id)
+          ), 0)
+        ) AS total
       `).catch(() => ({ rows: [{ total: 0 }] })),
       pool.query(`
         SELECT COALESCE(SUM(total), 0)::float AS total
@@ -392,11 +404,20 @@ router.get('/', async (req, res) => {
         WHERE status IN ('draft', 'sent')
       `).catch(() => ({ rows: [{ total: 0 }] })),
       pool.query(`
-        SELECT COALESCE(SUM(amount_paid), 0)::float AS total
-        FROM invoices
-        WHERE amount_paid > 0
-          AND created_at >= date_trunc('month', CURRENT_DATE::timestamp) - INTERVAL '1 month'
-          AND created_at < date_trunc('month', CURRENT_DATE::timestamp)
+        SELECT GREATEST(
+          COALESCE((
+            SELECT SUM(amount)::float FROM payments
+            WHERE date >= date_trunc('month', CURRENT_DATE::timestamp) - INTERVAL '1 month'
+              AND date < date_trunc('month', CURRENT_DATE::timestamp)
+          ), 0),
+          COALESCE((
+            SELECT SUM(amount_paid)::float FROM invoices
+            WHERE amount_paid > 0
+              AND created_at >= date_trunc('month', CURRENT_DATE::timestamp) - INTERVAL '1 month'
+              AND created_at < date_trunc('month', CURRENT_DATE::timestamp)
+              AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.invoice_id = invoices.id)
+          ), 0)
+        ) AS total
       `).catch(() => ({ rows: [{ total: 0 }] })),
       pool.query(`
         SELECT sh.id, sh.start_at, sh.end_at, sh.notes, e.name AS employee_name, e.color, p.name AS project_name
