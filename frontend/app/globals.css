@@ -1887,6 +1887,50 @@ a:hover .cf-kpi,
   @apply flex justify-between text-sm text-neutral-500;
 }
 
+/*
+ * Hiérarchie devis : HT en avant.
+ * Styles CSS purs (pas @apply text-*) pour éviter que text-sm de
+ * .doc-totals-row gagne sur text-lg via l’ordre du CSS Tailwind compilé.
+ */
+.doc-totals .doc-totals-ht {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  color: #2a2622;
+  font-weight: 600;
+  font-size: 1.25rem;
+  line-height: 1.3;
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.35rem;
+  border-bottom: 2px solid #d86b30;
+}
+
+.doc-totals .doc-totals-ht span:last-child {
+  color: #d86b30;
+  font-variant-numeric: tabular-nums;
+  font-size: 1.35rem;
+}
+
+.doc-totals .doc-totals-ttc {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  color: #737373;
+  font-size: 0.8125rem;
+  padding-top: 0.5rem;
+  margin-top: 0.25rem;
+  border-top: 1px solid #e5e5e5;
+}
+
+.doc-totals .doc-totals-ttc span:last-child {
+  color: #525252;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Factures : solde TTC mis en avant */
 .doc-totals-total {
   @apply text-neutral-900 font-semibold text-lg pt-3 border-t-2 border-neya-orange mt-3;
 }
