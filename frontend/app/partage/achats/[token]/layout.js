@@ -1,5 +1,5 @@
 export const metadata = {
-  title: 'Liste d’achats — Neya Furniture',
+  title: 'Shopping list — Neya Furniture',
   robots: { index: false, follow: false, nocache: true },
 };
 

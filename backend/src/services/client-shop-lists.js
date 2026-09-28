@@ -313,50 +313,40 @@ export async function seedSaunacloudShopList() {
   const clientId = clients[0].id;
 
   const { rows: existing } = await pool.query(
-    `SELECT id FROM client_shop_lists WHERE client_id = $1 AND title ILIKE $2 LIMIT 1`,
-    [clientId, '%aménagement%atelier%']
+    `SELECT id FROM client_shop_lists
+     WHERE client_id = $1
+       AND (
+         title ILIKE '%aménagement%atelier%'
+         OR title ILIKE '%workshop%fit-out%'
+         OR title ILIKE '%shopping list%'
+       )
+     LIMIT 1`,
+    [clientId]
   );
   if (existing[0]) return { client_id: clientId, list_id: existing[0].id, created: false };
 
   const list = await createShopList({
     client_id: clientId,
-    title: 'Aménagement atelier',
-    subtitle: 'Achats à prévoir pour équiper l’atelier — Neya Furniture',
+    title: 'Workshop fit-out — shopping list',
+    subtitle: 'Purchases to equip the shop — Neya Furniture',
     show_client_name: true,
   });
 
   const samples = [
-    {
-      title: 'Établi solide / plan de travail',
-      price: 450,
-      urgency: 'high',
-      url: 'https://www.google.com/search?q=%C3%A9tabli+atelier+bois',
-      notes_public: 'Surface stable pour assemblage',
-    },
-    {
-      title: 'Éclairage LED atelier (bande / plafonnier)',
-      price: 180,
-      urgency: 'high',
-      url: 'https://www.google.com/search?q=%C3%A9clairage+LED+atelier',
-    },
-    {
-      title: 'Rangement mural / rayonnage',
-      price: 220,
-      urgency: 'normal',
-      url: 'https://www.google.com/search?q=rayonnage+atelier',
-    },
-    {
-      title: 'Aspiration / dépoussiéreur portable',
-      price: 350,
-      urgency: 'normal',
-      url: 'https://www.google.com/search?q=aspirateur+atelier+bois',
-    },
-    {
-      title: 'Trousse sécurité (lunettes, gants, protecteurs)',
-      price: 75,
-      urgency: 'critical',
-      url: 'https://www.google.com/search?q=%C3%A9quipement+s%C3%A9curit%C3%A9+atelier',
-    },
+    { title: 'Hinges to close the compressor box', urgency: 'high' },
+    { title: 'Mini T-track — at least 48"', urgency: 'high' },
+    { title: 'Mini T-track accessories', urgency: 'normal' },
+    { title: 'Switch box for automatic dust-collector / vacuum power', urgency: 'high' },
+    { title: 'Additional dust collector', urgency: 'high' },
+    { title: 'Cyclone system for dust collector', urgency: 'high' },
+    { title: 'Sander', urgency: 'normal' },
+    { title: 'Vacuum for sander', urgency: 'normal' },
+    { title: 'Wax', urgency: 'low' },
+    { title: 'Hand cleaner (workshop)', urgency: 'normal' },
+    { title: 'Cleaner for planer and wheels', urgency: 'normal' },
+    { title: 'Material lift / lifting jack (40")', urgency: 'normal' },
+    { title: 'MDF tables for squaring new storage units', urgency: 'high' },
+    { title: 'MDF starter boards for squaring new storage (×2)', urgency: 'high' },
   ];
 
   for (const s of samples) {
