@@ -303,10 +303,24 @@ function InvoicesPageInner() {
             </div>
 
             <div className="bg-neya-cream rounded-none p-4 text-sm grid grid-cols-2 md:grid-cols-4 gap-2">
-              <div><span className="text-neya-muted">Sous-total</span><p className="font-medium">{formatMoney(preview.subtotal)}</p></div>
-              <div><span className="text-neya-muted">TPS 5%</span><p className="font-medium">{formatMoney(preview.gst)}</p></div>
-              <div><span className="text-neya-muted">TVQ 9,975%</span><p className="font-medium">{formatMoney(preview.qst)}</p></div>
-              <div><span className="text-neya-muted">Total</span><p className="font-display font-semibold text-lg text-neya-orange">{formatMoney(preview.total)}</p></div>
+              {tab === 'quotes' ? (
+                <>
+                  <div>
+                    <span className="text-neya-muted">Total HT</span>
+                    <p className="font-display font-semibold text-lg text-neya-orange">{formatMoney(preview.subtotal)}</p>
+                  </div>
+                  <div><span className="text-neya-muted">TPS 5%</span><p className="font-medium text-neya-muted">{formatMoney(preview.gst)}</p></div>
+                  <div><span className="text-neya-muted">TVQ 9,975%</span><p className="font-medium text-neya-muted">{formatMoney(preview.qst)}</p></div>
+                  <div><span className="text-neya-muted">Total TTC</span><p className="font-medium text-neya-muted">{formatMoney(preview.total)}</p></div>
+                </>
+              ) : (
+                <>
+                  <div><span className="text-neya-muted">Sous-total</span><p className="font-medium">{formatMoney(preview.subtotal)}</p></div>
+                  <div><span className="text-neya-muted">TPS 5%</span><p className="font-medium">{formatMoney(preview.gst)}</p></div>
+                  <div><span className="text-neya-muted">TVQ 9,975%</span><p className="font-medium">{formatMoney(preview.qst)}</p></div>
+                  <div><span className="text-neya-muted">Total</span><p className="font-display font-semibold text-lg text-neya-orange">{formatMoney(preview.total)}</p></div>
+                </>
+              )}
             </div>
 
             <div className="flex gap-2">
@@ -327,7 +341,7 @@ function InvoicesPageInner() {
                 <th className="px-4 py-3">Numéro</th>
                 <th className="px-4 py-3">Projet / Client</th>
                 <th className="px-4 py-3">Date</th>
-                <th className="px-4 py-3">Total TTC</th>
+                <th className="px-4 py-3">{tab === 'quotes' ? 'Total HT' : 'Total TTC'}</th>
                 {tab === 'invoices' && (
                   <>
                     <th className="px-4 py-3">Déjà payé</th>
@@ -410,7 +424,16 @@ function InvoicesPageInner() {
                       <p className="text-xs text-neya-muted">{item.client_name}</p>
                     </td>
                     <td className="px-4 py-3 text-neya-muted tabular-nums">{formatDate(item.created_at)}</td>
-                    <td className="px-4 py-3 font-display font-semibold tabular-nums">{formatMoney(item.total)}</td>
+                    <td className="px-4 py-3 tabular-nums">
+                      {tab === 'quotes' ? (
+                        <div>
+                          <p className="font-display font-semibold text-neya-orange">{formatMoney(item.subtotal ?? item.total)}</p>
+                          <p className="text-[11px] text-neya-muted">TTC {formatMoney(item.total)}</p>
+                        </div>
+                      ) : (
+                        <span className="font-display font-semibold">{formatMoney(item.total)}</span>
+                      )}
+                    </td>
                     {tab === 'invoices' && (
                       <>
                         <td className="px-4 py-3 text-neya-success tabular-nums">{formatMoney(paid)}</td>
