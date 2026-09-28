@@ -1783,6 +1783,15 @@ h1, h2, h3, h4, h5, h6 {
   @apply text-base font-medium text-neya-ink;
 }
 
+.doc-section-subtotal {
+  @apply flex justify-end items-baseline gap-6 mt-2 pt-2 border-t border-neutral-200
+    text-sm text-neutral-600 max-w-full;
+}
+
+.doc-section-subtotal span:last-child {
+  @apply font-medium text-neya-ink min-w-[5.5rem] text-right;
+}
+
 .doc-photos {
   @apply mt-6 p-3 border border-transparent transition-colors;
 }

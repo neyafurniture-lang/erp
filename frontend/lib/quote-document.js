@@ -83,6 +83,13 @@ export function flattenQuoteLines(raw) {
   return doc.sections.flatMap(s => (s.lines || []).filter(isMeaningfulLine));
 }
 
+/** Sous-total HT d’un tableau (section) — somme qty × prix des lignes significatives. */
+export function sectionSubtotal(section) {
+  return (section?.lines || [])
+    .filter(isMeaningfulLine)
+    .reduce((sum, line) => sum + (Number(line.qty) || 0) * (Number(line.price) || 0), 0);
+}
+
 export function serializeQuoteDocument(doc) {
   const normalized = normalizeQuoteDocument(doc);
   return {

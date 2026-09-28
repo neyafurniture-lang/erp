@@ -10,6 +10,7 @@ import {
   flattenQuoteLines,
   serializeQuoteDocument,
   isMeaningfulLine,
+  sectionSubtotal,
 } from '../lib/quote-document';
 import EasyTable from './EasyTable';
 import { coerceDecimalInput, finalizeDecimal, parseDecimal } from '../lib/parse-decimal';
@@ -559,6 +560,12 @@ export default function DocumentVisualEditor({
                   className="doc-table"
                   variant="doc"
                 />
+              )}
+              {meaningful.length > 0 && (
+                <div className="doc-section-subtotal">
+                  <span>Sous-total{section.title ? ` · ${section.title}` : ''}</span>
+                  <span className="tabular-nums">{formatMoney(sectionSubtotal(section))}</span>
+                </div>
               )}
             </div>
           );
