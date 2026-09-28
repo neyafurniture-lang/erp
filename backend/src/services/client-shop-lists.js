@@ -60,6 +60,24 @@ function touchList(listId, client = pool) {
 }
 
 export async function getPublicShopByToken(token) {
+  const list = await resolvePublicShopList(token);
+  if (!list) return null;
+
+  const { rows: items } = await pool.query(
+    `SELECT id, title, price, currency, url, urgency, notes_public, status, sort_order
+     FROM client_shop_items
+     WHERE list_id = $1
+     ORDER BY
+       CASE urgency WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
+       sort_order ASC,
+       id ASC`,
+    [list.id]
+  );
+  return toPublicShopPayload(list, items);
+}
+
+/** Résout une liste publique active (interne). null si token invalide / désactivé / expiré. */
+export async function resolvePublicShopList(token) {
   const t = String(token || '').trim();
   if (!t || t.length < 20 || t.length > 128) return null;
 
@@ -75,18 +93,34 @@ export async function getPublicShopByToken(token) {
   if (!list) return null;
   if (!list.public_enabled) return null;
   if (list.expires_at && new Date(list.expires_at).getTime() < Date.now()) return null;
+  return list;
+}
 
-  const { rows: items } = await pool.query(
-    `SELECT id, title, price, currency, url, urgency, notes_public, status, sort_order
-     FROM client_shop_items
-     WHERE list_id = $1
-     ORDER BY
-       CASE urgency WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
-       sort_order ASC,
-       id ASC`,
-    [list.id]
+/** Vérifie qu’un item appartient à la liste du token public. */
+export async function assertPublicShopItem(token, itemId) {
+  const list = await resolvePublicShopList(token);
+  if (!list) return null;
+  const id = Number(itemId);
+  if (!Number.isFinite(id)) return null;
+  const { rows } = await pool.query(
+    'SELECT * FROM client_shop_items WHERE id = $1 AND list_id = $2',
+    [id, list.id]
   );
-  return toPublicShopPayload(list, items);
+  if (!rows[0]) return null;
+  return { list, item: rows[0] };
+}
+
+/** Champs autorisés pour l’édition publique (whitelist). */
+export function publicItemPatchFromBody(body = {}) {
+  const patch = {};
+  if (body.title !== undefined) patch.title = body.title;
+  if (body.price !== undefined) patch.price = body.price;
+  if (body.url !== undefined) patch.url = body.url;
+  if (body.urgency !== undefined) patch.urgency = body.urgency;
+  if (body.status !== undefined) patch.status = body.status;
+  if (body.notes_public !== undefined) patch.notes_public = body.notes_public;
+  if (body.notes !== undefined) patch.notes_public = body.notes;
+  return patch;
 }
 
 export async function listShopListsForClient(clientId) {
