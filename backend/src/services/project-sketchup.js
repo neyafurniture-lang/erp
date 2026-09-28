@@ -103,7 +103,7 @@ export async function createSketchupEmbed(projectId, fileId, req) {
       name: file.name || 'modele.skp',
     },
     getJwtSecret(),
-    { expiresIn: EMBED_TOKEN_TTL }
+    { expiresIn: EMBED_TOKEN_TTL, algorithm: 'HS256' }
   );
 
   const fileUrl = `${apiBase}/public/sketchup/${encodeURIComponent(token)}`;
@@ -121,7 +121,7 @@ export async function createSketchupEmbed(projectId, fileId, req) {
 }
 
 export function verifySketchupEmbedToken(token) {
-  const payload = jwt.verify(String(token || ''), getJwtSecret());
+  const payload = jwt.verify(String(token || ''), getJwtSecret(), { algorithms: ['HS256'] });
   if (payload?.purpose !== EMBED_PURPOSE || !payload.rel) {
     throw new Error('Jeton SketchUp invalide');
   }

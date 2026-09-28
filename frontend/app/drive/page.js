@@ -8,7 +8,9 @@ export default function DrivePage() {
   return (
     <AuthGuard>
       <AppShell title="Drive" subtitle="Fichiers Google Drive de l'atelier" wide>
-        <DriveExplorer />
+        <div className="neya-enter">
+          <DriveExplorer />
+        </div>
       </AppShell>
     </AuthGuard>
   );

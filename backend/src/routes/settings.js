@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getPublicSettings, updateSettings, API_ROUTES } from '../services/settings.js';
 import { seedDefaultSkills } from '../services/assistant.js';
+import { requireAdmin, requirePermission } from '../middleware/permissions.js';
 
 const router = Router();
 
@@ -12,7 +13,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.put('/', async (req, res) => {
+router.put('/', requirePermission('settings'), async (req, res) => {
   try {
     res.json(await updateSettings(req.body));
   } catch (err) {
@@ -20,11 +21,11 @@ router.put('/', async (req, res) => {
   }
 });
 
-router.get('/api-routes', (req, res) => {
+router.get('/api-routes', requirePermission('settings'), (req, res) => {
   res.json(API_ROUTES);
 });
 
-router.post('/seed-skills', async (req, res) => {
+router.post('/seed-skills', requireAdmin, async (req, res) => {
   try {
     await seedDefaultSkills();
     res.json({ ok: true, message: 'Skills par défaut ajoutées' });

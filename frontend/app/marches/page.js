@@ -408,7 +408,7 @@ export default function MarchesPage() {
   return (
     <AuthGuard>
       <AppShell title="Marchés & événements" subtitle="Grille éditoriale — contrats, logistique, ventes" wide>
-        <div ref={rootRef} className={`mb-root${on ? ' grid-on' : ''}`}>
+        <div ref={rootRef} className={`mb-root neya-enter-fade${on ? ' grid-on' : ''}`}>
           <section className="mb-spread">
             <div className="mb-wrap">
               <button

@@ -77,7 +77,7 @@ export default function ReunionsPage() {
         subtitle="Synthèse speak-to-text — stockée en base PostgreSQL"
       >
         <div className="space-y-6">
-          <section className="cf-panel overflow-hidden">
+          <section className="cf-panel overflow-hidden neya-enter neya-lift">
             <div className="relative px-5 py-6 sm:px-7 sm:py-8 bg-[linear-gradient(135deg,oklch(0.97_0.01_55)_0%,oklch(0.99_0.005_80)_50%,white_100%)]">
               <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0 max-w-xl">
@@ -119,7 +119,7 @@ export default function ReunionsPage() {
                 </div>
               </div>
             </div>
-            <div className="grid sm:grid-cols-3 gap-px bg-neya-border border-t border-neya-border">
+            <div className="grid sm:grid-cols-3 gap-px bg-neya-border border-t border-neya-border neya-stagger">
               {[
                 { t: 'Speak-to-text', d: 'Safari / Chrome · fr-CA · dictée système' },
                 { t: 'Base SQL', d: 'Tout dans PostgreSQL — zéro localStorage' },
@@ -133,7 +133,7 @@ export default function ReunionsPage() {
             </div>
           </section>
 
-          <section>
+          <section className="neya-enter" style={{ animationDelay: '120ms' }}>
             <div className="flex items-center justify-between gap-3 mb-3">
               <h3 className="font-display text-[16px] font-semibold text-neya-ink">
                 Réunions sauvées
@@ -155,16 +155,17 @@ export default function ReunionsPage() {
             {history.length === 0 ? (
               <div className="rounded-xl border border-dashed border-neya-border bg-neya-surface/40 px-5 py-10 text-center">
                 <Mic className="mx-auto h-8 w-8 text-neya-muted/50 mb-2" />
-                <p className="text-[14px] text-neya-muted">
-                  Aucune synthèse pour l’instant. Lancez une réunion — elle se sauve automatiquement.
+                <p className="text-[14px] font-medium text-neya-ink">Aucune synthèse</p>
+                <p className="text-[12.5px] text-neya-muted mt-1">
+                  Lancez une réunion — elle se sauve automatiquement.
                 </p>
               </div>
             ) : (
-              <ul className="space-y-2">
+              <ul className="space-y-2 neya-stagger">
                 {history.map((m) => (
                   <li
                     key={m.id}
-                    className="rounded-xl border border-neya-border bg-white px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3"
+                    className="neya-lift rounded-xl border border-neya-border bg-white px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3"
                   >
                     <button
                       type="button"

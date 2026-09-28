@@ -37,16 +37,18 @@ export function securityHeaders(req, res, next) {
 }
 
 /** Accès uploads : Authorization ou ?access_token= */
+const JWT_VERIFY = { algorithms: ['HS256'] };
+
 export function uploadAuth(req, res, next) {
   const header = req.headers.authorization;
   const q = req.query.access_token;
   try {
     if (header?.startsWith('Bearer ')) {
-      jwt.verify(header.slice(7), getJwtSecret());
+      jwt.verify(header.slice(7), getJwtSecret(), JWT_VERIFY);
       return next();
     }
     if (q && typeof q === 'string') {
-      jwt.verify(q, getJwtSecret());
+      jwt.verify(q, getJwtSecret(), JWT_VERIFY);
       return next();
     }
   } catch {

@@ -293,7 +293,7 @@ function SettingsContent() {
 
   return (
     <div className="max-w-4xl">
-      <div className="flex flex-wrap gap-1.5 mb-8 pb-4 border-b border-neya-border">
+      <div className="flex flex-wrap gap-1.5 mb-8 pb-4 border-b border-neya-border neya-enter">
         {TABS.filter(t => !t.adminOnly || isAdmin(user)).map(t => (
           <button
             key={t.id}
@@ -306,12 +306,12 @@ function SettingsContent() {
         ))}
       </div>
 
-      {msg && <p className="mb-4 text-sm text-green-700 bg-green-50 px-4 py-2 rounded-lg">{msg}</p>}
-      {err && <p className="mb-4 text-sm text-neya-error bg-red-50 px-4 py-2 rounded-lg">{err}</p>}
+      {msg && <p className="mb-4 text-sm text-green-700 bg-green-50 px-4 py-2 rounded-lg neya-enter">{msg}</p>}
+      {err && <p className="mb-4 text-sm text-neya-error bg-red-50 px-4 py-2 rounded-lg neya-enter">{err}</p>}
 
       {tab === 'general' && (
-        <div className="space-y-6">
-          <section className="card rounded-2xl">
+        <div className="space-y-6 neya-stagger">
+          <section className="card rounded-2xl neya-lift">
             <h2 className="font-display font-semibold text-lg mb-4">Entreprise</h2>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
@@ -350,8 +350,8 @@ function SettingsContent() {
       )}
 
       {tab === 'web' && (
-        <div className="space-y-6">
-          <section className="card rounded-2xl">
+        <div className="space-y-6 neya-stagger">
+          <section className="card rounded-2xl neya-lift">
             <h2 className="font-display font-semibold text-lg mb-2">Site web WooCommerce</h2>
             <p className="text-sm text-neya-muted mb-4">
               Connexion à neyafurniture.ca — produits, photos et commandes vers l&apos;ERP.
@@ -429,8 +429,8 @@ function SettingsContent() {
       )}
 
       {tab === 'email' && (
-        <div className="space-y-6">
-          <section className="card rounded-2xl">
+        <div className="space-y-6 neya-stagger">
+          <section className="card rounded-2xl neya-lift">
             <h2 className="font-display font-semibold text-lg mb-2">Courriel (SMTP)</h2>
             <p className="text-sm text-neya-muted mb-4">
               Configuration pour l&apos;envoi des devis et factures par courriel.
@@ -477,8 +477,8 @@ function SettingsContent() {
       )}
 
       {tab === 'integrations' && (
-        <div className="space-y-6">
-          <section className="card rounded-2xl">
+        <div className="space-y-6 neya-stagger">
+          <section className="card rounded-2xl neya-lift">
             <h2 className="font-display font-semibold text-lg mb-2">Gmail (priorité)</h2>
             <p className="text-sm text-neya-muted mb-4">
               Lisez, répondez et liez les courriels aux projets depuis l&apos;ERP.
@@ -585,7 +585,7 @@ function SettingsContent() {
             )}
           </section>
 
-          <section className="card rounded-2xl">
+          <section className="card rounded-2xl neya-lift">
             <h2 className="font-display font-semibold text-lg mb-2">Réseaux sociaux (Meta + Pinterest)</h2>
             <p className="text-sm text-neya-muted mb-4">
               Comme Buffer / Later : connectez Instagram, Facebook Page et Pinterest.
@@ -638,8 +638,8 @@ function SettingsContent() {
       )}
 
       {tab === 'security' && (
-        <div className="space-y-6">
-          <section className="card rounded-2xl bg-neya-cream/40">
+        <div className="space-y-6 neya-stagger">
+          <section className="card rounded-2xl bg-neya-cream/40 neya-lift">
             <h2 className="font-display font-semibold text-lg mb-3">État de la sécurité</h2>
             {securityInfo ? (
               <ul className="text-sm space-y-2 text-neya-ink">
@@ -657,7 +657,7 @@ function SettingsContent() {
             </button>
           </section>
 
-          <section className="card rounded-2xl">
+          <section className="card rounded-2xl neya-lift">
             <h2 className="font-display font-semibold text-lg mb-4">Changer le mot de passe</h2>
             <form onSubmit={changePassword} className="grid gap-4 max-w-md">
               <div>
@@ -687,11 +687,15 @@ function SettingsContent() {
         </div>
       )}
 
-      {tab === 'users' && isAdmin(user) && <UsersManager />}
+      {tab === 'users' && isAdmin(user) && (
+        <div className="neya-enter">
+          <UsersManager />
+        </div>
+      )}
 
       {tab === 'assistant' && (
-        <div className="space-y-6">
-          <section className="card rounded-2xl">
+        <div className="space-y-6 neya-stagger">
+          <section className="card rounded-2xl neya-lift">
             <h2 className="font-display font-semibold text-lg mb-2">Assistant IA — Claude / OpenAI</h2>
             <p className="text-sm text-neya-muted mb-4">
               Clé API pour commandes en langage naturel. Sans clé, le chat utilise les skills par mots-clés.
@@ -703,7 +707,7 @@ function SettingsContent() {
                 {settings?.ai_configured ? 'IA configurée' : 'Aucune clé API'}
               </span>
               {settings?.anthropic_configured && (
-                <span className="text-xs px-2.5 py-1 rounded-full bg-violet-100 text-violet-800">
+                <span className="text-xs px-2.5 py-1 rounded-full bg-neya-orange-soft text-neya-orange">
                   Claude {settings.anthropic_api_key_preview}
                 </span>
               )}
@@ -782,17 +786,33 @@ function SettingsContent() {
         </div>
       )}
 
-      {tab === 'habits' && <AtelierHabitsPanel />}
+      {tab === 'habits' && (
+        <div className="neya-enter">
+          <AtelierHabitsPanel />
+        </div>
+      )}
 
-      {tab === 'cursor' && isAdmin(user) && <CursorAgentPanel />}
+      {tab === 'cursor' && isAdmin(user) && (
+        <div className="neya-enter">
+          <CursorAgentPanel />
+        </div>
+      )}
 
-      {tab === 'deploy' && isAdmin(user) && <DeployVpsPanel />}
+      {tab === 'deploy' && isAdmin(user) && (
+        <div className="neya-enter">
+          <DeployVpsPanel />
+        </div>
+      )}
 
-      {tab === 'skills' && <SkillsManager />}
+      {tab === 'skills' && (
+        <div className="neya-enter">
+          <SkillsManager />
+        </div>
+      )}
 
       {tab === 'api' && (
-        <div className="space-y-6">
-          <section className="card rounded-2xl">
+        <div className="space-y-6 neya-stagger">
+          <section className="card rounded-2xl neya-lift">
             <h2 className="font-display font-semibold text-lg mb-4">Connexion API</h2>
             <div className="grid gap-4">
               <div>
@@ -819,7 +839,7 @@ function SettingsContent() {
             </div>
           </section>
 
-          <section className="card rounded-2xl">
+          <section className="card rounded-2xl neya-lift">
             <h2 className="font-display font-semibold text-lg mb-4">Routes API principales</h2>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -845,7 +865,7 @@ function SettingsContent() {
             </div>
           </section>
 
-          <section className="card rounded-2xl bg-neya-cream/40">
+          <section className="card rounded-2xl bg-neya-cream/40 neya-lift">
             <h2 className="font-display font-semibold text-lg mb-2">Types d&apos;actions skills</h2>
             <p className="text-sm text-neya-muted mb-3">Actions disponibles pour les skills du chat :</p>
             <div className="flex flex-wrap gap-2">

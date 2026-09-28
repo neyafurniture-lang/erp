@@ -6,8 +6,12 @@ import { logAgentAction } from '../services/assistant-memory.js';
 import { enrichInboxMessages, sortInbox, sortRecentInbox, listMailFolder, MAIL_SECTIONS, ensureNeyaGmailLabels, listNeyaGmailLabels, GMAIL_CATEGORY_LABELS, setThreadMailCategory, applyGmailLabelsForMessages } from '../services/mail-sort.js';
 import { mailMoneyLabel } from '../services/mail-money.js';
 import emailThreadsRoutes from './email-threads.js';
+import { requirePermission } from '../middleware/permissions.js';
 
 const router = Router();
+
+/** Toute l’API Gmail exige la permission `mail`. */
+router.use(requirePermission('mail'));
 
 const upload = multer({
   storage: multer.memoryStorage(),

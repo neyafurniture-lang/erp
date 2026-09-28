@@ -125,7 +125,7 @@ function SuppliersContent() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-3 neya-enter">
         <div>
           <h1 className="font-display text-[26px] font-semibold text-neya-ink lg:hidden">Fournisseurs</h1>
           <p className="text-sm text-neya-muted">
@@ -151,9 +151,9 @@ function SuppliersContent() {
         </div>
       </div>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-red-600 rounded-xl border border-red-200 bg-red-50 px-3 py-2 neya-enter">{error}</p>}
 
-      <div className="relative max-w-xl">
+      <div className="relative max-w-xl neya-enter" style={{ animationDelay: '60ms' }}>
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neya-muted" aria-hidden />
         <input
           type="search"
@@ -165,7 +165,7 @@ function SuppliersContent() {
       </div>
 
       {showForm && (
-        <form onSubmit={save} className="card rounded-2xl grid grid-cols-1 md:grid-cols-2 gap-4">
+        <form onSubmit={save} className="card rounded-2xl grid grid-cols-1 md:grid-cols-2 gap-4 neya-enter">
           <div>
             <label className="label">Nom</label>
             <input className="input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required />
@@ -219,12 +219,12 @@ function SuppliersContent() {
         </form>
       )}
 
-      <ul className="space-y-2 lg:hidden">
+      <ul className="space-y-2 lg:hidden neya-stagger">
         {filtered.map(s => (
           <li key={s.id}>
             <Link
               href={`/suppliers/${s.id}`}
-              className="flex w-full items-center gap-3 rounded-2xl border border-neya-border bg-white p-3.5 text-left shadow-sm"
+              className="neya-lift flex w-full items-center gap-3 rounded-2xl border border-neya-border bg-white p-3.5 text-left shadow-sm"
             >
               <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-neya-ink font-display text-[13px] font-semibold text-white">
                 {initials(s.name)}
@@ -243,13 +243,15 @@ function SuppliersContent() {
           </li>
         ))}
         {filtered.length === 0 && (
-          <li className="card rounded-2xl text-center py-10 text-sm text-neya-muted">
-            Aucun fournisseur — créez-en ou chargez le catalogue.
+          <li className="card rounded-2xl text-center py-12 neya-enter">
+            <Truck className="mx-auto h-7 w-7 text-neya-muted/50 mb-2" />
+            <p className="text-sm font-medium text-neya-ink">Aucun fournisseur</p>
+            <p className="text-[12.5px] text-neya-muted mt-1">Créez-en un ou chargez le catalogue.</p>
           </li>
         )}
       </ul>
 
-      <div className="cf-table-wrap hidden lg:block">
+      <div className="cf-table-wrap hidden lg:block neya-enter" style={{ animationDelay: '90ms' }}>
         <table className="w-full text-[13px]">
           <thead>
             <tr>
