@@ -1887,6 +1887,25 @@ a:hover .cf-kpi,
   @apply flex justify-between text-sm text-neutral-500;
 }
 
+/* Devis : le HT est le prix mis en avant */
+.doc-totals-ht {
+  @apply text-neutral-900 font-semibold text-lg pb-3 border-b-2 border-neya-orange mb-1;
+}
+
+.doc-totals-ht span:last-child {
+  @apply text-neya-orange tabular-nums;
+}
+
+/* Devis : TTC en second plan */
+.doc-totals-ttc {
+  @apply text-neutral-500 text-sm pt-2 mt-1 border-t border-neutral-200;
+}
+
+.doc-totals-ttc span:last-child {
+  @apply text-neutral-600 font-medium tabular-nums;
+}
+
+/* Factures : solde TTC mis en avant */
 .doc-totals-total {
   @apply text-neutral-900 font-semibold text-lg pt-3 border-t-2 border-neya-orange mt-3;
 }

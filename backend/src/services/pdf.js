@@ -245,42 +245,70 @@ function sectionSubtotalRow(doc, amount, startY, ctx) {
 }
 
 /**
- * Bloc totaux : typographie à droite, filet orange au-dessus du solde.
+ * Bloc totaux : typographie à droite.
+ * - emphasize: 'ht' (devis) → Total HT en accent orange ; TTC en second plan
+ * - emphasize: 'ttc' (factures) → solde TTC en accent (comportement historique)
  * Retourne { y, total, gst, qst }.
  */
-function totalsBlock(doc, subtotal, startY, co, label, ctx, { depositNote = false } = {}) {
+function totalsBlock(doc, subtotal, startY, co, label, ctx, {
+  depositNote = false,
+  emphasize = 'ttc',
+} = {}) {
   const { gst, qst, total } = calcTaxes(subtotal, co);
   const bw = 220;
   const bx = R - bw;
   const rowH = 17;
   const padX = 4;
-  const boxH = rowH * 4 + 14;
+  const boxH = rowH * 4 + 20;
 
   let y = ensureSpace(doc, startY, boxH + (depositNote ? 34 : 14), ctx);
-
   let ty = y;
-  const row = (caption, value, { bold = false } = {}) => {
-    doc.fillColor(C.muted).font('Helvetica').fontSize(9)
-      .text(caption, bx + padX, ty, { width: bw - padX * 2 - 90 });
-    doc.fillColor(bold ? C.ink : C.muted).font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(bold ? 11 : 9)
-      .text(money(value), bx + padX, ty, { width: bw - padX * 2, align: 'right' });
-    ty += rowH;
-  };
-  row('Sous-total', subtotal);
-  row(co.tax.labelGst || 'TPS 5 %', gst);
-  row(co.tax.labelQst || 'TVQ 9,975 %', qst);
 
-  ty += 4;
-  accentRule(doc, bx, ty, R - bx);
-  ty += 10;
-  doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(8)
-    .text(label.toUpperCase(), bx + padX, ty);
-  doc.fillColor(C.accent).font('Helvetica-Bold').fontSize(13)
-    .text(money(total), bx + padX, ty - 2, { width: bw - padX * 2, align: 'right' });
+  if (emphasize === 'ht') {
+    // Devis : HT d’abord, en grand
+    doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(8)
+      .text('TOTAL HT', bx + padX, ty);
+    doc.fillColor(C.accent).font('Helvetica-Bold').fontSize(14)
+      .text(money(subtotal), bx + padX, ty - 2, { width: bw - padX * 2, align: 'right' });
+    ty += 18;
+    accentRule(doc, bx, ty, R - bx);
+    ty += 12;
 
-  y = ty + 22;
+    const mutedRow = (caption, value) => {
+      doc.fillColor(C.muted).font('Helvetica').fontSize(9)
+        .text(caption, bx + padX, ty, { width: bw - padX * 2 - 90 });
+      doc.fillColor(C.muted).font('Helvetica').fontSize(9)
+        .text(money(value), bx + padX, ty, { width: bw - padX * 2, align: 'right' });
+      ty += rowH;
+    };
+    mutedRow(co.tax.labelGst || 'TPS 5 %', gst);
+    mutedRow(co.tax.labelQst || 'TVQ 9,975 %', qst);
+    mutedRow(label || 'Total TTC', total);
+  } else {
+    const row = (caption, value, { bold = false } = {}) => {
+      doc.fillColor(C.muted).font('Helvetica').fontSize(9)
+        .text(caption, bx + padX, ty, { width: bw - padX * 2 - 90 });
+      doc.fillColor(bold ? C.ink : C.muted).font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(bold ? 11 : 9)
+        .text(money(value), bx + padX, ty, { width: bw - padX * 2, align: 'right' });
+      ty += rowH;
+    };
+    row('Sous-total', subtotal);
+    row(co.tax.labelGst || 'TPS 5 %', gst);
+    row(co.tax.labelQst || 'TVQ 9,975 %', qst);
+
+    ty += 4;
+    accentRule(doc, bx, ty, R - bx);
+    ty += 10;
+    doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(8)
+      .text(label.toUpperCase(), bx + padX, ty);
+    doc.fillColor(C.accent).font('Helvetica-Bold').fontSize(13)
+      .text(money(total), bx + padX, ty - 2, { width: bw - padX * 2, align: 'right' });
+  }
+
+  y = ty + 18;
 
   if (depositNote) {
+    // Acomptes calculés sur le TTC (paiement réel)
     doc.fillColor(C.muted).font('Helvetica').fontSize(8.5)
       .text(
         `Acompte 50 % à la commande : ${money(total / 2)}   ·   Solde à la livraison : ${money(total / 2)}`,
@@ -517,7 +545,10 @@ export async function generateQuotePdf(quote, res) {
     y = sectionSubtotalRow(doc, sectionSubtotal(section), y, ctx);
   }
 
-  const { y: yAfterTotals } = totalsBlock(doc, subtotal, y, COMPANY, 'Total TTC', ctx, { depositNote: true });
+  const { y: yAfterTotals } = totalsBlock(doc, subtotal, y, COMPANY, 'Total TTC', ctx, {
+    depositNote: true,
+    emphasize: 'ht',
+  });
   y = yAfterTotals + 4;
 
   const addNotes = quote.additional_notes || document.additional_notes;
