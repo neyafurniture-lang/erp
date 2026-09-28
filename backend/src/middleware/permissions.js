@@ -39,3 +39,18 @@ export function requirePermission(key) {
       .catch((err) => res.status(500).json({ error: err.message }));
   };
 }
+
+/** Au moins une des permissions listées (ou admin via hasPermission). */
+export function requireAnyPermission(...keys) {
+  const list = keys.flat().filter(Boolean);
+  return (req, res, next) => {
+    loadAccount(req)
+      .then((user) => {
+        if (!user || !list.some((k) => hasPermission(user, k))) {
+          return res.status(403).json({ error: 'Permission insuffisante' });
+        }
+        next();
+      })
+      .catch((err) => res.status(500).json({ error: err.message }));
+  };
+}

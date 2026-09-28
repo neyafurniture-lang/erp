@@ -1,6 +1,6 @@
 /** Miroir frontend de backend/src/services/quote-document.js */
 
-import { finalizeDecimal } from './parse-decimal';
+import { finalizeDecimal, parseDecimal } from './parse-decimal';
 
 function uid(prefix = 's') {
   return `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
@@ -81,6 +81,13 @@ export function normalizeQuoteDocument(raw) {
 export function flattenQuoteLines(raw) {
   const doc = normalizeQuoteDocument(raw);
   return doc.sections.flatMap(s => (s.lines || []).filter(isMeaningfulLine));
+}
+
+/** Sous-total HT d’un tableau (section) — somme qty × prix des lignes significatives. */
+export function sectionSubtotal(section) {
+  return (section?.lines || [])
+    .filter(isMeaningfulLine)
+    .reduce((sum, line) => sum + parseDecimal(line.qty, 0) * parseDecimal(line.price, 0), 0);
 }
 
 export function serializeQuoteDocument(doc) {

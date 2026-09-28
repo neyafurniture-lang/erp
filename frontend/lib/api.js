@@ -1,3 +1,5 @@
+import { getFinanceToken } from './finance-session.js';
+
 const API_URL_DEFAULT = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4001/api';
 const API_ROOT_KEY = 'neya_api_url';
 const FETCH_TIMEOUT_MS = 45000;
@@ -78,10 +80,12 @@ function decodeStored(value) {
 export function getSavedLogin() {
   if (typeof window === 'undefined') return { email: '', password: '', remember: false };
   const remember = localStorage.getItem(LOGIN_REMEMBER_KEY) === '1';
+  // Ne plus lire/stocker le mot de passe (base64 ≠ chiffrement) — purge résidus.
+  localStorage.removeItem(LOGIN_PASSWORD_KEY);
   if (!remember) return { email: '', password: '', remember: false };
   return {
     email: localStorage.getItem(LOGIN_EMAIL_KEY) || '',
-    password: decodeStored(localStorage.getItem(LOGIN_PASSWORD_KEY) || ''),
+    password: '',
     remember: true,
   };
 }
@@ -91,7 +95,8 @@ export function saveLoginCredentials(email, password, remember) {
   if (remember) {
     localStorage.setItem(LOGIN_REMEMBER_KEY, '1');
     localStorage.setItem(LOGIN_EMAIL_KEY, email);
-    localStorage.setItem(LOGIN_PASSWORD_KEY, encodeStored(password));
+    // Email seulement — jamais le mot de passe en clair/base64.
+    localStorage.removeItem(LOGIN_PASSWORD_KEY);
   } else {
     clearSavedLoginCredentials();
   }
@@ -170,6 +175,16 @@ export async function api(path, options = {}) {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...options.headers,
   };
+
+  // Jeton PIN Finance pour P&L / sync (émis par POST /analytics/unlock)
+  if (
+    !headers['X-Finance-Token']
+    && !headers['x-finance-token']
+    && (/^\/analytics\/(monthly-pnl|profitability)/.test(path) || path.startsWith('/finance-sync'))
+  ) {
+    const ft = getFinanceToken();
+    if (ft) headers['X-Finance-Token'] = ft;
+  }
 
   let res;
   const controller = new AbortController();

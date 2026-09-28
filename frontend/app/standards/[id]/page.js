@@ -65,15 +65,17 @@ export default function StandardDetailPage() {
   return (
     <AuthGuard>
       <AppShell title="Fiche produit">
+        <div className="neya-enter">
         <StandardFicheView
           standard={standard}
           onStandardChange={setStandard}
           onCreateProject={standard.product_type !== 'guide' ? () => setCreateProject(true) : undefined}
         />
+        </div>
 
         {createProject && (
           <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-            <div className="bg-white rounded-xl p-6 w-96 border border-neya-border">
+            <div className="card rounded-xl p-6 w-96 neya-enter">
               <h3 className="font-heading text-lg mb-4">Créer projet depuis cette fiche</h3>
               <div className="space-y-3 mb-4">
                 <div>

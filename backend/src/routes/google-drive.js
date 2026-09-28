@@ -10,10 +10,14 @@ import {
   resolveDriveRoots,
 } from '../services/drive-access.js';
 import { isAdmin } from '../config/permissions.js';
+import { requirePermission } from '../middleware/permissions.js';
 import { logAgentAction } from '../services/assistant-memory.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 const router = Router();
+
+/** Toute l’API Drive exige la permission `drive` (ACL dossiers en plus via drive_access). */
+router.use(requirePermission('drive'));
 
 function accessDenied(res, err) {
   const msg = err.message || 'Accès refusé';

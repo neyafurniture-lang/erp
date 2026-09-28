@@ -1,7 +1,10 @@
 'use client';
 
+/** Cache-bust après recadrage des assets brand (fichiers /public non hashés). */
+const BRAND_V = '2';
+
 /**
- * Marque NEYA — wordmark officiel (`/brand/logo-orange.png`).
+ * Marque NEYA — wordmark officiel (`/brand/logo-orange.png`, déjà recadré).
  * Variante `picto` pour les emplacements carrés / orbe.
  */
 export default function NeyaMark({
@@ -9,23 +12,16 @@ export default function NeyaMark({
   variant = 'logo',
   alt = 'Neya',
 }) {
-  if (variant === 'picto') {
-    return (
-      <img
-        src="/brand/picto-orange.png"
-        alt={alt}
-        className={className}
-        draggable={false}
-      />
-    );
-  }
-
+  const src = variant === 'picto'
+    ? `/brand/picto-orange.png?v=${BRAND_V}`
+    : `/brand/logo-orange.png?v=${BRAND_V}`;
   return (
     <img
-      src="/brand/logo-orange.png"
+      src={src}
       alt={alt}
-      className={className}
+      className={`object-contain object-left ${className}`}
       draggable={false}
+      decoding="async"
     />
   );
 }

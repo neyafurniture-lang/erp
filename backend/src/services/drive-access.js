@@ -36,7 +36,9 @@ export async function resolveDriveRoots(user) {
   if (isAdmin(user)) return { restricted: false, roots: [] };
 
   const access = sanitizeDriveAccess(parseDriveAccess(user?.drive_access));
-  if (!access.length) return { restricted: false, roots: [] };
+  // Deny-by-default : liste vide = aucun dossier (sauf admin, déjà géré au-dessus).
+  // Avant : restricted:false ouvrait tout le Drive Google partagé.
+  if (!access.length) return { restricted: true, roots: [] };
 
   const roots = [];
   const seen = new Set();

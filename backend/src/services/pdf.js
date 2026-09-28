@@ -3,7 +3,7 @@ import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import { getCompanyConfig } from './company-config.js';
-import { normalizeQuoteDocument, flattenQuoteLines } from './quote-document.js';
+import { normalizeQuoteDocument, flattenQuoteLines, sectionSubtotal } from './quote-document.js';
 import { calcDocTaxes, roundMoney } from './tax.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -43,7 +43,8 @@ const PAGE_H = 792;
 const W = PAGE_W - M * 2;
 const R = M + W;
 const LOGO_W = 84;
-const LOGO_RATIO = 596 / 842;
+/** Ratio hauteur/largeur du wordmark recadré (`backend/brand/logo-orange.png`). */
+const LOGO_RATIO = 256 / 606;
 const FOOTER_Y = PAGE_H - 42;
 const BODY_LIMIT = FOOTER_Y - 24;
 
@@ -228,6 +229,21 @@ function linesTable(doc, lines, startY, ctx) {
   return y + 8;
 }
 
+/** Sous-total HT aligné à droite sous un tableau de section. */
+function sectionSubtotalRow(doc, amount, startY, ctx) {
+  let y = ensureSpace(doc, startY, 22, ctx);
+  const labelW = 160;
+  const valueW = COL.amount.w;
+  const labelX = COL.amount.x - labelW;
+  doc.fillColor(C.muted).font('Helvetica').fontSize(9)
+    .text('Sous-total', labelX, y, { width: labelW, align: 'right' });
+  doc.fillColor(C.ink).font('Helvetica-Bold').fontSize(9)
+    .text(money(amount), COL.amount.x, y, { width: valueW, align: 'right' });
+  y += 14;
+  doc.moveTo(COL.price.x, y - 2).lineTo(R, y - 2).strokeColor(C.lineStrong).lineWidth(0.5).stroke();
+  return y + 8;
+}
+
 /**
  * Bloc totaux : typographie à droite, filet orange au-dessus du solde.
  * Retourne { y, total, gst, qst }.
@@ -400,7 +416,8 @@ export async function generateInvoicePdf(invoice, res) {
           .text(String(section.title).toUpperCase(), M, y);
         y += 15;
       }
-      y = linesTable(doc, sectionLines, y, ctx) + 4;
+      y = linesTable(doc, sectionLines, y, ctx) + 2;
+      y = sectionSubtotalRow(doc, sectionSubtotal(section), y, ctx);
     }
   } else {
     y = linesTable(doc, flattenQuoteLines(invDoc), y, ctx);
@@ -496,7 +513,8 @@ export async function generateQuotePdf(quote, res) {
         .text(section.title.toUpperCase(), M, y);
       y += 15;
     }
-    y = linesTable(doc, sectionLines, y, ctx) + 4;
+    y = linesTable(doc, sectionLines, y, ctx) + 2;
+    y = sectionSubtotalRow(doc, sectionSubtotal(section), y, ctx);
   }
 
   const { y: yAfterTotals } = totalsBlock(doc, subtotal, y, COMPANY, 'Total TTC', ctx, { depositNote: true });

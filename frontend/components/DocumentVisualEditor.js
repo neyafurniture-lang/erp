@@ -10,6 +10,7 @@ import {
   flattenQuoteLines,
   serializeQuoteDocument,
   isMeaningfulLine,
+  sectionSubtotal,
 } from '../lib/quote-document';
 import EasyTable from './EasyTable';
 import { coerceDecimalInput, finalizeDecimal, parseDecimal } from '../lib/parse-decimal';
@@ -542,6 +543,14 @@ export default function DocumentVisualEditor({
                         );
                       })}
                     </tbody>
+                    <tfoot>
+                      <tr className="doc-section-subtotal-row">
+                        <td colSpan={3} className="text-right font-medium">Sous-total</td>
+                        <td className="text-right font-semibold tabular-nums">
+                          {formatMoney(sectionSubtotal(section))}
+                        </td>
+                      </tr>
+                    </tfoot>
                   </table>
                 ) : (
                   <p className="text-sm text-neya-muted py-2">Aucune ligne</p>
@@ -558,6 +567,8 @@ export default function DocumentVisualEditor({
                   onReceiveRow={(payload, toIndex) => receiveRowFromOtherSection(section.id, payload, toIndex)}
                   className="doc-table"
                   variant="doc"
+                  sectionTotal={meaningful.length ? sectionSubtotal(section) : null}
+                  sectionTotalLabel={section.title ? `Sous-total · ${section.title}` : 'Sous-total'}
                 />
               )}
             </div>
@@ -573,7 +584,7 @@ export default function DocumentVisualEditor({
         )}
 
         <footer className="doc-totals">
-          <div className="doc-totals-row"><span>Sous-total</span><span className="tabular-nums">{formatMoney(taxes.subtotal)}</span></div>
+          <div className="doc-totals-row"><span>Sous-total HT</span><span className="tabular-nums">{formatMoney(taxes.subtotal)}</span></div>
           <div className="doc-totals-row"><span>TPS 5 %</span><span className="tabular-nums">{formatMoney(taxes.gst)}</span></div>
           <div className="doc-totals-row"><span>TVQ 9,975 %</span><span className="tabular-nums">{formatMoney(taxes.qst)}</span></div>
           <div className="doc-totals-row doc-totals-total"><span>Solde à payer</span><span className="tabular-nums">{formatMoney(taxes.total)}</span></div>

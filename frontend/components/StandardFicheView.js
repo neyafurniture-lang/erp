@@ -514,7 +514,7 @@ export default function StandardFicheView({ standard, onStandardChange, onCreate
       <div className="bg-white rounded-2xl border-2 border-neya-orange/30 overflow-hidden mb-6">
         <div className="bg-neya-cream px-6 py-4 border-b border-neya-border">
           <img
-            src="/brand/logo-orange.png"
+            src="/brand/logo-orange.png?v=2"
             alt="Neya"
             className="h-7 w-auto mb-2"
             draggable={false}

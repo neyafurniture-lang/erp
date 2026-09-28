@@ -32,6 +32,7 @@ import {
   MoreHorizontal,
   Truck,
   Mic,
+  Box,
 } from 'lucide-react';
 import { api, logout } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
@@ -58,6 +59,7 @@ const NAV = [
   { href: '/inventory', label: 'Stock', section: 'tools', permission: 'inventory', icon: Package },
   { href: '/liste-courses', label: 'Liste de courses', section: 'tools', permission: 'purchases', icon: ShoppingCart },
   { href: '/purchases', label: 'Achats atelier', section: 'tools', permission: 'purchases', icon: Package },
+  { href: '/atelier-zotique', label: 'Atelier Zotique', section: 'tools', permission: 'purchases', icon: Box },
   { href: '/drive', label: 'Drive', section: 'tools', permission: 'drive', icon: HardDrive },
   { href: '/invoices', label: 'Devis & factures', section: 'facturation', permission: 'invoices', icon: FileText },
   { href: '/expenses', label: 'Dépenses', section: 'facturation', permission: 'expenses', icon: Wallet },

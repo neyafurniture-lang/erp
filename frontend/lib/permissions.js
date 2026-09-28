@@ -48,6 +48,7 @@ const PATH_MAP = [
   ['/admin', 'admin'],
   ['/projects', 'projects'],
   ['/liste-courses', 'purchases'],
+  ['/atelier-zotique', 'purchases'],
   ['/purchases', 'purchases'],
   ['/inventory', 'inventory'],
   ['/team', 'team'],

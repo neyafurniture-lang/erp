@@ -236,7 +236,7 @@ export default function ExpensesPage() {
   return (
     <AuthGuard>
       <AppShell title="Dépenses" subtitle={`${filtered.length} entrée${filtered.length > 1 ? 's' : ''} · ${formatMoney(total)}${unpaidTotal > 0 ? ` · à payer ${formatMoney(unpaidTotal)}` : ''}`}>
-        <div className="rounded-2xl border border-neya-border bg-white px-4 py-3 mb-4 text-sm text-neya-ink-light">
+        <div className="card rounded-2xl px-4 py-3 mb-4 text-sm text-neya-ink-light neya-enter">
           <p>
             Ici = <strong className="text-neya-ink">argent sorti</strong> (tickets magasin, factures fournisseurs).
             L’argent gagné (vos factures clients) est dans{' '}
@@ -252,12 +252,12 @@ export default function ExpensesPage() {
         <ReceiptScanner onChange={load} />
 
         {loadErr && (
-          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 neya-enter">
             Impossible de rafraîchir la liste ({loadErr}). Les lignes déjà affichées sont conservées.
           </div>
         )}
 
-        <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
+        <div className="flex flex-wrap justify-between items-center gap-3 mb-4 neya-enter" style={{ animationDelay: '60ms' }}>
           <p className="text-neya-muted text-sm">
             Total : <span className="font-display text-xl font-semibold text-neya-ink tabular-nums">{formatMoney(total)}</span>
           </p>
@@ -291,7 +291,7 @@ export default function ExpensesPage() {
         </div>
 
         {showForm && (
-          <form onSubmit={create} className="card rounded-2xl mb-6 space-y-4">
+          <form onSubmit={create} className="card rounded-2xl mb-6 space-y-4 neya-enter neya-lift">
             <p className="text-sm font-medium text-neya-ink">Dépense manuelle</p>
 
             <div>
@@ -365,7 +365,7 @@ export default function ExpensesPage() {
         )}
 
         {recent.length > 0 && monthFilter === 'all' && (
-          <div className="cf-table-wrap overflow-x-auto mb-5">
+          <div className="cf-table-wrap overflow-x-auto mb-5 neya-enter" style={{ animationDelay: '90ms' }}>
             <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-neya-border bg-emerald-50/80">
               <p className="text-sm font-medium text-neya-ink">Saisies récentes (14 jours)</p>
               <p className="text-xs text-neya-muted">{recent.length} ticket{recent.length > 1 ? 's' : ''} / saisie{recent.length > 1 ? 's' : ''}</p>
@@ -389,7 +389,7 @@ export default function ExpensesPage() {
           </div>
         )}
 
-        <div className="space-y-5">
+        <div className="space-y-5 neya-stagger">
           {grouped.length === 0 && (
             <div className="cf-table-wrap overflow-x-auto">
               <p className="px-4 py-10 text-center text-neya-muted text-sm">Aucune dépense</p>
@@ -398,7 +398,7 @@ export default function ExpensesPage() {
           {grouped.map(([key, rows]) => {
             const sub = rows.reduce((s, e) => s + Number(e.amount), 0);
             return (
-              <div key={key} className="cf-table-wrap overflow-x-auto">
+              <div key={key} className="cf-table-wrap overflow-x-auto neya-lift">
                 <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-neya-border bg-neya-cream/30">
                   <p className="text-sm font-medium text-neya-ink">{monthLabel(key)}</p>
                   <p className="text-xs text-neya-muted tabular-nums">

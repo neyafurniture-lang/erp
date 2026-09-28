@@ -18,7 +18,7 @@ export default function AppShell({
   flush = false,
 }) {
   return (
-    <div className="min-h-screen min-h-[100dvh] bg-[var(--background)]">
+    <div className="min-h-screen min-h-[100dvh] neya-ambient">
       <NavigationBackSupport />
       <Sidebar />
       <MobileNav />

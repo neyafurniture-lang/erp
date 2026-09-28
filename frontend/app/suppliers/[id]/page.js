@@ -60,20 +60,20 @@ export default function SupplierDetailPage() {
   return (
     <AuthGuard>
       <AppShell title={supplier.name}>
-        <Link href="/suppliers" className="text-sm text-neya-orange hover:underline mb-4 inline-block">
+        <Link href="/suppliers" className="text-sm text-neya-orange hover:underline mb-4 inline-block neya-enter">
           ← Retour aux fournisseurs
         </Link>
 
-        <div className="card mb-6">
+        <div className="card mb-6 neya-enter neya-lift">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <h1 className="font-heading text-2xl text-neya-ink">{supplier.name}</h1>
+              <h1 className="font-display text-2xl font-semibold text-neya-ink">{supplier.name}</h1>
               {supplier.contact && <p className="text-sm text-neya-muted mt-1">{supplier.contact}</p>}
             </div>
             <Link href="/suppliers" className="btn-secondary text-sm">Liste</Link>
           </div>
 
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-4 pt-4 border-t border-neya-border">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-4 pt-4 border-t border-neya-border neya-stagger">
             <Stat label="Total suivi" value={formatMoney(supplier.total_spent || 0)} />
             <Stat label="Commandes" value={String(supplier.order_count || 0)} />
             <Stat label="Factures mail" value={String(supplier.invoice_email_count || 0)} />
@@ -119,17 +119,13 @@ export default function SupplierDetailPage() {
           )}
         </div>
 
-        <div className="flex flex-wrap gap-2 mb-6">
+        <div className="flex flex-wrap gap-2 mb-6 neya-enter" style={{ animationDelay: '60ms' }}>
           {tabs.map(t => (
             <button
               key={t.key}
               type="button"
               onClick={() => setTab(t.key)}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                tab === t.key
-                  ? 'bg-neya-orange text-white'
-                  : 'bg-white border border-neya-border text-neya-muted hover:border-neya-orange'
-              }`}
+              className={`cf-chip ${tab === t.key ? 'cf-chip-active' : ''}`}
             >
               {t.label} ({t.count})
             </button>
@@ -226,7 +222,7 @@ function Stat({ label, value }) {
 
 function Table({ headers, rows, empty }) {
   return (
-    <div className="card overflow-x-auto">
+    <div className="card overflow-x-auto neya-enter" style={{ animationDelay: '90ms' }}>
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-neya-border text-left text-neya-muted">
@@ -238,11 +234,14 @@ function Table({ headers, rows, empty }) {
         <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={headers.length} className="py-8 text-center text-neya-muted">{empty}</td>
+              <td colSpan={headers.length} className="py-10 text-center">
+                <p className="text-sm font-medium text-neya-ink">{empty}</p>
+                <p className="text-[12px] text-neya-muted mt-1">Rien à afficher pour l’instant.</p>
+              </td>
             </tr>
           ) : (
             rows.map((cells, idx) => (
-              <tr key={idx} className="border-b border-neya-border">
+              <tr key={idx} className="border-b border-neya-border last:border-0 transition-colors hover:bg-neya-surface/60">
                 {cells.map((cell, i) => (
                   <td key={i} className="py-3 pr-4 text-neya-ink">{cell}</td>
                 ))}

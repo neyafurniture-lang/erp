@@ -10,6 +10,7 @@ import {
   isSpreadsheetMime,
   parseCsvPreview,
 } from '../lib/drive-preview';
+import Viewer3D from './Viewer3D';
 
 export { canPreview, getPreviewMode, googleEmbedUrl, isSpreadsheetMime, parseCsvPreview };
 
@@ -81,7 +82,7 @@ export default function DriveFilePreview({ file, onClose }) {
       setTextContent('');
       setBlobUrl(null);
 
-      if (mode === 'google' || mode === 'office') {
+      if (mode === 'google' || mode === 'office' || mode === 'cad3d') {
         setLoading(false);
         return;
       }
@@ -206,6 +207,27 @@ export default function DriveFilePreview({ file, onClose }) {
           <pre className="h-full overflow-auto p-4 text-xs sm:text-sm leading-relaxed text-neya-ink bg-neya-surface/20 whitespace-pre-wrap break-words font-mono">
             {textContent}
           </pre>
+        )}
+
+        {!loading && !err && mode === 'model3d' && blobUrl && (
+          <div className="h-full p-2 bg-neya-surface/20">
+            <Viewer3D url={blobUrl} title={file.name} />
+          </div>
+        )}
+
+        {!loading && !err && mode === 'cad3d' && (
+          <div className="flex flex-col items-center justify-center h-full px-6 text-center gap-3">
+            <p className="text-sm text-neya-ink font-medium">Assemblage CAD (SketchUp / OBJ…)</p>
+            <p className="text-sm text-neya-muted max-w-md">
+              Le navigateur ne lit pas nativement ce format. Ouvrez-le dans Drive / SketchUp, ou exportez un
+              {' '}<strong>GLB / GLTF</strong> pour le voir ici en 3D.
+            </p>
+            {file.webViewLink && (
+              <a href={file.webViewLink} target="_blank" rel="noopener noreferrer" className="btn-primary text-sm min-h-[40px]">
+                Ouvrir dans Google Drive
+              </a>
+            )}
+          </div>
         )}
       </div>
     </div>
