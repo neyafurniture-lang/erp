@@ -101,13 +101,28 @@ export function calcQppEmployer(employeeQpp) {
 }
 
 /**
- * Impôt sur le revenu — retenue simplifiée (0 si revenu annuel projeté sous le seuil).
- * Pour une retenue exacte Revenu Canada / Québec, saisir manuellement dans le breakdown.
+ * Impôt fédéral approximatif (QC) — abattement 16,5 %, 1re tranche 15 %.
+ * Remplaçable via overrides.fed_tax pour une retenue exacte.
  */
 export function calcIncomeTaxPlaceholder(gross, periodsPerYear) {
   const annualized = gross * periodsPerYear;
-  if (annualized < 15000) return 0;
-  return 0;
+  const basic = 15705; // approx. montant personnel de base fédéral 2025/26
+  const taxable = Math.max(0, annualized - basic);
+  if (taxable <= 0) return 0;
+  const annualFed = taxable * 0.15 * (1 - 0.165);
+  return round2(annualFed / periodsPerYear);
+}
+
+/**
+ * Impôt Québec approximatif — 1re tranche 14 % après montant personnel de base.
+ * Remplaçable via overrides.qc_tax.
+ */
+export function calcQcTaxEstimate(gross, periodsPerYear) {
+  const annualized = gross * periodsPerYear;
+  const basic = 18571;
+  const taxable = Math.max(0, annualized - basic);
+  if (taxable <= 0) return 0;
+  return round2((taxable * 0.14) / periodsPerYear);
 }
 
 export const DEDUCTION_CODES = {
@@ -164,7 +179,7 @@ export function computePayrollDeductions({
     year, ytdGross, ytdEi: num(ytdMap.ei),
   });
   const fedTax = overrides.fed_tax ?? calcIncomeTaxPlaceholder(g, periodsPerYear);
-  const qcTax = overrides.qc_tax ?? 0;
+  const qcTax = overrides.qc_tax ?? calcQcTaxEstimate(g, periodsPerYear);
   const qpp2 = overrides.qpp2 ?? 0;
 
   const earnings = [{

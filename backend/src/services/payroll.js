@@ -257,29 +257,40 @@ export async function computePayrollOverview({ start, end } = {}) {
     const hoursWorked = round2(hLog + hTime);
     const rate = num(emp.hourly_rate);
     const saved = savedByEmp[emp.id];
+    const locked = !!(saved && (saved.breakdown_locked || period.status === 'paid'));
     const deductions = saved ? num(saved.deductions) : 0;
     const advances = saved ? num(saved.advances) : 0;
-    const gross = round2(hoursWorked * rate);
+    // Lignes verrouillées / période payée : conserver heures & brut saisis (historique salaire).
+    const finalHours = locked ? num(saved.hours_worked) : hoursWorked;
+    const finalRate = locked ? num(saved.hourly_rate) : rate;
+    const gross = locked ? num(saved.gross) : round2(hoursWorked * rate);
     const net = round2(Math.max(0, gross - deductions - advances));
-    const breakdown = {
-      hours_logbook: hLog,
-      hours_time_entries: hTime,
-      hours_scheduled_shifts: hShift,
-    };
+    const breakdown = locked
+      ? (typeof saved.source_breakdown === 'string'
+        ? JSON.parse(saved.source_breakdown || '{}')
+        : (saved.source_breakdown || {}))
+      : {
+        hours_logbook: hLog,
+        hours_time_entries: hTime,
+        hours_scheduled_shifts: hShift,
+      };
 
-    // Upsert computed line (preserve deductions/advances/notes)
+    // Upsert computed line (preserve deductions/advances/notes ; ne pas écraser si verrouillé)
     const { rows: upserted } = await pool.query(
       `INSERT INTO payroll_lines (
          period_id, employee_id, hours_worked, hours_scheduled, hourly_rate,
          gross, deductions, advances, net, source_breakdown, notes
        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11)
        ON CONFLICT (period_id, employee_id) DO UPDATE SET
-         hours_worked = EXCLUDED.hours_worked,
-         hours_scheduled = EXCLUDED.hours_scheduled,
-         hourly_rate = EXCLUDED.hourly_rate,
-         gross = EXCLUDED.gross,
-         net = GREATEST(0, EXCLUDED.gross - payroll_lines.deductions - payroll_lines.advances),
-         source_breakdown = EXCLUDED.source_breakdown,
+         hours_worked = CASE WHEN payroll_lines.breakdown_locked THEN payroll_lines.hours_worked ELSE EXCLUDED.hours_worked END,
+         hours_scheduled = CASE WHEN payroll_lines.breakdown_locked THEN payroll_lines.hours_scheduled ELSE EXCLUDED.hours_scheduled END,
+         hourly_rate = CASE WHEN payroll_lines.breakdown_locked THEN payroll_lines.hourly_rate ELSE EXCLUDED.hourly_rate END,
+         gross = CASE WHEN payroll_lines.breakdown_locked THEN payroll_lines.gross ELSE EXCLUDED.gross END,
+         net = CASE
+           WHEN payroll_lines.breakdown_locked THEN payroll_lines.net
+           ELSE GREATEST(0, EXCLUDED.gross - payroll_lines.deductions - payroll_lines.advances)
+         END,
+         source_breakdown = CASE WHEN payroll_lines.breakdown_locked THEN payroll_lines.source_breakdown ELSE EXCLUDED.source_breakdown END,
          deductions = payroll_lines.deductions,
          advances = payroll_lines.advances,
          notes = payroll_lines.notes
@@ -287,9 +298,9 @@ export async function computePayrollOverview({ start, end } = {}) {
       [
         period.id,
         emp.id,
-        hoursWorked,
-        hShift,
-        rate,
+        finalHours,
+        locked ? num(saved.hours_scheduled) : hShift,
+        finalRate,
         gross,
         deductions,
         advances,
