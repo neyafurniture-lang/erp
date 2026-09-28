@@ -65,6 +65,9 @@ export default function EasyTable({
   sectionId = null,
   /** Déposer une ligne venant d’un autre tableau : (payload, toIndex) => void */
   onReceiveRow = null,
+  /** Sous-total du tableau (nombre). Si null/undefined → pas de ligne pied. */
+  sectionTotal = null,
+  sectionTotalLabel = 'Sous-total',
 }) {
   const tableRef = useRef(null);
   const [dropIndex, setDropIndex] = useState(null);
@@ -277,6 +280,11 @@ export default function EasyTable({
 
   const canDrag = allowReorder && !!sectionId;
   const isDoc = variant === 'doc';
+  const colCount = (canDrag ? 1 : 0) + 1 + columns.length + (showLineTotal ? 1 : 0) + 1;
+  const showFooter = sectionTotal != null && Number.isFinite(Number(sectionTotal));
+  const footerAmount = showFooter ? Number(sectionTotal) : 0;
+  /** Colonnes avant la colonne Montant / actions : poignée + # + champs */
+  const leadColSpan = (canDrag ? 1 : 0) + 1 + columns.length;
 
   return (
     <div className={className}>
@@ -419,12 +427,36 @@ export default function EasyTable({
             {dropIndex === rows.length && (
               <tr className="pointer-events-none">
                 <td
-                  colSpan={(canDrag ? 1 : 0) + 2 + columns.length + (showLineTotal ? 1 : 0)}
+                  colSpan={colCount}
                   className="h-1 bg-neya-orange/80 p-0"
                 />
               </tr>
             )}
           </tbody>
+          {showFooter && (
+            <tfoot>
+              <tr className={`border-t-2 ${isDoc ? 'border-neutral-300 bg-neutral-50/90' : 'border-neya-border bg-neya-cream/50'}`}>
+                <td
+                  colSpan={leadColSpan}
+                  className="px-2 py-2.5 text-right text-sm font-medium text-neya-ink"
+                >
+                  {sectionTotalLabel}
+                </td>
+                {showLineTotal ? (
+                  <>
+                    <td className="px-2 py-2.5 text-right text-sm font-semibold text-neya-ink tabular-nums whitespace-nowrap">
+                      {formatMoney(footerAmount)}
+                    </td>
+                    <td className="px-1 py-2.5" />
+                  </>
+                ) : (
+                  <td className="px-2 py-2.5 text-right text-sm font-semibold text-neya-ink tabular-nums whitespace-nowrap">
+                    {formatMoney(footerAmount)}
+                  </td>
+                )}
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
       <div className="flex flex-wrap items-center gap-3 mt-2">
