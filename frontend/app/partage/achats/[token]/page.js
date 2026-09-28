@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { ExternalLink, ShoppingBag } from 'lucide-react';
-import NeyaMark from '../../../components/NeyaMark';
-import { getApiUrl, formatMoney } from '../../../lib/api';
+import NeyaMark from '../../../../components/NeyaMark';
+import { getApiUrl, formatMoney } from '../../../../lib/api';
 
 const URGENCY = {
   critical: { label: 'Critique', className: 'bg-red-100 text-red-800 border-red-200' },
