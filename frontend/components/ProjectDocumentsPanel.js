@@ -253,7 +253,7 @@ export default function ProjectDocumentsPanel({ project, onReload }) {
                 <option value="">— Choisir —</option>
                 {unlinkedClientQuotes.map(q => (
                   <option key={q.id} value={q.id}>
-                    {q.quote_number} — {q.title || 'Sans titre'} ({formatMoney(q.total)})
+                    {q.quote_number} — {q.title || 'Sans titre'} ({formatMoney(q.subtotal ?? q.total)} HT)
                   </option>
                 ))}
               </select>
@@ -271,7 +271,7 @@ export default function ProjectDocumentsPanel({ project, onReload }) {
                 <th className="pb-2 pr-3">N°</th>
                 <th className="pb-2 pr-3">Titre</th>
                 <th className="pb-2 pr-3">Date</th>
-                <th className="pb-2 pr-3">Total</th>
+                <th className="pb-2 pr-3">Total HT</th>
                 <th className="pb-2 pr-3">Statut</th>
                 <th className="pb-2">Actions</th>
               </tr>
@@ -292,7 +292,10 @@ export default function ProjectDocumentsPanel({ project, onReload }) {
                     </td>
                     <td className="py-3 pr-3">{q.title || '—'}</td>
                     <td className="py-3 pr-3 text-neya-muted">{formatDate(q.created_at)}</td>
-                    <td className="py-3 pr-3 font-medium">{formatMoney(q.total)}</td>
+                    <td className="py-3 pr-3">
+                      <p className="font-medium text-neya-orange tabular-nums">{formatMoney(q.subtotal ?? q.total)}</p>
+                      <p className="text-[11px] text-neya-muted tabular-nums">TTC {formatMoney(q.total)}</p>
+                    </td>
                     <td className="py-3 pr-3">
                       <span className={`text-xs px-2 py-0.5 rounded ${st.color}`}>{st.label}</span>
                     </td>

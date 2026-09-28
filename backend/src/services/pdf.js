@@ -265,25 +265,25 @@ function totalsBlock(doc, subtotal, startY, co, label, ctx, {
   let ty = y;
 
   if (emphasize === 'ht') {
-    // Devis : HT d’abord, en grand
+    // Devis : HT d’abord, très visible ; TTC en petit
     doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(8)
       .text('TOTAL HT', bx + padX, ty);
-    doc.fillColor(C.accent).font('Helvetica-Bold').fontSize(14)
-      .text(money(subtotal), bx + padX, ty - 2, { width: bw - padX * 2, align: 'right' });
-    ty += 18;
+    doc.fillColor(C.accent).font('Helvetica-Bold').fontSize(16)
+      .text(money(subtotal), bx + padX, ty - 3, { width: bw - padX * 2, align: 'right' });
+    ty += 20;
     accentRule(doc, bx, ty, R - bx);
     ty += 12;
 
-    const mutedRow = (caption, value) => {
-      doc.fillColor(C.muted).font('Helvetica').fontSize(9)
+    const mutedRow = (caption, value, { size = 8.5 } = {}) => {
+      doc.fillColor(C.faint).font('Helvetica').fontSize(size)
         .text(caption, bx + padX, ty, { width: bw - padX * 2 - 90 });
-      doc.fillColor(C.muted).font('Helvetica').fontSize(9)
+      doc.fillColor(C.muted).font('Helvetica').fontSize(size)
         .text(money(value), bx + padX, ty, { width: bw - padX * 2, align: 'right' });
-      ty += rowH;
+      ty += rowH - 1;
     };
     mutedRow(co.tax.labelGst || 'TPS 5 %', gst);
     mutedRow(co.tax.labelQst || 'TVQ 9,975 %', qst);
-    mutedRow(label || 'Total TTC', total);
+    mutedRow('Total TTC (réf.)', total, { size: 8 });
   } else {
     const row = (caption, value, { bold = false } = {}) => {
       doc.fillColor(C.muted).font('Helvetica').fontSize(9)
@@ -308,10 +308,12 @@ function totalsBlock(doc, subtotal, startY, co, label, ctx, {
   y = ty + 18;
 
   if (depositNote) {
-    // Acomptes calculés sur le TTC (paiement réel)
+    // Acomptes sur le HT (prix mis en avant du devis)
+    const half = emphasize === 'ht' ? subtotal / 2 : total / 2;
+    const suffix = emphasize === 'ht' ? ' HT' : '';
     doc.fillColor(C.muted).font('Helvetica').fontSize(8.5)
       .text(
-        `Acompte 50 % à la commande : ${money(total / 2)}   ·   Solde à la livraison : ${money(total / 2)}`,
+        `Acompte 50 % à la commande : ${money(half)}${suffix}   ·   Solde à la livraison : ${money(half)}${suffix}`,
         bx - 60, y, { width: bw + 60, align: 'right' }
       );
     y += 16;
