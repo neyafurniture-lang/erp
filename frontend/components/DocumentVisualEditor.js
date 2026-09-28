@@ -583,18 +583,18 @@ export default function DocumentVisualEditor({
           </div>
         )}
 
-        <footer className="doc-totals">
+        <footer className={`doc-totals${isQuote ? ' doc-totals--quote' : ''}`}>
           {isQuote ? (
             <>
-              <div className="doc-totals-row doc-totals-ht">
+              <div className="doc-totals-ht">
                 <span>Total HT</span>
-                <span className="tabular-nums">{formatMoney(taxes.subtotal)}</span>
+                <span>{formatMoney(taxes.subtotal)}</span>
               </div>
               <div className="doc-totals-row"><span>TPS 5 %</span><span className="tabular-nums">{formatMoney(taxes.gst)}</span></div>
               <div className="doc-totals-row"><span>TVQ 9,975 %</span><span className="tabular-nums">{formatMoney(taxes.qst)}</span></div>
-              <div className="doc-totals-row doc-totals-ttc">
+              <div className="doc-totals-ttc">
                 <span>Total TTC</span>
-                <span className="tabular-nums">{formatMoney(taxes.total)}</span>
+                <span>{formatMoney(taxes.total)}</span>
               </div>
             </>
           ) : (
