@@ -1,6 +1,6 @@
 /** Miroir frontend de backend/src/services/quote-document.js */
 
-import { finalizeDecimal } from './parse-decimal';
+import { finalizeDecimal, parseDecimal } from './parse-decimal';
 
 function uid(prefix = 's') {
   return `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
@@ -87,7 +87,7 @@ export function flattenQuoteLines(raw) {
 export function sectionSubtotal(section) {
   return (section?.lines || [])
     .filter(isMeaningfulLine)
-    .reduce((sum, line) => sum + (Number(line.qty) || 0) * (Number(line.price) || 0), 0);
+    .reduce((sum, line) => sum + parseDecimal(line.qty, 0) * parseDecimal(line.price, 0), 0);
 }
 
 export function serializeQuoteDocument(doc) {

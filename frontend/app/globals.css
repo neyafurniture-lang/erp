@@ -1783,13 +1783,13 @@ h1, h2, h3, h4, h5, h6 {
   @apply text-base font-medium text-neya-ink;
 }
 
-.doc-section-subtotal {
-  @apply flex justify-end items-baseline gap-6 mt-2 pt-2 border-t border-neutral-200
-    text-sm text-neutral-600 max-w-full;
-}
-
-.doc-section-subtotal span:last-child {
-  @apply font-medium text-neya-ink min-w-[5.5rem] text-right;
+.doc-section-subtotal-row td {
+  padding-top: 0.65rem;
+  padding-bottom: 0.65rem;
+  border-top: 2px solid #d4d4d4;
+  background: rgba(250, 250, 250, 0.95);
+  color: #2a2622;
+  font-size: 0.875rem;
 }
 
 .doc-photos {
