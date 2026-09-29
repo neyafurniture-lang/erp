@@ -47,10 +47,13 @@ import emailThreadsRoutes from './routes/email-threads.js';
 import deployRoutes from './routes/deploy.js';
 import timeOffRoutes from './routes/time-off.js';
 import timeEntriesRoutes from './routes/time-entries.js';
+import agendaRoutes from './routes/agenda.js';
 import financeSyncRoutes from './routes/finance-sync.js';
 import saunaCloudRoutes from './routes/sauna-cloud.js';
 import cuttingPlansRoutes from './routes/cutting-plans.js';
 import publicSketchupRoutes from './routes/public-sketchup.js';
+import publicShopRoutes from './routes/public-shop.js';
+import shopListsRoutes from './routes/shop-lists.js';
 import marketplaceRoutes from './routes/marketplace.js';
 import socialRoutes from './routes/social.js';
 import payrollRoutes from './routes/payroll.js';
@@ -149,10 +152,12 @@ protectedRouter.use('/modules', modulesRoutes);
 protectedRouter.use('/inventory', requirePermission('inventory'), inventoryRoutes);
 protectedRouter.use('/suppliers', requireAnyPermission('purchases', 'expenses'), suppliersRoutes);
 protectedRouter.use('/purchases', requirePermission('purchases'), purchasesRoutes);
+protectedRouter.use('/shop-lists', requireAnyPermission('clients', 'purchases'), shopListsRoutes);
 protectedRouter.use('/employees', requireAnyPermission('team', 'payroll'), employeesRoutes);
 protectedRouter.use('/shifts', requireAnyPermission('team', 'calendar'), shiftsRoutes);
 protectedRouter.use('/time-off', requireAnyPermission('team', 'calendar'), timeOffRoutes);
 protectedRouter.use('/time-entries', requireAnyPermission('team', 'calendar', 'payroll'), timeEntriesRoutes);
+protectedRouter.use('/agenda', requireAnyPermission('calendar', 'team', 'projects'), agendaRoutes);
 protectedRouter.use('/finance-sync', financeSyncRoutes);
 protectedRouter.use('/analytics', analyticsRoutes);
 protectedRouter.use('/integrations', integrationsRoutes);
@@ -178,6 +183,7 @@ protectedRouter.use('/meetings', requireAnyPermission('meetings', 'calendar', 'a
 protectedRouter.use('/markets', requirePermission('markets'), marketsRoutes);
 
 app.use('/api/public', publicSketchupRoutes);
+app.use('/api/public', publicShopRoutes);
 app.use('/api', protectedRouter);
 
 app.use((err, req, res, next) => {

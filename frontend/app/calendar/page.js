@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ChevronLeft,
   ChevronRight,
@@ -16,8 +17,12 @@ import AppShell from '../../components/AppShell';
 import AuthGuard from '../../components/AuthGuard';
 import WeeklyPlanner from '../../components/WeeklyPlanner';
 import CalendarTaskModal from '../../components/CalendarTaskModal';
+import PersonalAgenda from '../../components/PersonalAgenda';
+import AgendaBlockModal from '../../components/AgendaBlockModal';
+import { blockView } from '../../lib/agenda';
 import { api } from '../../lib/api';
-import { useRouter } from 'next/navigation';
+import { useAuth } from '../../lib/auth-context';
+import { hasPermission, isAdmin } from '../../lib/permissions';
 
 const MONTHS_FR = [
   'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
@@ -68,6 +73,13 @@ const CATEGORY_META = {
     dot: 'bg-sky-700',
     chip: 'bg-sky-50 text-sky-800 border-sky-200/80',
     bar: 'border-l-sky-700 bg-sky-50/80',
+  },
+  heure: {
+    label: 'Heures',
+    Icon: Clock,
+    dot: 'bg-orange-700',
+    chip: 'bg-orange-50 text-orange-950 border-orange-200',
+    bar: 'border-l-orange-700 bg-orange-50/70',
   },
 };
 
@@ -130,11 +142,14 @@ function taskIdFromEvent(ev) {
   return ev.raw?.extendedProps?.taskId || ev.raw?.id || null;
 }
 
-function CraftCalendar() {
+function CraftCalendar({ initialDate }) {
   const router = useRouter();
+  const { user } = useAuth();
+  const canManageAll = isAdmin(user) || hasPermission(user, 'team');
   const today = useMemo(() => new Date(), []);
-  const [view, setView] = useState(() => new Date());
-  const [selected, setSelected] = useState(() => iso(new Date()));
+  const seed = initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate) ? new Date(`${initialDate}T12:00:00`) : new Date();
+  const [view, setView] = useState(() => seed);
+  const [selected, setSelected] = useState(() => (initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate) ? initialDate : iso(new Date())));
   const [filter, setFilter] = useState('all');
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -142,8 +157,12 @@ function CraftCalendar() {
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState({ title: '', start: '09:00', end: '10:00', type: 'assemblage' });
   const [editTaskId, setEditTaskId] = useState(null);
+  const [hourModal, setHourModal] = useState(null);
+  const [projects, setProjects] = useState([]);
+  const [employees, setEmployees] = useState([]);
   const [dragOverDate, setDragOverDate] = useState(null);
   const dragPayloadRef = useRef(null);
+  const dayPanelRef = useRef(null);
   /** Ignore le click fantôme qui suit parfois un drag HTML5 */
   const suppressClickRef = useRef(false);
 
@@ -156,10 +175,11 @@ function CraftCalendar() {
     setLoading(true);
     setErr('');
     try {
-      const [tasks, timeOff, shifts] = await Promise.all([
+      const [tasks, timeOff, shifts, agendaRes] = await Promise.all([
         api(`/tasks/calendar?start=${rangeStart}T00:00:00&end=${rangeEnd}T23:59:59`),
         api(`/time-off?from=${rangeStart}&to=${rangeEnd}`).catch(() => []),
         api(`/shifts?from=${rangeStart}&to=${rangeEnd}`).catch(() => []),
+        api(`/agenda?from=${rangeStart}&to=${rangeEnd}`).catch(() => ({ blocks: [] })),
       ]);
       const mapped = (tasks || []).map(t => {
         const start = t.start ? new Date(t.start) : null;
@@ -216,7 +236,21 @@ function CraftCalendar() {
         };
       }).filter(e => e.date && !Number.isNaN(new Date(e.date).getTime()));
 
-      setEvents([...mapped, ...offs, ...shiftEvts]);
+      const hourEvts = (Array.isArray(agendaRes?.blocks) ? agendaRes.blocks : []).map(b => {
+        const view = blockView(b);
+        return {
+          id: b.id,
+          title: b.title,
+          date: view.date,
+          start: view.startHm,
+          end: view.endHm,
+          category: 'heure',
+          project: b.project_name || (b.kind === 'time_entry' ? 'Mes heures' : null),
+          block: b,
+        };
+      }).filter(e => e.date);
+
+      setEvents([...mapped, ...offs, ...shiftEvts, ...hourEvts]);
     } catch (e) {
       setErr(e.message || 'Impossible de charger le calendrier');
     } finally {
@@ -225,6 +259,20 @@ function CraftCalendar() {
   }, [rangeStart, rangeEnd]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    api('/projects').then(list => {
+      const rows = (Array.isArray(list) ? list : []).filter(p => {
+        const s = String(p.status || 'active').toLowerCase();
+        return !['cancelled', 'canceled', 'annule', 'annulé'].includes(s);
+      });
+      setProjects(rows);
+    }).catch(() => setProjects([]));
+    if (!canManageAll) return;
+    api('/employees').then(list => {
+      setEmployees((Array.isArray(list) ? list : []).filter(e => e.active !== false));
+    }).catch(() => setEmployees([]));
+  }, [canManageAll]);
   useEffect(() => {
     const handler = () => load();
     window.addEventListener('neya:assistant-action', handler);
@@ -345,10 +393,22 @@ function CraftCalendar() {
     }
   }
 
+  function openHour(ev) {
+    if (!ev?.block) return;
+    setHourModal({
+      block: ev.block,
+      initial: { date: ev.date, start: ev.start, end: ev.end },
+    });
+  }
+
   function onTaskClick(e, ev) {
     e.stopPropagation();
     e.preventDefault();
     if (suppressClickRef.current) return;
+    if (ev.category === 'heure') {
+      openHour(ev);
+      return;
+    }
     if (ev.category === 'quart' || ev.href) {
       router.push(ev.href || '/team?tab=planning');
       return;
@@ -358,7 +418,7 @@ function CraftCalendar() {
 
   return (
     <div className="space-y-4">
-      <p className="text-[12px] text-neya-muted neya-enter">
+      <p className="hidden sm:block text-[12px] text-neya-muted neya-enter">
         <strong className="text-neya-ink font-medium">Clic</strong> pour modifier une tâche ·{' '}
         <strong className="text-neya-ink font-medium">glisser-déposer</strong> pour la déplacer.
         Les quarts s’affichent ici ; pour les poser, onglet <strong className="text-neya-ink font-medium">Quarts</strong>.
@@ -391,7 +451,7 @@ function CraftCalendar() {
           </button>
         </div>
         <h2 className="font-display text-lg font-semibold text-neya-ink">{monthLabel}</h2>
-        <div className="ml-auto flex flex-wrap items-center gap-1.5">
+        <div className="flex w-full sm:w-auto sm:ml-auto items-center gap-1.5 overflow-x-auto pb-1">
           <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-neya-muted mr-1">
             <Filter className="h-3 w-3" /> Filtres
           </span>
@@ -435,7 +495,14 @@ function CraftCalendar() {
                   key={key + i}
                   role="button"
                   tabIndex={0}
-                  onClick={() => setSelected(key)}
+                  onClick={() => {
+                    setSelected(key);
+                    if (typeof window !== 'undefined' && window.innerWidth < 640) {
+                      requestAnimationFrame(() => {
+                        dayPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      });
+                    }
+                  }}
                   onKeyDown={ev => {
                     if (ev.key === 'Enter' || ev.key === ' ') {
                       ev.preventDefault();
@@ -455,7 +522,7 @@ function CraftCalendar() {
                   }}
                   onDrop={e => onDayDrop(e, key)}
                   className={[
-                    'group relative flex min-h-[86px] flex-col gap-1 border-b border-r border-neya-border p-2 text-left transition-colors lg:min-h-[104px] cursor-pointer',
+                    'group relative flex min-h-[48px] sm:min-h-[86px] flex-col gap-1 border-b border-r border-neya-border p-1 sm:p-2 text-left transition-colors lg:min-h-[104px] cursor-pointer',
                     !inMonth ? 'bg-neya-surface/30 text-neya-muted' : 'bg-white',
                     isSelected ? 'bg-neya-orange/[0.06] ring-1 ring-inset ring-neya-orange/30' : 'hover:bg-neya-surface/50',
                     isDropTarget ? 'bg-neya-orange/10 ring-2 ring-inset ring-neya-orange/50' : '',
@@ -463,12 +530,18 @@ function CraftCalendar() {
                     i >= 35 ? 'border-b-0' : '',
                   ].join(' ')}
                 >
-                  <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-[12px] font-semibold tabular-nums ${
+                  <span className={`inline-flex h-7 w-7 sm:h-6 sm:w-6 items-center justify-center rounded-full text-[13px] sm:text-[12px] font-semibold tabular-nums ${
                     isToday ? 'bg-neya-orange text-white' : 'text-neya-ink'
                   }`}>
                     {d.getDate()}
                   </span>
-                  <div className="flex flex-col gap-0.5 w-full min-w-0">
+                  <div className="mt-0.5 flex gap-0.5 sm:hidden">
+                    {evts.slice(0, 3).map(e => {
+                      const meta = CATEGORY_META[e.category] || CATEGORY_META.production;
+                      return <span key={e.id} className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />;
+                    })}
+                  </div>
+                  <div className="hidden sm:flex flex-col gap-0.5 w-full min-w-0">
                     {evts.slice(0, 3).map(e => {
                       const meta = CATEGORY_META[e.category] || CATEGORY_META.production;
                       const canDrag = !!taskIdFromEvent(e);
@@ -511,9 +584,9 @@ function CraftCalendar() {
         </div>
 
         {/* Day detail */}
-        <aside className="cf-panel flex flex-col min-h-[320px] neya-lift">
+        <aside ref={dayPanelRef} className="cf-panel flex flex-col min-h-[280px] neya-lift scroll-mt-4">
           <div className="mb-4">
-            <h3 className="font-display text-[16px] font-semibold text-neya-ink">
+            <h3 className="font-display text-[18px] sm:text-[16px] font-semibold text-neya-ink capitalize">
               {formatDayLabel(selected)}
             </h3>
             <p className="text-[12px] text-neya-muted mt-0.5">
@@ -524,9 +597,19 @@ function CraftCalendar() {
           <button
             type="button"
             onClick={() => setShowAdd(v => !v)}
-            className="btn-primary text-sm w-full mb-4 gap-1.5"
+            className="btn-primary text-sm w-full mb-2 gap-1.5"
           >
             <Plus className="h-4 w-4" /> Ajouter à cette date
+          </button>
+          <button
+            type="button"
+            onClick={() => setHourModal({
+              block: null,
+              initial: { date: selected, start: '09:00', end: '12:00' },
+            })}
+            className="btn-secondary text-sm w-full mb-4"
+          >
+            Bloc d’heures sur un projet
           </button>
 
           {showAdd && (
@@ -575,13 +658,17 @@ function CraftCalendar() {
                   onDragEnd={onTaskDragEnd}
                   onClick={ev => {
                     if (suppressClickRef.current) return;
+                    if (e.category === 'heure') {
+                      openHour(e);
+                      return;
+                    }
                     if (e.category === 'quart' || e.href) {
                       router.push(e.href || '/team?tab=planning');
                       return;
                     }
                     if (canEdit) openTask(e);
                   }}
-                  className={`neya-lift w-full text-left rounded-xl border border-neya-border border-l-4 px-3 py-2.5 ${meta.bar} ${
+                  className={`neya-lift w-full min-h-[52px] text-left rounded-xl border border-neya-border border-l-4 px-3 py-2.5 ${meta.bar} ${
                     canEdit || e.category === 'quart' ? 'cursor-pointer hover:opacity-90' : 'cursor-default'
                   } ${canEdit ? 'cursor-grab active:cursor-grabbing' : ''}`}
                   title={canEdit ? 'Clic pour modifier · glisser vers un jour du calendrier' : (e.category === 'quart' ? 'Ouvrir le planning des quarts' : undefined)}
@@ -602,6 +689,11 @@ function CraftCalendar() {
                       {e.category === 'quart' && (
                         <p className="text-[11px] text-neya-orange mt-1 font-medium">Ouvrir les quarts</p>
                       )}
+                      {e.category === 'heure' && (
+                        <p className="text-[11px] text-neya-orange mt-1 font-medium">
+                          {e.block?.kind === 'time_entry' ? 'Mes heures' : 'Carnet du projet'} · modifier
+                        </p>
+                      )}
                     </div>
                   </div>
                 </button>
@@ -618,22 +710,43 @@ function CraftCalendar() {
           onSaved={load}
         />
       )}
+      {hourModal && (
+        <AgendaBlockModal
+          block={hourModal.block}
+          initial={hourModal.initial}
+          projects={projects}
+          employees={employees}
+          canManageAll={canManageAll}
+          defaultEmployeeId={user?.employee_id}
+          onClose={() => setHourModal(null)}
+          onSaved={load}
+        />
+      )}
     </div>
   );
 }
 
-export default function CalendarPage() {
-  const [mode, setMode] = useState('mois'); // mois | equipe
+function CalendarPageInner() {
+  const searchParams = useSearchParams();
+  const initialDate = searchParams.get('date') || '';
+  const [mode, setMode] = useState('agenda');
 
   return (
     <AuthGuard>
       <AppShell
-        title="Calendrier"
-        subtitle="Mois = tâches + quarts. Onglet Quarts = glisser les horaires employés."
+        title="Agenda"
+        subtitle="Agenda personnel : blocs d’heures, projets et quarts. Les données déjà inscrites restent en place."
         wide
       >
-        <div className="flex flex-wrap items-center gap-2 mb-5 neya-enter">
-          <div className="neya-segment">
+        <div className="flex items-center gap-2 mb-3 lg:mb-5 neya-enter overflow-x-auto">
+          <div className="neya-segment shrink-0">
+            <button
+              type="button"
+              onClick={() => setMode('agenda')}
+              className={`neya-segment-btn ${mode === 'agenda' ? 'is-active' : ''}`}
+            >
+              Agenda
+            </button>
             <button
               type="button"
               onClick={() => setMode('mois')}
@@ -651,12 +764,28 @@ export default function CalendarPage() {
           </div>
         </div>
 
-        {mode === 'mois' ? (
-          <CraftCalendar />
+        {mode === 'agenda' ? (
+          <PersonalAgenda initialDate={initialDate} />
+        ) : mode === 'mois' ? (
+          <CraftCalendar initialDate={initialDate} />
         ) : (
           <WeeklyPlanner showTasks showShifts title="Production & équipe" />
         )}
       </AppShell>
     </AuthGuard>
+  );
+}
+
+export default function CalendarPage() {
+  return (
+    <Suspense fallback={
+      <AuthGuard>
+        <AppShell title="Agenda">
+          <p className="text-sm text-neya-muted">Chargement…</p>
+        </AppShell>
+      </AuthGuard>
+    }>
+      <CalendarPageInner />
+    </Suspense>
   );
 }

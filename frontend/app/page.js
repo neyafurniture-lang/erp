@@ -17,7 +17,8 @@ import DashboardLiveTodo from '../components/DashboardLiveTodo';
 import DashboardFollowPanel from '../components/DashboardFollowPanel';
 import { api, formatMoney, formatDate } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
-import { hasPermission } from '../lib/permissions';
+import { hasPermission, isAdmin } from '../lib/permissions';
+import { blockOnDate, blockView, localISODate } from '../lib/agenda';
 
 function initials(name = '') {
   return name
@@ -84,20 +85,31 @@ function KpiCard({ label, value, delta, Icon, tone = 'neutral', href }) {
 export default function DashboardPage() {
   const { user } = useAuth();
   const canMail = hasPermission(user, 'mail');
+  const canAgenda = isAdmin(user) || hasPermission(user, 'calendar') || hasPermission(user, 'team') || hasPermission(user, 'projects');
   const [data, setData] = useState(null);
+  const [hourBlocks, setHourBlocks] = useState([]);
   const [mailPreview, setMailPreview] = useState({ messages: [], unread: 0, urgent: 0, error: '' });
   const [error, setError] = useState('');
   const firstName = (user?.name || '').split(/\s+/)[0] || 'Mehdi';
 
   const load = () => {
     const mailReq = canMail
-      ? api('/gmail/inbox-sorted?max=30').catch(e => ({ __error: e.message || 'Gmail indisponible' }))
+      ? api('/gmail/inbox-sorted?max=15').catch(e => ({ __error: e.message || 'Gmail indisponible' }))
       : Promise.resolve(null);
+    const todayKey = localISODate();
+    const agendaReq = canAgenda
+      ? api(`/agenda?from=${todayKey}&to=${todayKey}`).catch(() => ({ blocks: [] }))
+      : Promise.resolve({ blocks: [] });
     Promise.all([
       api('/dashboard'),
       mailReq,
-    ]).then(([d, mail]) => {
+      agendaReq,
+    ]).then(([d, mail, agenda]) => {
       setData(d);
+      const todayBlocks = (Array.isArray(agenda?.blocks) ? agenda.blocks : [])
+        .filter(b => blockOnDate(b, todayKey))
+        .slice(0, 6);
+      setHourBlocks(todayBlocks);
       setError('');
       if (!mail) {
         setMailPreview({ messages: [], unread: 0, urgent: 0, error: '' });
@@ -136,7 +148,7 @@ export default function DashboardPage() {
     const handler = () => load();
     window.addEventListener('neya:assistant-action', handler);
     return () => window.removeEventListener('neya:assistant-action', handler);
-  }, [canMail]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [canMail, canAgenda]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const greeting = useMemo(() => {
     const h = new Date().getHours();
@@ -329,14 +341,35 @@ export default function DashboardPage() {
               <div>
                 <h2 className="cf-panel-title">Agenda du jour</h2>
                 <p className="cf-panel-sub">
-                  {agendaFallback.length} rendez-vous · atelier & clients
+                  {agendaFallback.length} rendez-vous · {hourBlocks.length} bloc{hourBlocks.length > 1 ? 's' : ''} d’heures
                 </p>
               </div>
-              <Link href="/calendar" className="dash-link">Calendrier</Link>
+              <Link href="/calendar" className="dash-link">Agenda</Link>
             </div>
-            {!agendaFallback.length ? (
-              <p className="dash-empty">Rien de planifié — ouvre le calendrier.</p>
-            ) : (
+            {hourBlocks.length > 0 && (
+              <ul className="space-y-2.5 mb-3">
+                {hourBlocks.map(b => {
+                  const view = blockView(b);
+                  return (
+                    <li key={b.id}>
+                      <Link href={`/calendar?date=${view.date}`} className="cf-agenda-row">
+                        <span className="cf-agenda-time">{view.startHm}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-medium text-neya-ink truncate">{b.title}</span>
+                          <span className="cf-agenda-type">
+                            {b.kind === 'time_entry' ? 'Mes heures' : 'Projet'}
+                            {view.inferred ? ' · horaire estimé' : ''}
+                          </span>
+                        </span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {!agendaFallback.length && !hourBlocks.length ? (
+              <p className="dash-empty">Rien de planifié — ouvre l’agenda.</p>
+            ) : agendaFallback.length > 0 ? (
               <ul className="space-y-2.5">
                 {agendaFallback.map(t => {
                   const time = t.start_time
@@ -361,7 +394,7 @@ export default function DashboardPage() {
                   );
                 })}
               </ul>
-            )}
+            ) : null}
             <div className="cf-agenda-free mt-4">
               <CheckCircle2 className="h-3.5 w-3.5 text-neya-orange shrink-0" />
               <span>Prochain créneau libre : {nextFree}</span>
