@@ -35,7 +35,7 @@ const LIST_FILTERS = [
   { id: 'autres', label: 'Non classés' },
 ];
 
-const INBOX_SORTED_MAX = 50;
+const INBOX_SORTED_MAX = 30;
 
 const ALL_FOLDER_LABELS = {
   inbox: 'Boîte de réception',
@@ -629,7 +629,6 @@ export default function GmailInbox({
   const [messages, setMessages] = useState([]);
   const [selected, setSelected] = useState(null);
   const deepLinkOpened = useRef(null);
-  const autoSorted = useRef(false);
   const [thread, setThread] = useState(null);
   const [loading, setLoading] = useState(true);
   const [threadLoading, setThreadLoading] = useState(false);
@@ -964,7 +963,7 @@ export default function GmailInbox({
       const result = await api('/gmail/sort-inbox', {
         method: 'POST',
         timeoutMs: 120000,
-        body: JSON.stringify({ max: INBOX_SORTED_MAX, includeTri: true, scanInvoices: true }),
+        body: JSON.stringify({ max: 15, includeTri: true, scanInvoices: false }),
       });
       setMessages(result.messages || []);
       setSections(result.sections || sections);
@@ -973,48 +972,35 @@ export default function GmailInbox({
       const triBit = result.tri_processed
         ? ` · ${result.tri_processed} depuis Tri/A_traiter`
         : '';
-      const inv = result.invoices;
-      const invBit = inv ? ` · ${inv.ingested || 0} facture(s) stockée(s)` : '';
-      const quotaBit = result.quota_paused ? ' · quota Gmail en pause (réessaie dans 1–2 min)' : '';
-      const msg = `${result.processed || 0} fil(s) trié(s)${triBit} — ${labeled} label(s) NEYA${invBit}${quotaBit}.`;
-      if (result.errors?.length || result.gmail_labels?.errors?.length || result.tri_errors?.length) {
+      const quotaBit = result.quota_paused ? ' · quota Gmail en pause (réessaie dans ~3 min)' : '';
+      const msg = `${result.processed || 0} fil(s) trié(s)${triBit} — ${labeled} label(s) NEYA${quotaBit}.`;
+      if (result.quota_paused) {
+        setErr(msg);
+      } else if (result.errors?.length || result.gmail_labels?.errors?.length || result.tri_errors?.length) {
         const errText = result.errors?.[0]?.error
           || result.gmail_labels?.errors?.[0]?.error
-          || result.tri_errors?.[0]?.error;
-        setErr(`${msg} Erreur : ${errText}`);
+          || result.tri_errors?.[0]?.error
+          || '';
+        const friendly = /quota|cooldown/i.test(errText)
+          ? 'Gmail est en pause quota. Attends ~3 min puis réessaie — ne reclique pas tout de suite.'
+          : errText;
+        setErr(`${msg} ${friendly}`);
       } else {
         showUndo(msg, null);
       }
-      if (!search) await load('', activeFolder);
+      if (!search && !result.quota_paused) await load('', activeFolder);
     } catch (e) {
-      try {
-        const result = await threadApi('/process-inbox', {
-          method: 'POST',
-          body: JSON.stringify({ max: 15 }),
-        });
-        await load(search, activeFolder);
-        showUndo(`${result.processed} conversation(s) synchronisée(s).`, null);
-      } catch (fallbackErr) {
-        setErr(e.message || fallbackErr.message);
-      }
+      const raw = e.message || '';
+      setErr(/quota|cooldown/i.test(raw)
+        ? 'Gmail est en pause quota (~3 min). Réouvre Courriel plus tard sans recliquer « Trier ».'
+        : raw);
     } finally {
       setInboxProcessing(false);
     }
   }
 
-  useEffect(() => {
-    if (connected !== true || autoSorted.current) return;
-    autoSorted.current = true;
-    // Tri léger à l’ouverture (pas de sync complète + factures — ça brûlait le quota Gmail).
-    api('/gmail/sort-inbox', {
-      method: 'POST',
-      timeoutMs: 45000,
-      body: JSON.stringify({ max: 15, fast: true }),
-    })
-      .then(() => load('', activeFolder))
-      .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connected]);
+  // Pas de tri auto à l’ouverture — ça brûlait le quota Gmail (units/min).
+  // Le chargement inbox-sorted suffit ; « Trier » reste manuel.
 
   async function synthesize() {
     if (!thread?.id) return;

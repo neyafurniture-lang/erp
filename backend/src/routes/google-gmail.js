@@ -70,11 +70,13 @@ router.get('/inbox-sorted', async (req, res) => {
   try {
     const applyLabels = req.query.applyLabels === '1' || req.query.applyLabels === 'true';
     res.json(await sortInbox({
-      max: Number(req.query.max) || 40,
+      max: Number(req.query.max) || 30,
       applyLabels,
     }));
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    const { isGmailQuotaError, gmailQuotaUserMessage } = await import('../services/google-gmail.js');
+    const status = isGmailQuotaError(err) ? 429 : 400;
+    res.status(status).json({ error: gmailQuotaUserMessage(err) });
   }
 });
 
@@ -92,12 +94,20 @@ router.get('/sections', (_req, res) => {
 
 router.post('/sort-inbox', async (req, res) => {
   try {
-    const max = Math.min(Number(req.body?.max) || 50, 50);
+    const gmail = await import('../services/google-gmail.js');
+    if (gmail.isGmailQuotaPaused()) {
+      return res.status(429).json({
+        error: gmail.gmailQuotaUserMessage('paused'),
+        quota_paused: true,
+        spend: gmail.getGmailUnitSpend?.(),
+      });
+    }
+    const max = Math.min(Number(req.body?.max) || 20, 20);
     const fast = req.body?.fast === true;
     if (fast) {
       const sorted = await sortInbox({ max, applyLabels: false });
       const labelResult = await applyGmailLabelsForMessages(
-        (sorted.messages || []).slice(0, Math.min(max, 20))
+        (sorted.messages || []).slice(0, Math.min(max, 8))
       );
       return res.json({
         ...sorted,
@@ -112,10 +122,13 @@ router.post('/sort-inbox', async (req, res) => {
       });
     }
     const includeTri = req.body?.includeTri !== false;
-    const scanInvoices = req.body?.scanInvoices !== false;
+    // Factures off par défaut sur tri manuel — trop coûteux en unités Gmail
+    const scanInvoices = req.body?.scanInvoices === true;
     res.json(await sortRecentInbox(max, { includeTri, scanInvoices }));
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    const { isGmailQuotaError, gmailQuotaUserMessage } = await import('../services/google-gmail.js');
+    const status = isGmailQuotaError(err) ? 429 : 400;
+    res.status(status).json({ error: gmailQuotaUserMessage(err), quota_paused: isGmailQuotaError(err) });
   }
 });
 

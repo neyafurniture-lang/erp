@@ -2,12 +2,21 @@ import { getValidAccessToken } from './google-oauth.js';
 
 const BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
 
-/** Pause globale après dépassement de quota (évite la boucle d’erreurs). */
-const QUOTA_COOLDOWN_MS = 90_000;
+/**
+ * Gmail « Units per minute per user » ≈ 250.
+ * On reste volontairement sous ~180 u/min pour laisser de la marge UI.
+ * Coûts approx. : list/get/modify ≈ 5, threads.get ≈ 10, labels.list ≈ 1.
+ */
+const QUOTA_COOLDOWN_MS = 180_000;
+const GMAIL_MAX_CONCURRENCY = 2;
+const UNIT_BUDGET_PER_MIN = 180;
+const UNIT_WINDOW_MS = 60_000;
+
 let quotaPausedUntil = 0;
 let gmailInFlight = 0;
-const GMAIL_MAX_CONCURRENCY = 4;
 const waitQueue = [];
+/** @type {{ at: number, units: number }[]} */
+const unitSpendLog = [];
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -15,7 +24,7 @@ function sleep(ms) {
 
 export function isGmailQuotaError(errOrMsg) {
   const msg = String(errOrMsg?.message || errOrMsg || '');
-  return /quota|rate.?limit|resource.?exhausted|user.?rate|too many requests/i.test(msg);
+  return /quota|rate.?limit|resource.?exhausted|user.?rate|too many requests|cooldown/i.test(msg);
 }
 
 export function isGmailQuotaPaused() {
@@ -26,9 +35,59 @@ export function getGmailQuotaPausedUntil() {
   return quotaPausedUntil;
 }
 
+export function gmailQuotaUserMessage(errOrMsg) {
+  const secs = Math.max(0, Math.ceil((quotaPausedUntil - Date.now()) / 1000));
+  if (secs > 0 || isGmailQuotaError(errOrMsg)) {
+    const wait = secs > 0 ? Math.ceil(secs / 60) : 2;
+    return `Gmail est en pause quota (~${wait} min). Réouvre Courriel dans un moment — évite de recliquer « Trier ».`;
+  }
+  return String(errOrMsg?.message || errOrMsg || 'Erreur Gmail');
+}
+
 function pauseGmailQuota(extraMs = 0) {
   const until = Date.now() + Math.max(QUOTA_COOLDOWN_MS, Number(extraMs) || 0);
   if (until > quotaPausedUntil) quotaPausedUntil = until;
+}
+
+function estimateUnits(path = '', method = 'GET') {
+  const p = String(path || '');
+  const m = String(method || 'GET').toUpperCase();
+  if (p.startsWith('/labels') && m === 'GET' && !p.includes('/labels/')) return 1;
+  if (p.includes('/modify') || p.includes('/trash') || p.includes('/untrash')) return 5;
+  if (p.includes('/threads/') && p.includes('format=full')) return 10;
+  if (p.startsWith('/threads/') && m === 'GET') return 10;
+  if (p.startsWith('/messages/send')) return 100;
+  if (p.startsWith('/messages') && !p.includes('/messages/')) return 5; // list
+  if (p.includes('/attachments/')) return 5;
+  return 5; // messages.get metadata/full
+}
+
+function spentUnitsLastMinute() {
+  const cutoff = Date.now() - UNIT_WINDOW_MS;
+  while (unitSpendLog.length && unitSpendLog[0].at < cutoff) unitSpendLog.shift();
+  return unitSpendLog.reduce((sum, e) => sum + e.units, 0);
+}
+
+export function getGmailUnitSpend() {
+  return { spent: spentUnitsLastMinute(), budget: UNIT_BUDGET_PER_MIN, pausedUntil: quotaPausedUntil };
+}
+
+async function awaitUnitBudget(units) {
+  for (;;) {
+    if (isGmailQuotaPaused()) {
+      const secs = Math.ceil((quotaPausedUntil - Date.now()) / 1000);
+      throw new Error(gmailQuotaUserMessage(`cooldown ${secs}s`));
+    }
+    const spent = spentUnitsLastMinute();
+    if (spent + units <= UNIT_BUDGET_PER_MIN) {
+      unitSpendLog.push({ at: Date.now(), units });
+      return;
+    }
+    // Attendre que la fenêtre glissante libère du budget (max 15s)
+    const oldest = unitSpendLog[0];
+    const waitMs = oldest ? Math.min(15_000, Math.max(500, oldest.at + UNIT_WINDOW_MS - Date.now() + 50)) : 1000;
+    await sleep(waitMs);
+  }
 }
 
 async function acquireGmailSlot() {
@@ -64,64 +123,48 @@ export async function mapPool(items, concurrency, mapper) {
 
 async function gmailFetch(path, options = {}) {
   if (isGmailQuotaPaused()) {
-    const secs = Math.ceil((quotaPausedUntil - Date.now()) / 1000);
-    throw new Error(`Quota exceeded (cooldown ${secs}s) — Gmail API temporarily paused`);
+    throw new Error(gmailQuotaUserMessage('paused'));
   }
 
-  const maxAttempts = 4;
-  let lastError = null;
+  const method = options.method || 'GET';
+  const units = estimateUnits(path, method);
+  await awaitUnitBudget(units);
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    let shouldRetry = false;
-    let backoffMs = 0;
+  await acquireGmailSlot();
+  try {
+    const token = await getValidAccessToken();
+    const res = await fetch(`${BASE}${path}`, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+    });
 
-    await acquireGmailSlot();
-    try {
-      const token = await getValidAccessToken();
-      const res = await fetch(`${BASE}${path}`, {
-        ...options,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          ...options.headers,
-        },
-      });
-
-      if (res.ok) {
-        if (res.status === 204) return null;
-        return res.json();
-      }
-
-      const err = await res.json().catch(() => ({}));
-      const message = err.error?.message || `Gmail API ${res.status}`;
-      lastError = new Error(message);
-
-      const quotaHit = res.status === 429
-        || (res.status === 403 && isGmailQuotaError(message))
-        || isGmailQuotaError(message);
-
-      if (quotaHit) {
-        const retryAfterSec = Number(res.headers.get('Retry-After')) || 0;
-        backoffMs = retryAfterSec > 0
-          ? retryAfterSec * 1000
-          : Math.min(16_000, 1000 * (2 ** (attempt - 1))) + Math.floor(Math.random() * 400);
-        if (attempt < maxAttempts) {
-          shouldRetry = true;
-        } else {
-          pauseGmailQuota(backoffMs);
-          throw lastError;
-        }
-      } else {
-        throw lastError;
-      }
-    } finally {
-      releaseGmailSlot();
+    if (res.ok) {
+      if (res.status === 204) return null;
+      return res.json();
     }
 
-    if (shouldRetry) await sleep(backoffMs);
-  }
+    const err = await res.json().catch(() => ({}));
+    const message = err.error?.message || `Gmail API ${res.status}`;
 
-  throw lastError || new Error('Gmail API failed');
+    const quotaHit = res.status === 429
+      || (res.status === 403 && isGmailQuotaError(message))
+      || isGmailQuotaError(message);
+
+    if (quotaHit) {
+      const retryAfterSec = Number(res.headers.get('Retry-After')) || 0;
+      const backoffMs = retryAfterSec > 0 ? retryAfterSec * 1000 : QUOTA_COOLDOWN_MS;
+      pauseGmailQuota(backoffMs);
+      throw new Error(gmailQuotaUserMessage(message));
+    }
+
+    throw new Error(message);
+  } finally {
+    releaseGmailSlot();
+  }
 }
 
 function decodeBase64Url(data) {
@@ -438,8 +481,8 @@ export async function listMessages({ label = 'INBOX', max = 30, pageToken = null
   const list = await gmailFetch(`/messages?${params}`);
   if (!list.messages?.length) return { messages: [], nextPageToken: null };
 
-  const slice = list.messages.slice(0, max);
-  const messages = await mapPool(slice, 3, async (m) => {
+  const slice = list.messages.slice(0, Math.min(max, 30));
+  const messages = await mapPool(slice, 2, async (m) => {
     try {
       const raw = await gmailFetch(
         `/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Date`
