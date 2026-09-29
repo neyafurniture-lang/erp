@@ -68,7 +68,11 @@ router.get('/messages', async (req, res) => {
 
 router.get('/inbox-sorted', async (req, res) => {
   try {
-    res.json(await sortInbox({ max: Number(req.query.max) || 80 }));
+    const applyLabels = req.query.applyLabels === '1' || req.query.applyLabels === 'true';
+    res.json(await sortInbox({
+      max: Number(req.query.max) || 40,
+      applyLabels,
+    }));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -88,17 +92,20 @@ router.get('/sections', (_req, res) => {
 
 router.post('/sort-inbox', async (req, res) => {
   try {
-    const max = Number(req.body?.max) || 40;
+    const max = Math.min(Number(req.body?.max) || 40, 40);
     const fast = req.body?.fast === true;
     if (fast) {
       const sorted = await sortInbox({ max, applyLabels: false });
-      const labelResult = await applyGmailLabelsForMessages(sorted.messages || []);
+      const labelResult = await applyGmailLabelsForMessages(
+        (sorted.messages || []).slice(0, Math.min(max, 20))
+      );
       return res.json({
         ...sorted,
         processed: sorted.messages?.length || 0,
         fast: true,
         gmail_labels: {
           applied: labelResult.applied,
+          skipped: labelResult.skipped || 0,
           errors: labelResult.errors,
           labels: GMAIL_CATEGORY_LABELS,
         },
@@ -137,7 +144,7 @@ router.get('/labels/tree', async (req, res) => {
       .split(',')
       .map(s => s.trim())
       .filter(Boolean);
-    const withCounts = req.query.counts !== '0' && req.query.counts !== 'false';
+    const withCounts = req.query.counts === '1' || req.query.counts === 'true';
     res.json(await gmail.listLabelTree({ prefixes, exact, withCounts }));
   } catch (err) {
     res.status(400).json({ error: err.message });

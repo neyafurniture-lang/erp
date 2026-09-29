@@ -922,12 +922,16 @@ Réponds avec un objet JSON compact:
 }
 
 export async function processRecentInbox(max = 15) {
-  const { messages } = await gmail.listMessages({ label: 'INBOX', max });
+  const { messages } = await gmail.listMessages({ label: 'INBOX', max: Math.min(Number(max) || 15, 40) });
   const seen = new Set();
   const results = [];
   const errors = [];
 
   for (const m of messages || []) {
+    if (gmail.isGmailQuotaPaused?.()) {
+      errors.push({ thread_id: null, error: 'Quota exceeded (cooldown) — sync stopped' });
+      break;
+    }
     if (!m.threadId || seen.has(m.threadId)) continue;
     seen.add(m.threadId);
     try {
@@ -935,6 +939,7 @@ export async function processRecentInbox(max = 15) {
       results.push(thread);
     } catch (err) {
       errors.push({ thread_id: m.threadId, error: err.message });
+      if (gmail.isGmailQuotaError?.(err)) break;
     }
   }
 

@@ -35,7 +35,7 @@ const LIST_FILTERS = [
   { id: 'autres', label: 'Non classés' },
 ];
 
-const INBOX_SORTED_MAX = 80;
+const INBOX_SORTED_MAX = 40;
 
 const ALL_FOLDER_LABELS = {
   inbox: 'Boîte de réception',
@@ -735,7 +735,7 @@ export default function GmailInbox({
 
   const loadGmailLabels = useCallback(async () => {
     try {
-      const tree = await api('/gmail/labels/tree?prefixes=NEYA/,Tri/&exact=NEYA,Tri,Fournitures');
+      const tree = await api('/gmail/labels/tree?prefixes=NEYA/,Tri/&exact=NEYA,Tri,Fournitures&counts=0');
       setGmailGroups(tree.groups || { neya: [], tri: [], other: [] });
     } catch {
       setGmailGroups({ neya: [], tri: [], other: [] });
@@ -975,18 +975,12 @@ export default function GmailInbox({
       } else {
         showUndo(msg, null);
       }
-      // Recharger avec le même max (ne pas retomber sur 40 et perdre les importants)
       if (!search) await load('', activeFolder);
-      api('/gmail/sort-inbox', {
-        method: 'POST',
-        timeoutMs: 120000,
-        body: JSON.stringify({ max: 30, includeTri: true, scanInvoices: true }),
-      }).then(() => loadGmailLabels()).catch(() => {});
     } catch (e) {
       try {
         const result = await threadApi('/process-inbox', {
           method: 'POST',
-          body: JSON.stringify({ max: 20 }),
+          body: JSON.stringify({ max: 15 }),
         });
         await load(search, activeFolder);
         showUndo(`${result.processed} conversation(s) synchronisée(s).`, null);
@@ -1001,8 +995,14 @@ export default function GmailInbox({
   useEffect(() => {
     if (connected !== true || autoSorted.current) return;
     autoSorted.current = true;
-    processInbox().catch(() => {});
-    // Un tri automatique à l’ouverture — les dossiers NEYA restent vides sinon.
+    // Tri léger à l’ouverture (pas de sync complète + factures — ça brûlait le quota Gmail).
+    api('/gmail/sort-inbox', {
+      method: 'POST',
+      timeoutMs: 45000,
+      body: JSON.stringify({ max: 15, fast: true }),
+    })
+      .then(() => load('', activeFolder))
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected]);
 

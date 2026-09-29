@@ -2,22 +2,126 @@ import { getValidAccessToken } from './google-oauth.js';
 
 const BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
 
-async function gmailFetch(path, options = {}) {
-  const token = await getValidAccessToken();
-  const res = await fetch(`${BASE}${path}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error?.message || `Gmail API ${res.status}`);
+/** Pause globale après dépassement de quota (évite la boucle d’erreurs). */
+const QUOTA_COOLDOWN_MS = 90_000;
+let quotaPausedUntil = 0;
+let gmailInFlight = 0;
+const GMAIL_MAX_CONCURRENCY = 4;
+const waitQueue = [];
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+export function isGmailQuotaError(errOrMsg) {
+  const msg = String(errOrMsg?.message || errOrMsg || '');
+  return /quota|rate.?limit|resource.?exhausted|user.?rate|too many requests/i.test(msg);
+}
+
+export function isGmailQuotaPaused() {
+  return Date.now() < quotaPausedUntil;
+}
+
+export function getGmailQuotaPausedUntil() {
+  return quotaPausedUntil;
+}
+
+function pauseGmailQuota(extraMs = 0) {
+  const until = Date.now() + Math.max(QUOTA_COOLDOWN_MS, Number(extraMs) || 0);
+  if (until > quotaPausedUntil) quotaPausedUntil = until;
+}
+
+async function acquireGmailSlot() {
+  if (gmailInFlight < GMAIL_MAX_CONCURRENCY) {
+    gmailInFlight += 1;
+    return;
   }
-  if (res.status === 204) return null;
-  return res.json();
+  await new Promise(resolve => waitQueue.push(resolve));
+  gmailInFlight += 1;
+}
+
+function releaseGmailSlot() {
+  gmailInFlight = Math.max(0, gmailInFlight - 1);
+  const next = waitQueue.shift();
+  if (next) next();
+}
+
+/** Exécute des tâches async avec un plafond de concurrence. */
+export async function mapPool(items, concurrency, mapper) {
+  const list = [...(items || [])];
+  const results = new Array(list.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(concurrency, list.length || 1)) }, async () => {
+    while (next < list.length) {
+      const i = next;
+      next += 1;
+      results[i] = await mapper(list[i], i);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+async function gmailFetch(path, options = {}) {
+  if (isGmailQuotaPaused()) {
+    const secs = Math.ceil((quotaPausedUntil - Date.now()) / 1000);
+    throw new Error(`Quota exceeded (cooldown ${secs}s) — Gmail API temporarily paused`);
+  }
+
+  const maxAttempts = 4;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let shouldRetry = false;
+    let backoffMs = 0;
+
+    await acquireGmailSlot();
+    try {
+      const token = await getValidAccessToken();
+      const res = await fetch(`${BASE}${path}`, {
+        ...options,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          ...options.headers,
+        },
+      });
+
+      if (res.ok) {
+        if (res.status === 204) return null;
+        return res.json();
+      }
+
+      const err = await res.json().catch(() => ({}));
+      const message = err.error?.message || `Gmail API ${res.status}`;
+      lastError = new Error(message);
+
+      const quotaHit = res.status === 429
+        || (res.status === 403 && isGmailQuotaError(message))
+        || isGmailQuotaError(message);
+
+      if (quotaHit) {
+        const retryAfterSec = Number(res.headers.get('Retry-After')) || 0;
+        backoffMs = retryAfterSec > 0
+          ? retryAfterSec * 1000
+          : Math.min(16_000, 1000 * (2 ** (attempt - 1))) + Math.floor(Math.random() * 400);
+        if (attempt < maxAttempts) {
+          shouldRetry = true;
+        } else {
+          pauseGmailQuota(backoffMs);
+          throw lastError;
+        }
+      } else {
+        throw lastError;
+      }
+    } finally {
+      releaseGmailSlot();
+    }
+
+    if (shouldRetry) await sleep(backoffMs);
+  }
+
+  throw lastError || new Error('Gmail API failed');
 }
 
 function decodeBase64Url(data) {
@@ -334,13 +438,17 @@ export async function listMessages({ label = 'INBOX', max = 30, pageToken = null
   const list = await gmailFetch(`/messages?${params}`);
   if (!list.messages?.length) return { messages: [], nextPageToken: null };
 
-  const messages = await Promise.all(
-    list.messages.slice(0, max).map(m =>
-      gmailFetch(`/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Date`)
-        .then(formatMessage)
-        .catch(() => ({ id: m.id, subject: '(erreur)', from: '', to: '', snippet: '' }))
-    )
-  );
+  const slice = list.messages.slice(0, max);
+  const messages = await mapPool(slice, 3, async (m) => {
+    try {
+      const raw = await gmailFetch(
+        `/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Date`
+      );
+      return formatMessage(raw);
+    } catch {
+      return { id: m.id, subject: '(erreur)', from: '', to: '', snippet: '', threadId: m.threadId || null, labelIds: [] };
+    }
+  });
   return { messages, nextPageToken: list.nextPageToken || null };
 }
 
@@ -380,9 +488,9 @@ export async function getLabel(labelId) {
 export async function listLabelTree({
   prefixes = ['NEYA/', 'Tri/'],
   exact = ['NEYA', 'Tri', 'Fournitures'],
-  withCounts = true,
+  withCounts = false,
 } = {}) {
-  const labels = await getCachedLabels(true);
+  const labels = await getCachedLabels(false);
   const matched = labels.filter(l => {
     const name = String(l.name || '');
     if (exact.some(e => name === e)) return true;
