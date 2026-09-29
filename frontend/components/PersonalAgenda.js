@@ -13,7 +13,100 @@ import CalendarTaskModal from './CalendarTaskModal';
 const START_HOUR = 7;
 const END_HOUR = 20;
 const HOUR_PX = 46;
+const HOUR_PX_MOBILE = 52;
 const DAYS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+
+function dayItems(dateKey, blocks, tasks) {
+  const colBlocks = blocks.filter(b => blockOnDate(b, dateKey));
+  const colTasks = tasks.filter(t => t.start && localISODate(new Date(t.start)) === dateKey);
+  return { colBlocks, colTasks };
+}
+
+function TimelineColumn({
+  dateKey,
+  hourPx,
+  blocks,
+  tasks,
+  onSlot,
+  onOpenBlock,
+  onOpenTask,
+  onDrop,
+}) {
+  const { colBlocks, colTasks } = dayItems(dateKey, blocks, tasks);
+  const span = (END_HOUR - START_HOUR) * hourPx;
+
+  return (
+    <div
+      className="relative border-l border-neya-border"
+      style={{ height: span }}
+      onClick={e => onSlot(e, dateKey, hourPx)}
+      onDragOver={onDrop ? (e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }) : undefined}
+      onDrop={onDrop ? (e => onDrop(e, dateKey)) : undefined}
+    >
+      {Array.from({ length: END_HOUR - START_HOUR }, (_, i) => (
+        <div key={i} className="absolute left-0 right-0 border-t border-neya-border/70" style={{ top: i * hourPx }} />
+      ))}
+      {colTasks.map(t => {
+        const start = new Date(t.start);
+        const end = t.end ? new Date(t.end) : new Date(start.getTime() + 3600000);
+        const top = ((start.getHours() * 60 + start.getMinutes()) - START_HOUR * 60) / 60 * hourPx;
+        const height = Math.max(36, ((end - start) / 3600000) * hourPx);
+        if (top > span || top + height < 0) return null;
+        return (
+          <button
+            key={`task-${t.id}`}
+            type="button"
+            data-block
+            draggable
+            onDragStart={e => {
+              e.dataTransfer.setData('application/x-neya-agenda', JSON.stringify({ kind: 'task', id: t.id }));
+              e.dataTransfer.setData('text/plain', String(t.id));
+              e.dataTransfer.effectAllowed = 'move';
+            }}
+            onClick={e => { e.stopPropagation(); onOpenTask(t); }}
+            className="absolute left-1 right-1 z-10 overflow-hidden rounded-lg border border-neya-ink/15 bg-neya-ink/[0.06] px-2 py-1 text-left"
+            style={{ top: Math.max(0, top), height }}
+          >
+            <span className="block truncate text-[13px] font-medium text-neya-ink">{t.title}</span>
+          </button>
+        );
+      })}
+      {colBlocks.map(b => {
+        const view = blockView(b);
+        const top = ((view.start.getHours() * 60 + view.start.getMinutes()) - START_HOUR * 60) / 60 * hourPx;
+        const height = Math.max(40, ((view.end - view.start) / 3600000) * hourPx);
+        if (top > span || top + height < 0) return null;
+        const tone = b.kind === 'time_entry'
+          ? 'border-sky-300 bg-sky-50 text-sky-950'
+          : 'border-neya-orange/40 bg-neya-orange/[0.14] text-neya-ink';
+        return (
+          <button
+            key={b.id}
+            type="button"
+            data-block
+            draggable
+            onDragStart={e => {
+              e.dataTransfer.setData('application/x-neya-agenda', JSON.stringify({ kind: 'hours', id: b.id }));
+              e.dataTransfer.setData('text/plain', b.id);
+              e.dataTransfer.effectAllowed = 'move';
+            }}
+            onClick={e => { e.stopPropagation(); onOpenBlock(b); }}
+            className={`absolute left-1 right-1 z-20 overflow-hidden rounded-lg border px-2 py-1 text-left shadow-sm ${tone} ${view.inferred ? 'border-dashed' : ''}`}
+            style={{ top: Math.max(0, top), height }}
+          >
+            <span className="block truncate text-[13px] font-semibold leading-tight">{view.startHm} {b.title}</span>
+            {height > 48 && (
+              <span className="block truncate text-[11px] opacity-80">
+                {view.endHm}
+                {b.kind === 'time_entry' ? ' · Mes heures' : ' · Projet'}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function shiftTask(task, dateKey) {
   const start = new Date(task.start);
@@ -49,6 +142,8 @@ export default function PersonalAgenda({ initialDate }) {
   const [editBlock, setEditBlock] = useState(null);
   const [editTaskId, setEditTaskId] = useState(null);
   const suppressClickRef = useRef(false);
+  const swipeRef = useRef(null);
+  const mobileScrollRef = useRef(null);
 
   const weekStart = useMemo(() => startOfWeek(anchor), [anchor]);
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
@@ -150,12 +245,12 @@ export default function PersonalAgenda({ initialDate }) {
     }
   }
 
-  function onColumnClick(e, dateKey) {
+  function onColumnClick(e, dateKey, hourPx = HOUR_PX) {
     if (suppressClickRef.current) return;
     if (e.target.closest('[data-block]')) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const y = e.clientY - rect.top;
-    const hour = Math.min(END_HOUR - 1, Math.max(START_HOUR, START_HOUR + Math.floor(y / HOUR_PX)));
+    const hour = Math.min(END_HOUR - 1, Math.max(START_HOUR, START_HOUR + Math.floor(y / hourPx)));
     const endHour = Math.min(END_HOUR, hour + 2);
     openCreate(
       dateKey,
@@ -164,18 +259,142 @@ export default function PersonalAgenda({ initialDate }) {
     );
   }
 
+  function goToDay(dateKey) {
+    setSelected(dateKey);
+    setAnchor(new Date(`${dateKey}T12:00:00`));
+  }
+
+  function shiftDay(delta) {
+    const next = addDays(new Date(`${selected}T12:00:00`), delta);
+    goToDay(localISODate(next));
+  }
+
+  function onSwipeStart(e) {
+    const t = e.changedTouches?.[0];
+    if (!t) return;
+    swipeRef.current = { x: t.clientX, y: t.clientY };
+  }
+
+  function onSwipeEnd(e) {
+    const start = swipeRef.current;
+    swipeRef.current = null;
+    const t = e.changedTouches?.[0];
+    if (!start || !t) return;
+    const dx = t.clientX - start.x;
+    const dy = t.clientY - start.y;
+    if (Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+    shiftDay(dx < 0 ? 1 : -1);
+  }
+
+  useEffect(() => {
+    const el = mobileScrollRef.current;
+    if (!el || typeof window === 'undefined' || window.innerWidth >= 1024) return;
+    const now = new Date();
+    const focus = selected === today ? now.getHours() : 8;
+    el.scrollTop = Math.max(0, (focus - START_HOUR - 1) * HOUR_PX_MOBILE);
+  }, [selected, today]);
+
   const weekLabel = `${days[0].toLocaleDateString('fr-CA', { day: 'numeric', month: 'short' })} – ${days[6].toLocaleDateString('fr-CA', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  const selectedDate = new Date(`${selected}T12:00:00`);
+  const countsByDay = useMemo(() => {
+    const map = {};
+    for (const d of days) {
+      const key = localISODate(d);
+      map[key] = dayItems(key, blocks, tasks);
+    }
+    return map;
+  }, [days, blocks, tasks]);
 
   return (
     <div className="space-y-4">
-      <p className="text-[12px] text-neya-muted neya-enter">
+      <p className="hidden sm:block text-[12px] text-neya-muted neya-enter">
         Les dates déjà inscrites dans les <strong className="text-neya-ink font-medium">projets</strong> et dans{' '}
         <Link href="/mes-heures" className="text-neya-orange hover:underline">Mes heures</Link> sont placées ici.
         Rien n’est effacé. Un bloc écrit dans le projet et dans les heures, et l’inverse.
         {summary ? ` ${summary.total} bloc${summary.total > 1 ? 's' : ''} cette semaine.` : ''}
       </p>
 
-      <div className="flex flex-wrap items-center gap-2 neya-enter">
+      <div className="lg:hidden -mx-4">
+        <div className="px-4 pb-2 flex items-center gap-2">
+          <button type="button" className="grid h-11 w-11 place-items-center rounded-full border border-neya-border bg-white" aria-label="Jour précédent" onClick={() => shiftDay(-1)}>
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+          <button type="button" className="flex-1 text-center min-w-0" onClick={() => goToDay(today)}>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-neya-muted">
+              {selected === today ? "Aujourd’hui" : selectedDate.toLocaleDateString('fr-CA', { weekday: 'long' })}
+            </p>
+            <p className="font-display text-[17px] font-semibold text-neya-ink capitalize truncate">
+              {selectedDate.toLocaleDateString('fr-CA', { day: 'numeric', month: 'long' })}
+            </p>
+          </button>
+          <button type="button" className="grid h-11 w-11 place-items-center rounded-full border border-neya-border bg-white" aria-label="Jour suivant" onClick={() => shiftDay(1)}>
+            <ChevronRight className="h-5 w-5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => openCreate(selected)}
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-neya-orange text-white"
+            aria-label="Ajouter un bloc d’heures"
+          >
+            <Plus className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-7 px-2">
+          {days.map((d, i) => {
+            const key = localISODate(d);
+            const active = key === selected;
+            const isToday = key === today;
+            const count = (countsByDay[key]?.colBlocks.length || 0) + (countsByDay[key]?.colTasks.length || 0);
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => goToDay(key)}
+                className="flex flex-col items-center gap-1 py-1.5 min-h-[64px]"
+              >
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-neya-muted">{DAYS[i]}</span>
+                <span className={`grid h-9 w-9 place-items-center rounded-full text-[15px] font-semibold tabular-nums ${
+                  active ? 'bg-neya-orange text-white' : isToday ? 'text-neya-orange ring-1 ring-neya-orange' : 'text-neya-ink'
+                }`}>
+                  {d.getDate()}
+                </span>
+                <span className={`h-1.5 w-1.5 rounded-full ${count ? 'bg-neya-orange' : 'bg-transparent'}`} />
+              </button>
+            );
+          })}
+        </div>
+
+        <div
+          ref={mobileScrollRef}
+          className="mt-1 max-h-[62vh] overflow-y-auto overscroll-contain border-y border-neya-border bg-white"
+          onTouchStart={onSwipeStart}
+          onTouchEnd={onSwipeEnd}
+        >
+          <div className="grid grid-cols-[52px_1fr]">
+            <div className="relative" style={{ height: (END_HOUR - START_HOUR) * HOUR_PX_MOBILE }}>
+              {Array.from({ length: END_HOUR - START_HOUR }, (_, i) => (
+                <div key={i} className="absolute right-1 text-[11px] tabular-nums text-neya-muted" style={{ top: i * HOUR_PX_MOBILE - 7 }}>
+                  {String(START_HOUR + i).padStart(2, '0')}
+                </div>
+              ))}
+            </div>
+            <TimelineColumn
+              dateKey={selected}
+              hourPx={HOUR_PX_MOBILE}
+              blocks={blocks}
+              tasks={tasks}
+              onSlot={onColumnClick}
+              onOpenBlock={openBlock}
+              onOpenTask={t => setEditTaskId(String(t.extendedProps?.taskId || t.id))}
+            />
+          </div>
+          {loading && <p className="px-4 py-3 text-sm text-neya-muted">Chargement…</p>}
+        </div>
+        <p className="px-4 pt-2 text-[12px] text-neya-muted">Glissez à gauche ou à droite pour changer de jour. Touchez une heure vide pour poser un bloc.</p>
+      </div>
+
+      <div className="hidden lg:flex flex-wrap items-center gap-2 neya-enter">
         <div className="neya-segment">
           <button type="button" className="neya-segment-btn !px-2" aria-label="Semaine précédente" onClick={() => setAnchor(addDays(weekStart, -7))}>
             <ChevronLeft className="h-4 w-4" />
@@ -195,7 +414,7 @@ export default function PersonalAgenda({ initialDate }) {
 
       {err && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{err}</div>}
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-4">
+      <div className="hidden lg:grid lg:grid-cols-[1fr_320px] gap-4">
         <div className="overflow-x-auto rounded-2xl border border-neya-border bg-white shadow-sm">
           <div className="min-w-[840px]">
             <div className="grid grid-cols-[56px_repeat(7,1fr)] border-b border-neya-border bg-neya-surface/60">
@@ -231,81 +450,18 @@ export default function PersonalAgenda({ initialDate }) {
               </div>
               {days.map(d => {
                 const key = localISODate(d);
-                const colBlocks = blocks.filter(b => blockOnDate(b, key));
-                const colTasks = tasks.filter(t => t.start && localISODate(new Date(t.start)) === key);
                 return (
-                  <div
+                  <TimelineColumn
                     key={key}
-                    className="relative border-l border-neya-border"
-                    style={{ height: (END_HOUR - START_HOUR) * HOUR_PX }}
-                    onClick={e => onColumnClick(e, key)}
-                    onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
-                    onDrop={e => onDropBlock(e, key)}
-                  >
-                    {Array.from({ length: END_HOUR - START_HOUR }, (_, i) => (
-                      <div key={i} className="absolute left-0 right-0 border-t border-neya-border/70" style={{ top: i * HOUR_PX }} />
-                    ))}
-                    {colTasks.map(t => {
-                      const start = new Date(t.start);
-                      const end = t.end ? new Date(t.end) : new Date(start.getTime() + 3600000);
-                      const top = ((start.getHours() * 60 + start.getMinutes()) - START_HOUR * 60) / 60 * HOUR_PX;
-                      const height = Math.max(22, ((end - start) / 3600000) * HOUR_PX);
-                      if (top > (END_HOUR - START_HOUR) * HOUR_PX || top + height < 0) return null;
-                      return (
-                        <button
-                          key={`task-${t.id}`}
-                          type="button"
-                          data-block
-                          draggable
-                          onDragStart={e => {
-                            e.dataTransfer.setData('application/x-neya-agenda', JSON.stringify({ kind: 'task', id: t.id }));
-                            e.dataTransfer.setData('text/plain', String(t.id));
-                            e.dataTransfer.effectAllowed = 'move';
-                          }}
-                          onClick={e => { e.stopPropagation(); setEditTaskId(String(t.extendedProps?.taskId || t.id)); }}
-                          className="absolute left-1 right-1 z-10 overflow-hidden rounded-md border border-neya-ink/15 bg-neya-ink/[0.06] px-1.5 py-1 text-left"
-                          style={{ top: Math.max(0, top), height }}
-                          title={t.title}
-                        >
-                          <span className="block truncate text-[11px] font-medium text-neya-ink">{t.title}</span>
-                        </button>
-                      );
-                    })}
-                    {colBlocks.map(b => {
-                      const view = blockView(b);
-                      const top = ((view.start.getHours() * 60 + view.start.getMinutes()) - START_HOUR * 60) / 60 * HOUR_PX;
-                      const height = Math.max(26, ((view.end - view.start) / 3600000) * HOUR_PX);
-                      if (top > (END_HOUR - START_HOUR) * HOUR_PX || top + height < 0) return null;
-                      const tone = b.kind === 'time_entry'
-                        ? 'border-sky-300 bg-sky-50 text-sky-950'
-                        : 'border-neya-orange/40 bg-neya-orange/[0.12] text-neya-ink';
-                      return (
-                        <button
-                          key={b.id}
-                          type="button"
-                          data-block
-                          draggable
-                          onDragStart={e => {
-                            e.dataTransfer.setData('application/x-neya-agenda', JSON.stringify({ kind: 'hours', id: b.id }));
-                            e.dataTransfer.setData('text/plain', b.id);
-                            e.dataTransfer.effectAllowed = 'move';
-                          }}
-                          onClick={e => { e.stopPropagation(); openBlock(b); }}
-                          className={`absolute left-1 right-1 z-20 overflow-hidden rounded-md border px-1.5 py-1 text-left shadow-sm ${tone} ${view.inferred ? 'border-dashed' : ''}`}
-                          style={{ top: Math.max(0, top), height }}
-                          title={`${view.startHm}–${view.endHm} ${b.title}`}
-                        >
-                          <span className="block truncate text-[11px] font-semibold">{view.startHm} {b.title}</span>
-                          {height > 36 && (
-                            <span className="block truncate text-[10px] opacity-80">
-                              {b.kind === 'time_entry' ? 'Mes heures' : (b.kind === 'linked' ? 'Projet + heures' : 'Carnet projet')}
-                              {view.inferred ? ' · estimé' : ''}
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
+                    dateKey={key}
+                    hourPx={HOUR_PX}
+                    blocks={blocks}
+                    tasks={tasks}
+                    onSlot={onColumnClick}
+                    onOpenBlock={openBlock}
+                    onOpenTask={t => setEditTaskId(String(t.extendedProps?.taskId || t.id))}
+                    onDrop={onDropBlock}
+                  />
                 );
               })}
             </div>

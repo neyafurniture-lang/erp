@@ -162,6 +162,7 @@ function CraftCalendar({ initialDate }) {
   const [employees, setEmployees] = useState([]);
   const [dragOverDate, setDragOverDate] = useState(null);
   const dragPayloadRef = useRef(null);
+  const dayPanelRef = useRef(null);
   /** Ignore le click fantôme qui suit parfois un drag HTML5 */
   const suppressClickRef = useRef(false);
 
@@ -417,7 +418,7 @@ function CraftCalendar({ initialDate }) {
 
   return (
     <div className="space-y-4">
-      <p className="text-[12px] text-neya-muted neya-enter">
+      <p className="hidden sm:block text-[12px] text-neya-muted neya-enter">
         <strong className="text-neya-ink font-medium">Clic</strong> pour modifier une tâche ·{' '}
         <strong className="text-neya-ink font-medium">glisser-déposer</strong> pour la déplacer.
         Les quarts s’affichent ici ; pour les poser, onglet <strong className="text-neya-ink font-medium">Quarts</strong>.
@@ -450,7 +451,7 @@ function CraftCalendar({ initialDate }) {
           </button>
         </div>
         <h2 className="font-display text-lg font-semibold text-neya-ink">{monthLabel}</h2>
-        <div className="ml-auto flex flex-wrap items-center gap-1.5">
+        <div className="flex w-full sm:w-auto sm:ml-auto items-center gap-1.5 overflow-x-auto pb-1">
           <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-neya-muted mr-1">
             <Filter className="h-3 w-3" /> Filtres
           </span>
@@ -494,7 +495,14 @@ function CraftCalendar({ initialDate }) {
                   key={key + i}
                   role="button"
                   tabIndex={0}
-                  onClick={() => setSelected(key)}
+                  onClick={() => {
+                    setSelected(key);
+                    if (typeof window !== 'undefined' && window.innerWidth < 640) {
+                      requestAnimationFrame(() => {
+                        dayPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      });
+                    }
+                  }}
                   onKeyDown={ev => {
                     if (ev.key === 'Enter' || ev.key === ' ') {
                       ev.preventDefault();
@@ -514,7 +522,7 @@ function CraftCalendar({ initialDate }) {
                   }}
                   onDrop={e => onDayDrop(e, key)}
                   className={[
-                    'group relative flex min-h-[86px] flex-col gap-1 border-b border-r border-neya-border p-2 text-left transition-colors lg:min-h-[104px] cursor-pointer',
+                    'group relative flex min-h-[48px] sm:min-h-[86px] flex-col gap-1 border-b border-r border-neya-border p-1 sm:p-2 text-left transition-colors lg:min-h-[104px] cursor-pointer',
                     !inMonth ? 'bg-neya-surface/30 text-neya-muted' : 'bg-white',
                     isSelected ? 'bg-neya-orange/[0.06] ring-1 ring-inset ring-neya-orange/30' : 'hover:bg-neya-surface/50',
                     isDropTarget ? 'bg-neya-orange/10 ring-2 ring-inset ring-neya-orange/50' : '',
@@ -522,12 +530,18 @@ function CraftCalendar({ initialDate }) {
                     i >= 35 ? 'border-b-0' : '',
                   ].join(' ')}
                 >
-                  <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-[12px] font-semibold tabular-nums ${
+                  <span className={`inline-flex h-7 w-7 sm:h-6 sm:w-6 items-center justify-center rounded-full text-[13px] sm:text-[12px] font-semibold tabular-nums ${
                     isToday ? 'bg-neya-orange text-white' : 'text-neya-ink'
                   }`}>
                     {d.getDate()}
                   </span>
-                  <div className="flex flex-col gap-0.5 w-full min-w-0">
+                  <div className="mt-0.5 flex gap-0.5 sm:hidden">
+                    {evts.slice(0, 3).map(e => {
+                      const meta = CATEGORY_META[e.category] || CATEGORY_META.production;
+                      return <span key={e.id} className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />;
+                    })}
+                  </div>
+                  <div className="hidden sm:flex flex-col gap-0.5 w-full min-w-0">
                     {evts.slice(0, 3).map(e => {
                       const meta = CATEGORY_META[e.category] || CATEGORY_META.production;
                       const canDrag = !!taskIdFromEvent(e);
@@ -570,9 +584,9 @@ function CraftCalendar({ initialDate }) {
         </div>
 
         {/* Day detail */}
-        <aside className="cf-panel flex flex-col min-h-[320px] neya-lift">
+        <aside ref={dayPanelRef} className="cf-panel flex flex-col min-h-[280px] neya-lift scroll-mt-4">
           <div className="mb-4">
-            <h3 className="font-display text-[16px] font-semibold text-neya-ink">
+            <h3 className="font-display text-[18px] sm:text-[16px] font-semibold text-neya-ink capitalize">
               {formatDayLabel(selected)}
             </h3>
             <p className="text-[12px] text-neya-muted mt-0.5">
@@ -654,7 +668,7 @@ function CraftCalendar({ initialDate }) {
                     }
                     if (canEdit) openTask(e);
                   }}
-                  className={`neya-lift w-full text-left rounded-xl border border-neya-border border-l-4 px-3 py-2.5 ${meta.bar} ${
+                  className={`neya-lift w-full min-h-[52px] text-left rounded-xl border border-neya-border border-l-4 px-3 py-2.5 ${meta.bar} ${
                     canEdit || e.category === 'quart' ? 'cursor-pointer hover:opacity-90' : 'cursor-default'
                   } ${canEdit ? 'cursor-grab active:cursor-grabbing' : ''}`}
                   title={canEdit ? 'Clic pour modifier · glisser vers un jour du calendrier' : (e.category === 'quart' ? 'Ouvrir le planning des quarts' : undefined)}
@@ -724,8 +738,8 @@ function CalendarPageInner() {
         subtitle="Agenda personnel : blocs d’heures, projets et quarts. Les données déjà inscrites restent en place."
         wide
       >
-        <div className="flex flex-wrap items-center gap-2 mb-5 neya-enter">
-          <div className="neya-segment">
+        <div className="flex items-center gap-2 mb-3 lg:mb-5 neya-enter overflow-x-auto">
+          <div className="neya-segment shrink-0">
             <button
               type="button"
               onClick={() => setMode('agenda')}
