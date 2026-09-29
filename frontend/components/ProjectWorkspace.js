@@ -66,7 +66,7 @@ function normalizeHoursRows(rows = [], people = ['Mehdi']) {
         }
       }
     }
-    return {
+    const next = {
       dateKey: r.dateKey || '',
       label: r.label || '',
       planned_hours: r.planned_hours ?? '',
@@ -75,6 +75,9 @@ function normalizeHoursRows(rows = [], people = ['Mehdi']) {
       notes: r.notes || '',
       hours,
     };
+    if (r.time_entry_id) next.time_entry_id = Number(r.time_entry_id);
+    if (r.placed_from) next.placed_from = r.placed_from;
+    return next;
   });
 }
 
@@ -538,6 +541,47 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
     markHoursDirty(hoursPeopleRef.current, next);
   }
 
+  function alignLinkedRows(rows) {
+    return rows.map(row => {
+      if (!row?.time_entry_id || !row.dateKey || !row.start) return row;
+      const total = Object.values(row.hours || {}).reduce((s, v) => {
+        const n = Number(v);
+        return s + (Number.isFinite(n) ? n : 0);
+      }, 0);
+      if (!(total > 0)) return row;
+      const [hh, mm] = String(row.start).split(':').map(Number);
+      const endMin = (hh || 0) * 60 + (mm || 0) + Math.round(total * 60);
+      const eh = Math.floor(endMin / 60);
+      const em = endMin % 60;
+      if (eh >= 24) return row;
+      const end = `${String(eh).padStart(2, '0')}:${String(em).padStart(2, '0')}`;
+      return end === row.end ? row : { ...row, end };
+    });
+  }
+
+  function slotIso(dateKey, hm) {
+    const [y, m, d] = String(dateKey).split('-').map(Number);
+    const [hh, mm] = String(hm || '00:00').split(':').map(Number);
+    return new Date(y, (m || 1) - 1, d || 1, hh || 0, mm || 0, 0, 0).toISOString();
+  }
+
+  async function syncLinkedHourRows(rows) {
+    const jobs = [];
+    for (const row of rows) {
+      if (!row.time_entry_id || !row.dateKey || !row.start || !row.end) continue;
+      jobs.push(api(`/time-entries/${row.time_entry_id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          started_at: slotIso(row.dateKey, row.start),
+          ended_at: slotIso(row.dateKey, row.end),
+          project_id: project.id,
+          notes: [row.label, row.notes].filter(Boolean).join(' — ') || null,
+        }),
+      }));
+    }
+    if (jobs.length) await Promise.all(jobs);
+  }
+
   async function saveHoursLogbook(opts = {}) {
     const silent = opts.silent === true;
     const confirmClear = opts.confirmClear === true;
@@ -546,7 +590,12 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
       return;
     }
     const people = hoursPeopleRef.current;
-    const rows = hoursRowsRef.current;
+    const alignedRows = alignLinkedRows(hoursRowsRef.current);
+    if (JSON.stringify(alignedRows) !== JSON.stringify(hoursRowsRef.current)) {
+      hoursRowsRef.current = alignedRows;
+      setHoursRows(alignedRows);
+    }
+    const rows = alignedRows;
     const snapAtStart = hoursSnapshot(people, rows);
     hoursBusyRef.current = true;
     setHoursBusy(true);
@@ -583,6 +632,9 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
         hoursDirtyRef.current = false;
         setHoursSaveMsg(silent ? 'Enregistré automatiquement' : 'Enregistré');
         setTimeout(() => setHoursSaveMsg(''), 2000);
+        syncLinkedHourRows(savedRows).catch(() => {
+          setHoursSaveMsg('Carnet enregistré — le créneau agenda sera repris à la prochaine ouverture');
+        });
         // Preférer le projet renvoyé par le PATCH (meta à jour) plutôt qu’un GET
         if (result?.project) onReload(result.project);
         else if (!silent) onReload();
@@ -1198,6 +1250,9 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
                 {hoursLog?.updated_at ? ` · maj ${formatDate(hoursLog.updated_at)}` : ''}
                 {hoursDirty ? ' · non enregistré' : ''}
               </p>
+              <p className="text-xs text-neya-muted mt-1">
+                Chaque date apparaît dans l’agenda. Début et fin fixent le créneau ; sinon il est placé à partir de 8 h selon la durée.
+              </p>
               {hoursSaveMsg && (
                 <p className="text-[11px] text-neya-muted mt-0.5">{hoursSaveMsg}</p>
               )}
@@ -1244,6 +1299,8 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
                 <thead>
                   <tr className="text-left text-neya-muted border-b border-neya-border">
                     <th className="py-2 pr-3 font-medium">Date</th>
+                    <th className="py-2 pr-3 font-medium">Début</th>
+                    <th className="py-2 pr-3 font-medium">Fin</th>
                     <th className="py-2 pr-3 font-medium">Travaux</th>
                     {hoursPeople.map(p => (
                       <th key={p} className="py-2 pr-3 font-medium">{p} (h)</th>
@@ -1261,6 +1318,27 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
                           className="input !py-1 !px-2 w-[9.5rem]"
                           value={row.dateKey || ''}
                           onChange={e => updateHourRow(idx, 'dateKey', e.target.value)}
+                        />
+                        {row.dateKey ? (
+                          <Link href={`/calendar?date=${row.dateKey}`} className="mt-1 block text-[11px] text-neya-orange hover:underline">
+                            Voir dans l’agenda
+                          </Link>
+                        ) : null}
+                      </td>
+                      <td className="py-2 pr-3">
+                        <input
+                          type="time"
+                          className="input !py-1 !px-2 w-[7rem]"
+                          value={row.start || ''}
+                          onChange={e => updateHourRow(idx, 'start', e.target.value)}
+                        />
+                      </td>
+                      <td className="py-2 pr-3">
+                        <input
+                          type="time"
+                          className="input !py-1 !px-2 w-[7rem]"
+                          value={row.end || ''}
+                          onChange={e => updateHourRow(idx, 'end', e.target.value)}
                         />
                       </td>
                       <td className="py-2 pr-3">
@@ -1300,7 +1378,7 @@ export default function ProjectWorkspace({ project, costs, materials, quoteSourc
                 </tbody>
                 <tfoot>
                   <tr className="font-semibold text-neya-ink">
-                    <td className="pt-3" colSpan={2}>Total</td>
+                    <td className="pt-3" colSpan={4}>Total</td>
                     {hoursPeople.map(p => (
                       <td key={p} className="pt-3 tabular-nums">{sumPersonHours(hoursRows, p).toFixed(2)}</td>
                     ))}

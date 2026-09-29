@@ -1,4 +1,5 @@
 import pool from '../db/pool.js';
+import { isLogbookRowLinked } from './agenda-blocks.js';
 
 const MONTH_LABELS_FR = [
   'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
@@ -181,6 +182,7 @@ export async function computeMonthlyPnl(year, opts = {}) {
     const log = parseMeta(project.meta).hours_logbook;
     if (!log || !Array.isArray(log.rows)) continue;
     for (const row of log.rows) {
+      if (isLogbookRowLinked(row)) continue;
       const dateKey = row.dateKey || row.date_iso || row.date || '';
       const match = String(dateKey).match(/^(\d{4})-(\d{2})/);
       if (!match || Number(match[1]) !== y) continue;
