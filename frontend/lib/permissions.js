@@ -81,6 +81,9 @@ export function permissionForPath(pathname) {
 
 export function canAccessPath(user, pathname) {
   if (!user) return false;
+  // Pages publiques (lien tokenisé) — pas de garde permission ERP
+  if (pathname.startsWith('/partage/')) return true;
+  if (pathname === '/login') return true;
   const key = permissionForPath(pathname);
   if (!key) return isAdmin(user);
   if (key === 'finance') {

@@ -68,9 +68,15 @@ router.get('/messages', async (req, res) => {
 
 router.get('/inbox-sorted', async (req, res) => {
   try {
-    res.json(await sortInbox({ max: Number(req.query.max) || 80 }));
+    const applyLabels = req.query.applyLabels === '1' || req.query.applyLabels === 'true';
+    res.json(await sortInbox({
+      max: Number(req.query.max) || 30,
+      applyLabels,
+    }));
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    const { isGmailQuotaError, gmailQuotaUserMessage } = await import('../services/google-gmail.js');
+    const status = isGmailQuotaError(err) ? 429 : 400;
+    res.status(status).json({ error: gmailQuotaUserMessage(err) });
   }
 });
 
@@ -88,27 +94,41 @@ router.get('/sections', (_req, res) => {
 
 router.post('/sort-inbox', async (req, res) => {
   try {
-    const max = Number(req.body?.max) || 40;
+    const gmail = await import('../services/google-gmail.js');
+    if (gmail.isGmailQuotaPaused()) {
+      return res.status(429).json({
+        error: gmail.gmailQuotaUserMessage('paused'),
+        quota_paused: true,
+        spend: gmail.getGmailUnitSpend?.(),
+      });
+    }
+    const max = Math.min(Number(req.body?.max) || 20, 20);
     const fast = req.body?.fast === true;
     if (fast) {
       const sorted = await sortInbox({ max, applyLabels: false });
-      const labelResult = await applyGmailLabelsForMessages(sorted.messages || []);
+      const labelResult = await applyGmailLabelsForMessages(
+        (sorted.messages || []).slice(0, Math.min(max, 8))
+      );
       return res.json({
         ...sorted,
         processed: sorted.messages?.length || 0,
         fast: true,
         gmail_labels: {
           applied: labelResult.applied,
+          skipped: labelResult.skipped || 0,
           errors: labelResult.errors,
           labels: GMAIL_CATEGORY_LABELS,
         },
       });
     }
     const includeTri = req.body?.includeTri !== false;
-    const scanInvoices = req.body?.scanInvoices !== false;
+    // Factures off par défaut sur tri manuel — trop coûteux en unités Gmail
+    const scanInvoices = req.body?.scanInvoices === true;
     res.json(await sortRecentInbox(max, { includeTri, scanInvoices }));
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    const { isGmailQuotaError, gmailQuotaUserMessage } = await import('../services/google-gmail.js');
+    const status = isGmailQuotaError(err) ? 429 : 400;
+    res.status(status).json({ error: gmailQuotaUserMessage(err), quota_paused: isGmailQuotaError(err) });
   }
 });
 
@@ -137,7 +157,7 @@ router.get('/labels/tree', async (req, res) => {
       .split(',')
       .map(s => s.trim())
       .filter(Boolean);
-    const withCounts = req.query.counts !== '0' && req.query.counts !== 'false';
+    const withCounts = req.query.counts === '1' || req.query.counts === 'true';
     res.json(await gmail.listLabelTree({ prefixes, exact, withCounts }));
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -248,12 +268,43 @@ router.get('/messages/:id/attachments/:attachmentId', async (req, res) => {
   }
 });
 
-/** Classer une PJ dans un projet (local + Drive si dispo). */
+/** Classer une PJ dans un projet — attachmentId dans le body (évite troncature path). */
+router.post('/messages/:id/file-attachment-to-project', async (req, res) => {
+  try {
+    const projectId = req.body?.project_id || req.body?.projectId;
+    if (!projectId) return res.status(400).json({ error: 'project_id requis' });
+    const attachmentId = req.body?.attachmentId || req.body?.attachment_id || '';
+    const filename = req.body?.filename || req.body?.name || '';
+    if (!attachmentId && !filename) {
+      return res.status(400).json({ error: 'attachmentId ou filename requis' });
+    }
+    const { fileAttachmentToProject } = await import('../services/mail-attachments.js');
+    const result = await fileAttachmentToProject({
+      messageId: req.params.id,
+      attachmentId,
+      filename,
+      projectId,
+      uploadDrive: req.body?.upload_drive !== false,
+    });
+    await logAgentAction({
+      agent: 'mail',
+      action: 'file_attachment_to_project',
+      resource: String(projectId),
+      details: { message_id: req.params.id, filename: result.file?.name, skipped: result.skipped || false },
+    });
+    res.status(result.skipped ? 200 : 201).json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/** Compatibilité : ID de PJ dans le chemin (peut être tronqué). */
 router.post('/messages/:id/attachments/:attachmentId/file-to-project', async (req, res) => {
   try {
     const projectId = req.body?.project_id || req.body?.projectId;
     if (!projectId) return res.status(400).json({ error: 'project_id requis' });
-    const { attachmentId, filename } = attachmentRequestParams(req);
+    const attachmentId = req.body?.attachmentId || req.body?.attachment_id || req.params.attachmentId || '';
+    const filename = req.body?.filename || req.query.filename || '';
     const { fileAttachmentToProject } = await import('../services/mail-attachments.js');
     const result = await fileAttachmentToProject({
       messageId: req.params.id,
@@ -268,7 +319,7 @@ router.post('/messages/:id/attachments/:attachmentId/file-to-project', async (re
       resource: String(projectId),
       details: { message_id: req.params.id, filename: result.file?.name },
     });
-    res.status(201).json(result);
+    res.status(result.skipped ? 200 : 201).json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

@@ -91,7 +91,7 @@ export default function DashboardPage() {
 
   const load = () => {
     const mailReq = canMail
-      ? api('/gmail/inbox-sorted?max=30').catch(e => ({ __error: e.message || 'Gmail indisponible' }))
+      ? api('/gmail/inbox-sorted?max=15').catch(e => ({ __error: e.message || 'Gmail indisponible' }))
       : Promise.resolve(null);
     Promise.all([
       api('/dashboard'),

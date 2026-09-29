@@ -35,7 +35,7 @@ const LIST_FILTERS = [
   { id: 'autres', label: 'Non classés' },
 ];
 
-const INBOX_SORTED_MAX = 80;
+const INBOX_SORTED_MAX = 30;
 
 const ALL_FOLDER_LABELS = {
   inbox: 'Boîte de réception',
@@ -237,8 +237,17 @@ function MailHtmlBody({ html }) {
 
 function sortMailItems(items = []) {
   return [...items].sort((a, b) => {
-    const ur = Number(Boolean(b.isUnread || b.unread)) - Number(Boolean(a.isUnread || a.unread));
-    if (ur) return ur;
+    const score = (m) => {
+      let s = 0;
+      if ((m.mailCategory || m.erpFolder) === 'a_repondre') s += 100;
+      const labels = m.labelIds || [];
+      if (labels.includes('IMPORTANT') || labels.includes('STARRED')) s += 50;
+      if (m.isUnread || m.unread) s += 20;
+      if (m.client_id) s += 10;
+      return s;
+    };
+    const d = score(b) - score(a);
+    if (d) return d;
     return new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
   });
 }
@@ -392,7 +401,8 @@ function MailAttachments({
     setPickProjectId(defaultProjectId || '');
   }, [defaultProjectId, messageId]);
 
-  if (!attachments.length) return null;
+  const realAttachments = (attachments || []).filter(a => !a.noise);
+  if (!realAttachments.length) return null;
 
   function attachmentUrl(att, { download = false } = {}) {
     const params = new URLSearchParams();
@@ -404,8 +414,8 @@ function MailAttachments({
 
   async function openAttachment(att, { download = false } = {}) {
     const isSkp = /\.skp$/i.test(att.filename || '') || /sketchup/i.test(att.mimeType || '');
+    const isPdf = /\.pdf$/i.test(att.filename || '') || /pdf/i.test(att.mimeType || '');
     const forceDownload = download || isSkp;
-    // Ouvrir la fenêtre tout de suite (sinon bloqué après le fetch async)
     const previewWin = !forceDownload ? window.open('about:blank', '_blank') : null;
     try {
       const token = getToken();
@@ -418,7 +428,10 @@ function MailAttachments({
         throw new Error(err.error || `Erreur ${res.status}`);
       }
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
+      const typed = isPdf && !forceDownload
+        ? new Blob([blob], { type: 'application/pdf' })
+        : blob;
+      const url = URL.createObjectURL(typed);
 
       if (forceDownload || !previewWin || previewWin.closed) {
         if (previewWin && !previewWin.closed) previewWin.close();
@@ -439,7 +452,8 @@ function MailAttachments({
           window.open(url, '_blank', 'noopener,noreferrer');
         }
       }
-      setTimeout(() => URL.revokeObjectURL(url), 180000);
+      // Ne pas révoquer trop tôt (lecteur PDF lent)
+      setTimeout(() => URL.revokeObjectURL(url), 10 * 60 * 1000);
     } catch (e) {
       if (previewWin && !previewWin.closed) {
         try { previewWin.close(); } catch { /* ignore */ }
@@ -457,12 +471,13 @@ function MailAttachments({
     setFilingId(att.id);
     try {
       const result = await api(
-        `/gmail/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(att.id)}/file-to-project`,
+        `/gmail/messages/${encodeURIComponent(messageId)}/file-attachment-to-project`,
         {
           method: 'POST',
           body: JSON.stringify({
             project_id: Number(projectId),
             upload_drive: true,
+            attachmentId: att.id,
             filename: att.filename || undefined,
           }),
         }
@@ -494,6 +509,13 @@ function MailAttachments({
       );
       setPickFor(null);
       onFiled?.(result);
+      if (result.errors?.length) {
+        onError?.(
+          `${result.count || 0} classée(s), ${result.errors.length} échec(s) : ${
+            result.errors[0].filename || ''
+          } — ${result.errors[0].error || ''}`
+        );
+      }
     } catch (e) {
       onError?.(e.message);
     } finally {
@@ -509,7 +531,7 @@ function MailAttachments({
     <div className="mail-attachments">
       <div className="mail-attachments__head">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-neya-muted">
-          Pièces jointes ({attachments.length})
+          Pièces jointes ({realAttachments.length})
         </p>
         <button
           type="button"
@@ -526,13 +548,13 @@ function MailAttachments({
       </div>
 
       <ul className="mail-attachments__list">
-        {attachments.map(att => (
-          <li key={att.id} className="mail-attachments__item">
+        {realAttachments.map(att => (
+          <li key={`${att.id}-${att.filename}`} className="mail-attachments__item">
             <button
               type="button"
               className="mail-attachments__open"
               onClick={() => openAttachment(att)}
-              title="Ouvrir"
+              title={`Ouvrir ${att.filename || ''}`}
             >
               <span className="text-base leading-none" aria-hidden>{attIcon(att.mimeType, att.filename)}</span>
               <span className="min-w-0 flex-1 text-left">
@@ -547,7 +569,7 @@ function MailAttachments({
                 type="button"
                 className="mail-icon-btn"
                 title="Télécharger"
-                aria-label="Télécharger"
+                aria-label={`Télécharger ${att.filename || ''}`}
                 onClick={() => openAttachment(att, { download: true })}
               >
                 ↓
@@ -556,7 +578,7 @@ function MailAttachments({
                 type="button"
                 className="mail-icon-btn"
                 title={projectLabel ? `Classer dans ${projectLabel}` : 'Classer dans un projet'}
-                aria-label="Classer dans un projet"
+                aria-label={`Classer ${att.filename || ''}`}
                 disabled={filingId === att.id}
                 onClick={() => fileOne(att, defaultProjectId)}
               >
@@ -590,7 +612,7 @@ function MailAttachments({
               onClick={() => {
                 if (pickFor === '__all__') fileAll(pickProjectId);
                 else {
-                  const att = attachments.find(a => a.id === pickFor);
+                  const att = realAttachments.find(a => a.id === pickFor);
                   if (att) fileOne(att, pickProjectId);
                 }
               }}
@@ -620,7 +642,6 @@ export default function GmailInbox({
   const [messages, setMessages] = useState([]);
   const [selected, setSelected] = useState(null);
   const deepLinkOpened = useRef(null);
-  const autoSorted = useRef(false);
   const [thread, setThread] = useState(null);
   const [loading, setLoading] = useState(true);
   const [threadLoading, setThreadLoading] = useState(false);
@@ -735,7 +756,7 @@ export default function GmailInbox({
 
   const loadGmailLabels = useCallback(async () => {
     try {
-      const tree = await api('/gmail/labels/tree?prefixes=NEYA/,Tri/&exact=NEYA,Tri,Fournitures');
+      const tree = await api('/gmail/labels/tree?prefixes=NEYA/,Tri/&exact=NEYA,Tri,Fournitures&counts=0');
       setGmailGroups(tree.groups || { neya: [], tri: [], other: [] });
     } catch {
       setGmailGroups({ neya: [], tri: [], other: [] });
@@ -954,8 +975,8 @@ export default function GmailInbox({
     try {
       const result = await api('/gmail/sort-inbox', {
         method: 'POST',
-        timeoutMs: 60000,
-        body: JSON.stringify({ max: INBOX_SORTED_MAX, includeTri: true, scanInvoices: true }),
+        timeoutMs: 120000,
+        body: JSON.stringify({ max: 15, includeTri: true, scanInvoices: false }),
       });
       setMessages(result.messages || []);
       setSections(result.sections || sections);
@@ -964,47 +985,35 @@ export default function GmailInbox({
       const triBit = result.tri_processed
         ? ` · ${result.tri_processed} depuis Tri/A_traiter`
         : '';
-      const inv = result.invoices;
-      const invBit = inv ? ` · ${inv.ingested || 0} facture(s) stockée(s)` : '';
-      const msg = `${result.processed || 0} fil(s) trié(s)${triBit} — ${labeled} label(s) NEYA${invBit}.`;
-      if (result.errors?.length || result.gmail_labels?.errors?.length || result.tri_errors?.length) {
+      const quotaBit = result.quota_paused ? ' · quota Gmail en pause (réessaie dans ~3 min)' : '';
+      const msg = `${result.processed || 0} fil(s) trié(s)${triBit} — ${labeled} label(s) NEYA${quotaBit}.`;
+      if (result.quota_paused) {
+        setErr(msg);
+      } else if (result.errors?.length || result.gmail_labels?.errors?.length || result.tri_errors?.length) {
         const errText = result.errors?.[0]?.error
           || result.gmail_labels?.errors?.[0]?.error
-          || result.tri_errors?.[0]?.error;
-        setErr(`${msg} Erreur : ${errText}`);
+          || result.tri_errors?.[0]?.error
+          || '';
+        const friendly = /quota|cooldown/i.test(errText)
+          ? 'Gmail est en pause quota. Attends ~3 min puis réessaie — ne reclique pas tout de suite.'
+          : errText;
+        setErr(`${msg} ${friendly}`);
       } else {
         showUndo(msg, null);
       }
-      // Recharger avec le même max (ne pas retomber sur 40 et perdre les importants)
-      if (!search) await load('', activeFolder);
-      api('/gmail/sort-inbox', {
-        method: 'POST',
-        timeoutMs: 120000,
-        body: JSON.stringify({ max: 30, includeTri: true, scanInvoices: true }),
-      }).then(() => loadGmailLabels()).catch(() => {});
+      if (!search && !result.quota_paused) await load('', activeFolder);
     } catch (e) {
-      try {
-        const result = await threadApi('/process-inbox', {
-          method: 'POST',
-          body: JSON.stringify({ max: 20 }),
-        });
-        await load(search, activeFolder);
-        showUndo(`${result.processed} conversation(s) synchronisée(s).`, null);
-      } catch (fallbackErr) {
-        setErr(e.message || fallbackErr.message);
-      }
+      const raw = e.message || '';
+      setErr(/quota|cooldown/i.test(raw)
+        ? 'Gmail est en pause quota (~3 min). Réouvre Courriel plus tard sans recliquer « Trier ».'
+        : raw);
     } finally {
       setInboxProcessing(false);
     }
   }
 
-  useEffect(() => {
-    if (connected !== true || autoSorted.current) return;
-    autoSorted.current = true;
-    processInbox().catch(() => {});
-    // Un tri automatique à l’ouverture — les dossiers NEYA restent vides sinon.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connected]);
+  // Pas de tri auto à l’ouverture — ça brûlait le quota Gmail (units/min).
+  // Le chargement inbox-sorted suffit ; « Trier » reste manuel.
 
   async function synthesize() {
     if (!thread?.id) return;
@@ -1772,14 +1781,18 @@ export default function GmailInbox({
                       }
                       defaultProjectName={thread?.project_name || ''}
                       onFiled={(result) => {
-                        const n = result.count || (result.file ? 1 : result.filed?.length) || 0;
+                        const n = result.count ?? (result.file && !result.skipped ? 1 : result.filed?.filter(f => !f.skipped).length) ?? 0;
                         const name = result.project?.name || thread?.project_name || 'projet';
-                        showUndo(
-                          n > 1
-                            ? `${n} pièces classées dans « ${name} »`
-                            : `Pièce classée dans « ${name} »`,
-                          null
-                        );
+                        if (result.skipped) {
+                          showUndo(`Déjà classée dans « ${name} »`, null);
+                        } else {
+                          showUndo(
+                            n > 1
+                              ? `${n} pièces classées dans « ${name} »`
+                              : `Pièce classée dans « ${name} »`,
+                            null
+                          );
+                        }
                         if (result.project?.id) {
                           setLinkProjId(String(result.project.id));
                         }

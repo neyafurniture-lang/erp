@@ -922,19 +922,41 @@ Réponds avec un objet JSON compact:
 }
 
 export async function processRecentInbox(max = 15) {
-  const { messages } = await gmail.listMessages({ label: 'INBOX', max });
+  const capped = Math.min(Math.max(Number(max) || 12, 5), 20);
+  // Importants d’abord (petit cap), puis inbox récente — pas les deux à 15+
+  const importantMsgs = await gmail.listMessages({
+    q: 'in:inbox (is:important OR is:starred)',
+    max: Math.min(capped, 8),
+    label: null,
+  }).catch(() => ({ messages: [] }));
+
+  let inboxMsgs = { messages: [] };
+  if (!gmail.isGmailQuotaPaused?.()) {
+    inboxMsgs = await gmail.listMessages({ label: 'INBOX', max: capped });
+  }
+
+  const ordered = [];
   const seen = new Set();
+  for (const m of [...(importantMsgs.messages || []), ...(inboxMsgs.messages || [])]) {
+    if (!m?.threadId || seen.has(m.threadId)) continue;
+    seen.add(m.threadId);
+    ordered.push(m);
+  }
+
   const results = [];
   const errors = [];
 
-  for (const m of messages || []) {
-    if (!m.threadId || seen.has(m.threadId)) continue;
-    seen.add(m.threadId);
+  for (const m of ordered.slice(0, capped)) {
+    if (gmail.isGmailQuotaPaused?.()) {
+      errors.push({ thread_id: null, error: gmail.gmailQuotaUserMessage?.('paused') || 'quota pause' });
+      break;
+    }
     try {
       const thread = await syncGmailThread(m.threadId);
       results.push(thread);
     } catch (err) {
       errors.push({ thread_id: m.threadId, error: err.message });
+      if (gmail.isGmailQuotaError?.(err)) break;
     }
   }
 

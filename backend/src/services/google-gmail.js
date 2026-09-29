@@ -2,22 +2,169 @@ import { getValidAccessToken } from './google-oauth.js';
 
 const BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
 
-async function gmailFetch(path, options = {}) {
-  const token = await getValidAccessToken();
-  const res = await fetch(`${BASE}${path}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error?.message || `Gmail API ${res.status}`);
+/**
+ * Gmail « Units per minute per user » ≈ 250.
+ * On reste volontairement sous ~180 u/min pour laisser de la marge UI.
+ * Coûts approx. : list/get/modify ≈ 5, threads.get ≈ 10, labels.list ≈ 1.
+ */
+const QUOTA_COOLDOWN_MS = 180_000;
+const GMAIL_MAX_CONCURRENCY = 2;
+const UNIT_BUDGET_PER_MIN = 180;
+const UNIT_WINDOW_MS = 60_000;
+
+let quotaPausedUntil = 0;
+let gmailInFlight = 0;
+const waitQueue = [];
+/** @type {{ at: number, units: number }[]} */
+const unitSpendLog = [];
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+export function isGmailQuotaError(errOrMsg) {
+  const msg = String(errOrMsg?.message || errOrMsg || '');
+  return /quota|rate.?limit|resource.?exhausted|user.?rate|too many requests|cooldown/i.test(msg);
+}
+
+export function isGmailQuotaPaused() {
+  return Date.now() < quotaPausedUntil;
+}
+
+export function getGmailQuotaPausedUntil() {
+  return quotaPausedUntil;
+}
+
+export function gmailQuotaUserMessage(errOrMsg) {
+  const secs = Math.max(0, Math.ceil((quotaPausedUntil - Date.now()) / 1000));
+  if (secs > 0 || isGmailQuotaError(errOrMsg)) {
+    const wait = secs > 0 ? Math.ceil(secs / 60) : 2;
+    return `Gmail est en pause quota (~${wait} min). Réouvre Courriel dans un moment — évite de recliquer « Trier ».`;
   }
-  if (res.status === 204) return null;
-  return res.json();
+  return String(errOrMsg?.message || errOrMsg || 'Erreur Gmail');
+}
+
+function pauseGmailQuota(extraMs = 0) {
+  const until = Date.now() + Math.max(QUOTA_COOLDOWN_MS, Number(extraMs) || 0);
+  if (until > quotaPausedUntil) quotaPausedUntil = until;
+}
+
+function estimateUnits(path = '', method = 'GET') {
+  const p = String(path || '');
+  const m = String(method || 'GET').toUpperCase();
+  if (p.startsWith('/labels') && m === 'GET' && !p.includes('/labels/')) return 1;
+  if (p.includes('/modify') || p.includes('/trash') || p.includes('/untrash')) return 5;
+  if (p.includes('/threads/') && p.includes('format=full')) return 10;
+  if (p.startsWith('/threads/') && m === 'GET') return 10;
+  if (p.startsWith('/messages/send')) return 100;
+  if (p.startsWith('/messages') && !p.includes('/messages/')) return 5; // list
+  if (p.includes('/attachments/')) return 5;
+  return 5; // messages.get metadata/full
+}
+
+function spentUnitsLastMinute() {
+  const cutoff = Date.now() - UNIT_WINDOW_MS;
+  while (unitSpendLog.length && unitSpendLog[0].at < cutoff) unitSpendLog.shift();
+  return unitSpendLog.reduce((sum, e) => sum + e.units, 0);
+}
+
+export function getGmailUnitSpend() {
+  return { spent: spentUnitsLastMinute(), budget: UNIT_BUDGET_PER_MIN, pausedUntil: quotaPausedUntil };
+}
+
+async function awaitUnitBudget(units) {
+  for (;;) {
+    if (isGmailQuotaPaused()) {
+      const secs = Math.ceil((quotaPausedUntil - Date.now()) / 1000);
+      throw new Error(gmailQuotaUserMessage(`cooldown ${secs}s`));
+    }
+    const spent = spentUnitsLastMinute();
+    if (spent + units <= UNIT_BUDGET_PER_MIN) {
+      unitSpendLog.push({ at: Date.now(), units });
+      return;
+    }
+    // Attendre que la fenêtre glissante libère du budget (max 15s)
+    const oldest = unitSpendLog[0];
+    const waitMs = oldest ? Math.min(15_000, Math.max(500, oldest.at + UNIT_WINDOW_MS - Date.now() + 50)) : 1000;
+    await sleep(waitMs);
+  }
+}
+
+async function acquireGmailSlot() {
+  if (gmailInFlight < GMAIL_MAX_CONCURRENCY) {
+    gmailInFlight += 1;
+    return;
+  }
+  await new Promise(resolve => waitQueue.push(resolve));
+  gmailInFlight += 1;
+}
+
+function releaseGmailSlot() {
+  gmailInFlight = Math.max(0, gmailInFlight - 1);
+  const next = waitQueue.shift();
+  if (next) next();
+}
+
+/** Exécute des tâches async avec un plafond de concurrence. */
+export async function mapPool(items, concurrency, mapper) {
+  const list = [...(items || [])];
+  const results = new Array(list.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(concurrency, list.length || 1)) }, async () => {
+    while (next < list.length) {
+      const i = next;
+      next += 1;
+      results[i] = await mapper(list[i], i);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+async function gmailFetch(path, options = {}) {
+  if (isGmailQuotaPaused()) {
+    throw new Error(gmailQuotaUserMessage('paused'));
+  }
+
+  const method = options.method || 'GET';
+  const units = estimateUnits(path, method);
+  await awaitUnitBudget(units);
+
+  await acquireGmailSlot();
+  try {
+    const token = await getValidAccessToken();
+    const res = await fetch(`${BASE}${path}`, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+    });
+
+    if (res.ok) {
+      if (res.status === 204) return null;
+      return res.json();
+    }
+
+    const err = await res.json().catch(() => ({}));
+    const message = err.error?.message || `Gmail API ${res.status}`;
+
+    const quotaHit = res.status === 429
+      || (res.status === 403 && isGmailQuotaError(message))
+      || isGmailQuotaError(message);
+
+    if (quotaHit) {
+      const retryAfterSec = Number(res.headers.get('Retry-After')) || 0;
+      const backoffMs = retryAfterSec > 0 ? retryAfterSec * 1000 : QUOTA_COOLDOWN_MS;
+      pauseGmailQuota(backoffMs);
+      throw new Error(gmailQuotaUserMessage(message));
+    }
+
+    throw new Error(message);
+  } finally {
+    releaseGmailSlot();
+  }
 }
 
 function decodeBase64Url(data) {
@@ -140,28 +287,76 @@ function isTextMime(mimeType) {
   return m === 'text/plain' || m === 'text/html';
 }
 
-/** Fichiers joints (PDF, images, etc.) — pas le corps MIME text. */
-export function extractFileAttachments(payload, acc = []) {
+function contentDisposition(part) {
+  return String(getHeader(part?.headers, 'Content-Disposition') || '');
+}
+
+function contentId(part) {
+  return String(getHeader(part?.headers, 'Content-ID') || '').trim();
+}
+
+function isImageMime(mimeType) {
+  return String(mimeType || '').toLowerCase().startsWith('image/');
+}
+
+/** Logos / signatures CID — pas des vraies PJ à classer. */
+export function isSignatureOrInlineNoise(part, { filename, mimeType, size } = {}) {
+  const fn = String(filename || partFilename(part) || '');
+  const mime = String(mimeType || part?.mimeType || '');
+  const sz = Number(size ?? part?.body?.size) || 0;
+  const cd = contentDisposition(part).toLowerCase();
+  const cid = contentId(part);
+  const isInline = /\binline\b/i.test(cd) || Boolean(cid);
+  const isAttDisposition = /\battachment\b/i.test(cd);
+
+  if (isAttDisposition) return false;
+
+  // image001.png / logo / signature classiques
+  if (/^(image|img|logo|signature|banner|icon)\d*\.(png|jpe?g|gif|bmp|webp)$/i.test(fn)) {
+    return true;
+  }
+  if (cid && isImageMime(mime)) return true;
+  if (isInline && isImageMime(mime) && sz > 0 && sz < 80_000) return true;
+  if (isInline && isImageMime(mime) && !fn) return true;
+  return false;
+}
+
+/** Fichiers joints (PDF, images, etc.) — pas le corps MIME text ni les signatures CID. */
+export function extractFileAttachments(payload, acc = [], { includeNoise = false } = {}) {
   if (!payload) return acc;
   const filename = partFilename(payload);
   const attachmentId = payload.body?.attachmentId;
+  const mimeType = payload.mimeType || 'application/octet-stream';
+  const size = Number(payload.body?.size) || 0;
+
   if (filename && attachmentId) {
-    acc.push({
-      id: attachmentId,
-      filename,
-      mimeType: payload.mimeType || 'application/octet-stream',
-      size: Number(payload.body?.size) || 0,
-    });
-  } else if (filename && payload.body?.data && !isTextMime(payload.mimeType)) {
-    acc.push({
-      id: attachmentId || `inline:${filename}`,
-      filename,
-      mimeType: payload.mimeType || 'application/octet-stream',
-      size: Number(payload.body?.size) || 0,
-      inline: !attachmentId,
-    });
+    const noise = isSignatureOrInlineNoise(payload, { filename, mimeType, size });
+    if (!noise || includeNoise) {
+      acc.push({
+        id: attachmentId,
+        filename,
+        mimeType,
+        size,
+        ...(noise ? { noise: true, inline: true } : {}),
+        ...( /\binline\b/i.test(contentDisposition(payload)) ? { inline: true } : {}),
+      });
+    }
+  } else if (filename && payload.body?.data && !isTextMime(mimeType)) {
+    const noise = isSignatureOrInlineNoise(payload, { filename, mimeType, size });
+    if (!noise || includeNoise) {
+      acc.push({
+        id: attachmentId || `inline:${filename}`,
+        filename,
+        mimeType,
+        size,
+        inline: true,
+        ...(noise ? { noise: true } : {}),
+      });
+    }
   }
-  for (const part of payload.parts || []) extractFileAttachments(part, acc);
+  for (const part of payload.parts || []) {
+    extractFileAttachments(part, acc, { includeNoise });
+  }
   return acc;
 }
 
@@ -219,10 +414,13 @@ function findAttachmentPartByFilename(payload, filename) {
   return null;
 }
 
-/** Résout une PJ dans l'arbre MIME (ID, nom de fichier, PJ unique). */
+/** Résout une PJ dans l'arbre MIME (ID, nom de fichier). Pas de fallback « unique » risqué. */
 export function resolveAttachmentPart(payload, { attachmentId, filename } = {}) {
-  const listed = extractFileAttachments(payload);
+  const listed = extractFileAttachments(payload, [], { includeNoise: true });
+  const realListed = listed.filter(a => !a.noise);
   const idCandidates = normalizeAttachmentIdCandidates(attachmentId);
+  const hasId = idCandidates.length > 0;
+  const hasFilename = Boolean(String(filename || '').trim());
 
   for (const id of idCandidates) {
     const part = findAttachmentPart(payload, id);
@@ -243,7 +441,8 @@ export function resolveAttachmentPart(payload, { attachmentId, filename } = {}) 
   ].filter(Boolean);
 
   for (const fn of filenameCandidates) {
-    const match = listed.find(a => normalizeFilename(a.filename) === normalizeFilename(fn));
+    const pool = realListed.length ? realListed : listed;
+    const match = pool.find(a => normalizeFilename(a.filename) === normalizeFilename(fn));
     if (match) {
       const part = findAttachmentPart(payload, match.id)
         || findAttachmentPartByFilename(payload, match.filename);
@@ -253,8 +452,9 @@ export function resolveAttachmentPart(payload, { attachmentId, filename } = {}) 
     }
   }
 
-  if (listed.length === 1) {
-    const only = listed[0];
+  // Uniquement si on n’a PAS fourni d’ID (sinon risquer le mauvais fichier / signature)
+  if (!hasId && !hasFilename && realListed.length === 1) {
+    const only = realListed[0];
     const part = findAttachmentPart(payload, only.id)
       || findAttachmentPartByFilename(payload, only.filename);
     if (part) {
@@ -334,13 +534,17 @@ export async function listMessages({ label = 'INBOX', max = 30, pageToken = null
   const list = await gmailFetch(`/messages?${params}`);
   if (!list.messages?.length) return { messages: [], nextPageToken: null };
 
-  const messages = await Promise.all(
-    list.messages.slice(0, max).map(m =>
-      gmailFetch(`/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Date`)
-        .then(formatMessage)
-        .catch(() => ({ id: m.id, subject: '(erreur)', from: '', to: '', snippet: '' }))
-    )
-  );
+  const slice = list.messages.slice(0, Math.min(max, 30));
+  const messages = await mapPool(slice, 2, async (m) => {
+    try {
+      const raw = await gmailFetch(
+        `/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Date`
+      );
+      return formatMessage(raw);
+    } catch {
+      return { id: m.id, subject: '(erreur)', from: '', to: '', snippet: '', threadId: m.threadId || null, labelIds: [] };
+    }
+  });
   return { messages, nextPageToken: list.nextPageToken || null };
 }
 
@@ -380,9 +584,9 @@ export async function getLabel(labelId) {
 export async function listLabelTree({
   prefixes = ['NEYA/', 'Tri/'],
   exact = ['NEYA', 'Tri', 'Fournitures'],
-  withCounts = true,
+  withCounts = false,
 } = {}) {
-  const labels = await getCachedLabels(true);
+  const labels = await getCachedLabels(false);
   const matched = labels.filter(l => {
     const name = String(l.name || '');
     if (exact.some(e => name === e)) return true;
@@ -434,11 +638,15 @@ export async function getMessage(messageId) {
 }
 
 /** Télécharge une pièce jointe fichier (par attachmentId Gmail ou nom de fichier). */
-export async function getAttachment(messageId, attachmentId, { filename } = {}) {
-  const msg = await gmailFetch(`/messages/${messageId}?format=full`);
-  const resolved = resolveAttachmentPart(msg?.payload, { attachmentId, filename });
+export async function getAttachment(messageId, attachmentId, { filename, messagePayload = null } = {}) {
+  let payload = messagePayload;
+  if (!payload) {
+    const msg = await gmailFetch(`/messages/${messageId}?format=full`);
+    payload = msg?.payload;
+  }
+  const resolved = resolveAttachmentPart(payload, { attachmentId, filename });
   if (!resolved) {
-    const names = extractFileAttachments(msg?.payload).map(a => a.filename).filter(Boolean);
+    const names = extractFileAttachments(payload).map(a => a.filename).filter(Boolean);
     throw new Error(
       names.length
         ? `Pièce jointe introuvable (disponibles : ${names.join(', ')})`
@@ -469,6 +677,7 @@ export async function getAttachment(messageId, attachmentId, { filename } = {}) 
     throw new Error(`Pièce jointe introuvable (disponibles : ${resolvedFilename})`);
   }
 
+  // ID Gmail dans le path Google : encoder pour les caractères spéciaux
   const att = await gmailFetch(`/messages/${messageId}/attachments/${encodeURIComponent(resolvedId)}`);
   if (!att?.data) throw new Error('Contenu pièce jointe vide');
   const buffer = decodeAttachmentData(att.data);
