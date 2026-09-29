@@ -922,18 +922,29 @@ Réponds avec un objet JSON compact:
 }
 
 export async function processRecentInbox(max = 15) {
-  const { messages } = await gmail.listMessages({ label: 'INBOX', max: Math.min(Number(max) || 15, 40) });
+  const capped = Math.min(Math.max(Number(max) || 15, 5), 50);
+  const [{ messages: inboxMsgs }, { messages: importantMsgs }] = await Promise.all([
+    gmail.listMessages({ label: 'INBOX', max: capped }),
+    gmail.listMessages({ q: 'in:inbox (is:important OR is:starred)', max: Math.min(capped, 15), label: null })
+      .catch(() => ({ messages: [] })),
+  ]);
+
+  const ordered = [];
   const seen = new Set();
+  for (const m of [...(importantMsgs || []), ...(inboxMsgs || [])]) {
+    if (!m?.threadId || seen.has(m.threadId)) continue;
+    seen.add(m.threadId);
+    ordered.push(m);
+  }
+
   const results = [];
   const errors = [];
 
-  for (const m of messages || []) {
+  for (const m of ordered) {
     if (gmail.isGmailQuotaPaused?.()) {
       errors.push({ thread_id: null, error: 'Quota exceeded (cooldown) — sync stopped' });
       break;
     }
-    if (!m.threadId || seen.has(m.threadId)) continue;
-    seen.add(m.threadId);
     try {
       const thread = await syncGmailThread(m.threadId);
       results.push(thread);

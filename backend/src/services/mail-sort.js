@@ -124,7 +124,10 @@ export async function applyGmailLabelsForMessages(messages = []) {
   let skipped = 0;
   const errors = [];
 
-  for (const m of messages) {
+  // Budget quota : À répondre / importants d’abord
+  const ordered = [...(messages || [])].sort((a, b) => labelPriorityScore(b) - labelPriorityScore(a));
+
+  for (const m of ordered) {
     if (isGmailQuotaPaused()) {
       errors.push({ threadId: null, error: 'Quota exceeded (cooldown) — labeling stopped' });
       break;
@@ -145,6 +148,16 @@ export async function applyGmailLabelsForMessages(messages = []) {
   }
 
   return { applied, skipped, errors };
+}
+
+function labelPriorityScore(m = {}) {
+  let s = 0;
+  if (m.mailCategory === 'a_repondre') s += 100;
+  const labels = m.labelIds || [];
+  if (labels.includes('IMPORTANT') || labels.includes('STARRED')) s += 50;
+  if (m.isUnread || m.unread) s += 20;
+  if (m.client_id) s += 10;
+  return s;
 }
 
 // Newsletters / marketing — assez strict pour ne pas enterrer un vrai client
@@ -323,15 +336,25 @@ export function classifyMailMessage({
   // Dernier message = client (lu ou non) → À répondre. Ouvert ≠ répondu.
   if (inboundNeedsReply && !isOutbound && hasStrongClient && !promo) return 'a_repondre';
 
-  if (preferStored && isValidMailCategory(thread?.mail_category)) {
-    return thread.mail_category;
+  // Important / réponse requise : ne pas rester coincé dans promotions ou une vieille catégorie stockée
+  const forceResurface = !isOutbound && (
+    gmailImportant
+    || needsResponse
+    || replyHint
+    || (isUnread && hasStrongClient && !promo)
+  );
+
+  if (!forceResurface) {
+    if (preferStored && isValidMailCategory(thread?.mail_category)) {
+      return thread.mail_category;
+    }
+    if (isValidMailCategory(gmailCategory)) return gmailCategory;
   }
-  if (isValidMailCategory(gmailCategory)) return gmailCategory;
 
   // Newsletters : Gmail Promotions / domaines marketing — jamais un mail marqué important
   if (promo && !matchedClientEmail && !hardInvoice && !gmailImportant) return 'promotions';
   if (isSupplierInvoice) return 'fournisseurs';
-  if (needsResponse || replyHint) return 'a_repondre';
+  if (needsResponse || replyHint || gmailImportant) return 'a_repondre';
   if (isUnread && hasStrongClient && !isOutbound) return 'a_repondre';
   if (detectSupplier(from, subject, snippet)) return 'fournisseurs';
   if (isUnread && !isOutbound && !promo && (gmailImportant || !gmailNoise)) return 'a_repondre';
@@ -534,10 +557,10 @@ export async function enrichInboxMessages(messages = []) {
     });
   }
 
-  // Tri stable : non-lus d'abord, puis date décroissante
+  // Tri stable : À répondre / importants d’abord, puis non-lus, puis date
   enriched.sort((a, b) => {
-    const ur = Number(Boolean(b.isUnread || b.unread)) - Number(Boolean(a.isUnread || a.unread));
-    if (ur) return ur;
+    const d = labelPriorityScore(b) - labelPriorityScore(a);
+    if (d) return d;
     return new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
   });
 
@@ -557,11 +580,11 @@ export async function enrichInboxMessages(messages = []) {
   return { messages: enriched, sections };
 }
 
-export const INBOX_SORTED_MAX = 40;
+export const INBOX_SORTED_MAX = 50;
 
 let inboxSortedCache = null;
 let inboxSortedCacheAt = 0;
-const INBOX_SORTED_TTL_MS = 25_000;
+const INBOX_SORTED_TTL_MS = 20_000;
 
 /** Garde un message par fil : non-lu prioritaire, sinon le plus récent. */
 export function mergeMailThreads(messageLists = []) {
@@ -603,27 +626,32 @@ async function listMailSafe(gmail, opts) {
 export async function sortInbox({ max = INBOX_SORTED_MAX, applyLabels = false } = {}) {
   const gmail = await import('./google-gmail.js');
   const cap = Math.min(Math.max(Number(max) || INBOX_SORTED_MAX, 15), 80);
-  const recentCap = Math.min(cap, 40);
-  const extraCap = Math.min(20, cap);
-  const cacheKey = `${recentCap}:0`;
+  const recentCap = Math.min(cap, 50);
+  const priorityCap = Math.min(15, cap);
+  const triCap = Math.min(15, cap);
+  const cacheKey = `${recentCap}:v3`;
 
   if (!applyLabels && inboxSortedCache?.key === cacheKey && Date.now() - inboxSortedCacheAt < INBOX_SORTED_TTL_MS) {
     return inboxSortedCache.data;
   }
 
-  // Une seule liste prioritaire — évite 3× list+metadata en parallèle (quota/min).
-  let raw = await listMailSafe(gmail, {
-    q: 'in:inbox (is:unread OR is:important OR is:starred OR newer_than:21d)',
-    max: recentCap,
+  // Vague 1 : mails qui doivent passer par l’humain (importants / étoiles)
+  const important = await listMailSafe(gmail, {
+    q: 'in:inbox (is:important OR is:starred)',
+    max: priorityCap,
   });
-  if (raw.length < 12) {
-    const [triQueue, neyaReply] = await Promise.all([
-      listMailSafe(gmail, { label: 'Tri/A_traiter', max: extraCap }),
-      listMailSafe(gmail, { label: GMAIL_CATEGORY_LABELS.a_repondre, max: extraCap }),
-    ]);
-    raw = mergeMailThreads([raw, triQueue, neyaReply]);
-  }
-  if (raw.length < 10) {
+  // Vague 2 : inbox récente + files Tri / À répondre (toujours, pas seulement si inbox vide)
+  const [inboxPriority, triQueue, neyaReply] = await Promise.all([
+    listMailSafe(gmail, {
+      q: 'in:inbox (is:unread OR newer_than:14d)',
+      max: recentCap,
+    }),
+    listMailSafe(gmail, { label: 'Tri/A_traiter', max: triCap }),
+    listMailSafe(gmail, { label: GMAIL_CATEGORY_LABELS.a_repondre, max: priorityCap }),
+  ]);
+
+  let raw = mergeMailThreads([important, triQueue, neyaReply, inboxPriority]);
+  if (raw.length < 8) {
     const fallback = await listMailSafe(gmail, { label: 'INBOX', max: recentCap });
     raw = mergeMailThreads([raw, fallback]);
   }
@@ -641,22 +669,33 @@ export async function sortInbox({ max = INBOX_SORTED_MAX, applyLabels = false } 
 }
 
 /** Dossier ERP = label NEYA/ ∪ mails inbox déjà classés dans cette catégorie. */
-export async function listMailFolder(category, { max = 40 } = {}) {
+export async function listMailFolder(category, { max = 50 } = {}) {
   if (!isValidMailCategory(category)) {
     throw new Error(`Catégorie invalide : ${category}`);
   }
   const gmail = await import('./google-gmail.js');
+  const cap = Math.min(Number(max) || 50, 60);
   let labeled = [];
   try {
     await ensureNeyaGmailLabels();
-    labeled = await listMailSafe(gmail, { label: GMAIL_CATEGORY_LABELS[category], max });
+    labeled = await listMailSafe(gmail, { label: GMAIL_CATEGORY_LABELS[category], max: cap });
   } catch { /* labels pas encore créés */ }
 
-  // Inbox légère — pas de sortInbox complet (évite boucle Tri + À répondre).
-  const inboxRaw = await listMailSafe(gmail, {
-    q: 'in:inbox newer_than:30d',
-    max: Math.min(Number(max) || 40, 40),
-  });
+  let inboxRaw;
+  if (category === 'a_repondre') {
+    // Remonter importants + Tri + non-lus pour que le tri « à traiter » passe bien
+    const [important, unread, tri] = await Promise.all([
+      listMailSafe(gmail, { q: 'in:inbox (is:important OR is:starred)', max: Math.min(20, cap) }),
+      listMailSafe(gmail, { q: 'in:inbox is:unread newer_than:30d', max: cap }),
+      listMailSafe(gmail, { label: 'Tri/A_traiter', max: Math.min(20, cap) }),
+    ]);
+    inboxRaw = mergeMailThreads([important, unread, tri]);
+  } else {
+    inboxRaw = await listMailSafe(gmail, {
+      q: 'in:inbox newer_than:30d',
+      max: cap,
+    });
+  }
   const inbox = await enrichInboxMessages(inboxRaw);
   const fromInbox = (inbox.messages || []).filter(m => (m.mailCategory || 'autres') === category);
 
@@ -672,6 +711,8 @@ export async function listMailFolder(category, { max = 40 } = {}) {
     seen.add(key);
     messages.push(m);
   }
+  messages.sort((a, b) => labelPriorityScore(b) - labelPriorityScore(a)
+    || new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
 
   return {
     messages,
@@ -787,18 +828,20 @@ export async function sortRecentInbox(max = INBOX_SORTED_MAX, {
 } = {}) {
   const { processRecentInbox } = await import('./email-threads.js');
   const gmail = await import('./google-gmail.js');
-  const capped = Math.min(Math.max(Number(max) || 20, 5), 40);
+  const capped = Math.min(Math.max(Number(max) || 25, 5), 50);
+  const quotaPausedAtStart = Boolean(gmail.isGmailQuotaPaused?.());
 
   const result = await processRecentInbox(capped);
 
   // Drainer aussi Tri/A_traiter (file d’attente Gmail historique)
   let triProcessed = 0;
   let triErrors = [];
+  const triThreadIds = [];
   if (includeTri && !gmail.isGmailQuotaPaused?.()) {
     try {
       const triId = await gmail.resolveLabelId('Tri/A_traiter');
       if (triId) {
-        const { messages: triMsgs } = await gmail.listMessages({ label: triId, max: Math.min(capped, 20) });
+        const { messages: triMsgs } = await gmail.listMessages({ label: triId, max: Math.min(capped, 25) });
         const seen = new Set((result.threads || []).map(t => t.gmail_thread_id).filter(Boolean));
         for (const m of triMsgs || []) {
           if (gmail.isGmailQuotaPaused?.()) break;
@@ -808,9 +851,9 @@ export async function sortRecentInbox(max = INBOX_SORTED_MAX, {
             const { syncGmailThread } = await import('./email-threads.js');
             const thread = await syncGmailThread(m.threadId);
             if (thread?.id) {
-              // Classement DB seulement — labels Gmail en un seul passage plus bas
               await classifyAndStoreThread(thread.id, { force: false, applyGmailLabel: false });
               triProcessed += 1;
+              triThreadIds.push(thread.id);
               result.threads = [...(result.threads || []), thread];
             }
           } catch (err) {
@@ -832,16 +875,50 @@ export async function sortRecentInbox(max = INBOX_SORTED_MAX, {
 
   inboxSortedCache = null;
   const sorted = await sortInbox({ max: capped, applyLabels: false });
+
+  // Inclure les fils Tri synchronisés même s’ils n’apparaissent pas encore dans l’inbox listée
+  const byThread = new Map();
+  for (const m of sorted.messages || []) {
+    if (m.threadId) byThread.set(m.threadId, m);
+  }
+  const processedIds = [...new Set([
+    ...(result.threads || []).map(t => t.id).filter(Boolean),
+    ...triThreadIds,
+  ])];
+  if (processedIds.length) {
+    try {
+      const { rows } = await pool.query(
+        `SELECT gmail_thread_id, mail_category FROM email_threads
+         WHERE id = ANY($1) AND gmail_thread_id IS NOT NULL AND mail_category IS NOT NULL`,
+        [processedIds]
+      );
+      for (const r of rows) {
+        const prev = byThread.get(r.gmail_thread_id) || {
+          threadId: r.gmail_thread_id,
+          labelIds: [],
+        };
+        byThread.set(r.gmail_thread_id, {
+          ...prev,
+          mailCategory: r.mail_category,
+        });
+      }
+    } catch { /* best-effort */ }
+  }
+
   let labelResult = { applied: 0, skipped: 0, errors: [] };
   if (applyGmailLabels) {
-    labelResult = await applyGmailLabelsForMessages(sorted.messages || []);
+    labelResult = await applyGmailLabelsForMessages([...byThread.values()]);
   }
+
+  // Recharger la liste après labeling pour refléter À répondre / Tri drainé
+  inboxSortedCache = null;
+  const refreshed = await sortInbox({ max: capped, applyLabels: false });
 
   let invoices = null;
   if (scanInvoices && !gmail.isGmailQuotaPaused?.()) {
     try {
       const { scanInboxForSupplierInvoices } = await import('./invoice-email-router.js');
-      invoices = await scanInboxForSupplierInvoices({ max: Math.min(capped, 20) });
+      invoices = await scanInboxForSupplierInvoices({ max: Math.min(capped, 15) });
     } catch (err) {
       invoices = { error: err.message, ingested: 0, scanned: 0 };
     }
@@ -852,8 +929,9 @@ export async function sortRecentInbox(max = INBOX_SORTED_MAX, {
     processed: (result.processed || 0) + triProcessed,
     tri_processed: triProcessed,
     tri_errors: triErrors,
-    sections: sorted.sections,
-    messages: sorted.messages,
+    quota_paused: quotaPausedAtStart || Boolean(gmail.isGmailQuotaPaused?.()),
+    sections: refreshed.sections,
+    messages: refreshed.messages,
     gmail_labels: {
       applied: labelResult.applied,
       skipped: labelResult.skipped || 0,

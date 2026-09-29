@@ -35,7 +35,7 @@ const LIST_FILTERS = [
   { id: 'autres', label: 'Non classés' },
 ];
 
-const INBOX_SORTED_MAX = 40;
+const INBOX_SORTED_MAX = 50;
 
 const ALL_FOLDER_LABELS = {
   inbox: 'Boîte de réception',
@@ -237,8 +237,17 @@ function MailHtmlBody({ html }) {
 
 function sortMailItems(items = []) {
   return [...items].sort((a, b) => {
-    const ur = Number(Boolean(b.isUnread || b.unread)) - Number(Boolean(a.isUnread || a.unread));
-    if (ur) return ur;
+    const score = (m) => {
+      let s = 0;
+      if ((m.mailCategory || m.erpFolder) === 'a_repondre') s += 100;
+      const labels = m.labelIds || [];
+      if (labels.includes('IMPORTANT') || labels.includes('STARRED')) s += 50;
+      if (m.isUnread || m.unread) s += 20;
+      if (m.client_id) s += 10;
+      return s;
+    };
+    const d = score(b) - score(a);
+    if (d) return d;
     return new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
   });
 }
@@ -954,7 +963,7 @@ export default function GmailInbox({
     try {
       const result = await api('/gmail/sort-inbox', {
         method: 'POST',
-        timeoutMs: 60000,
+        timeoutMs: 120000,
         body: JSON.stringify({ max: INBOX_SORTED_MAX, includeTri: true, scanInvoices: true }),
       });
       setMessages(result.messages || []);
@@ -966,7 +975,8 @@ export default function GmailInbox({
         : '';
       const inv = result.invoices;
       const invBit = inv ? ` · ${inv.ingested || 0} facture(s) stockée(s)` : '';
-      const msg = `${result.processed || 0} fil(s) trié(s)${triBit} — ${labeled} label(s) NEYA${invBit}.`;
+      const quotaBit = result.quota_paused ? ' · quota Gmail en pause (réessaie dans 1–2 min)' : '';
+      const msg = `${result.processed || 0} fil(s) trié(s)${triBit} — ${labeled} label(s) NEYA${invBit}${quotaBit}.`;
       if (result.errors?.length || result.gmail_labels?.errors?.length || result.tri_errors?.length) {
         const errText = result.errors?.[0]?.error
           || result.gmail_labels?.errors?.[0]?.error

@@ -151,6 +151,25 @@ describe('classifyMailMessage promotions', () => {
     assert.equal(cat, 'a_repondre');
   });
 
+  it('remonte en À répondre un important même si stocké en promotions', () => {
+    const cat = classifyMailMessage({
+      from: 'Marie <marie@client.ca>',
+      subject: 'Urgent — confirmation installation',
+      snippet: 'Pouvez-vous me confirmer la date ?',
+      isUnread: true,
+      preferStored: true,
+      labelIds: ['IMPORTANT', 'UNREAD'],
+      thread: {
+        mail_category: 'promotions',
+        mail_category_manual: false,
+        client_id: 9,
+        link_source: 'client_email',
+        link_confidence: 0.95,
+      },
+    });
+    assert.equal(cat, 'a_repondre');
+  });
+
   it('suit le label Gmail NEYA si pas de signal plus fort', () => {
     const cat = classifyMailMessage({
       from: 'inconnu@example.net',

@@ -92,7 +92,7 @@ router.get('/sections', (_req, res) => {
 
 router.post('/sort-inbox', async (req, res) => {
   try {
-    const max = Math.min(Number(req.body?.max) || 40, 40);
+    const max = Math.min(Number(req.body?.max) || 50, 50);
     const fast = req.body?.fast === true;
     if (fast) {
       const sorted = await sortInbox({ max, applyLabels: false });
