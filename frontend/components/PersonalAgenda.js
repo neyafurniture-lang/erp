@@ -2,11 +2,21 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Plus } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
 import { hasPermission, isAdmin } from '../lib/permissions';
-import { addDays, blockOnDate, blockView, localISODate, slotPayload, startOfWeek } from '../lib/agenda';
+import {
+  addDays,
+  blockOnDate,
+  blockView,
+  localISODate,
+  monthGridStart,
+  shiftMonthKeepingDay,
+  slotPayload,
+  startOfWeek,
+  weekIndexInMonth,
+} from '../lib/agenda';
 import AgendaBlockModal from './AgendaBlockModal';
 import CalendarTaskModal from './CalendarTaskModal';
 
@@ -14,6 +24,7 @@ const START_HOUR = 7;
 const END_HOUR = 20;
 const HOUR_PX = 46;
 const HOUR_PX_MOBILE = 52;
+const ROW_H = 56;
 const DAYS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 
 function dayItems(dateKey, blocks, tasks) {
@@ -108,6 +119,180 @@ function TimelineColumn({
   );
 }
 
+/** Glissement horizontal d’une page (semaine ou mois), ancré comme JTAppleCalendar. */
+function useCalendarPager(onCommit) {
+  const boxRef = useRef(null);
+  const origin = useRef(null);
+  const dxRef = useRef(0);
+  const pending = useRef(0);
+  const timer = useRef(null);
+  const commitRef = useRef(onCommit);
+  commitRef.current = onCommit;
+  const suppressTap = useRef(false);
+  const [dx, setDx] = useState(0);
+  const [animate, setAnimate] = useState(false);
+
+  const finish = useCallback(() => {
+    const dir = pending.current;
+    if (!dir) return;
+    pending.current = 0;
+    window.clearTimeout(timer.current);
+    dxRef.current = 0;
+    setAnimate(false);
+    setDx(0);
+    commitRef.current(dir);
+  }, []);
+
+  function reset() {
+    pending.current = 0;
+    window.clearTimeout(timer.current);
+    origin.current = null;
+    dxRef.current = 0;
+    setAnimate(false);
+    setDx(0);
+  }
+
+  function onPointerDown(e) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    origin.current = { x: e.clientX, y: e.clientY, lock: null, id: e.pointerId };
+    pending.current = 0;
+    window.clearTimeout(timer.current);
+    setAnimate(false);
+  }
+
+  function onPointerMove(e) {
+    const o = origin.current;
+    if (!o || e.pointerId !== o.id) return;
+    const x = e.clientX - o.x;
+    const y = e.clientY - o.y;
+    if (!o.lock) {
+      if (Math.abs(x) < 8 && Math.abs(y) < 8) return;
+      o.lock = Math.abs(x) > Math.abs(y) ? 'x' : 'y';
+      if (o.lock === 'x') boxRef.current?.setPointerCapture?.(e.pointerId);
+    }
+    if (o.lock !== 'x') return;
+    dxRef.current = x;
+    setDx(x);
+  }
+
+  function onPointerEnd(e) {
+    const o = origin.current;
+    if (!o || (e && e.pointerId !== o.id)) return;
+    const locked = o.lock;
+    origin.current = null;
+    if (locked !== 'x') {
+      dxRef.current = 0;
+      setDx(0);
+      return;
+    }
+    const current = dxRef.current;
+    if (Math.abs(current) > 10) {
+      suppressTap.current = true;
+      window.setTimeout(() => { suppressTap.current = false; }, 400);
+    }
+    const w = boxRef.current?.clientWidth || 320;
+    let dir = 0;
+    let target = 0;
+    if (current <= -48) {
+      dir = 1;
+      target = -w;
+    } else if (current >= 48) {
+      dir = -1;
+      target = w;
+    }
+    pending.current = dir;
+    dxRef.current = target;
+    setAnimate(true);
+    setDx(target);
+    window.clearTimeout(timer.current);
+    if (dir) timer.current = window.setTimeout(finish, 360);
+  }
+
+  function onTransitionEnd(e) {
+    if (e.propertyName !== 'transform') return;
+    finish();
+  }
+
+  return {
+    boxRef, dx, animate, suppressTap, reset,
+    onPointerDown, onPointerMove, onPointerEnd, onTransitionEnd,
+  };
+}
+
+function pageCaption(pageDate, rows) {
+  if (rows === 6) {
+    return pageDate.toLocaleDateString('fr-CA', { month: 'long', year: 'numeric' });
+  }
+  const start = startOfWeek(pageDate);
+  const end = addDays(start, 6);
+  const opt = { day: 'numeric', month: 'short' };
+  return `${start.toLocaleDateString('fr-CA', opt)} – ${end.toLocaleDateString('fr-CA', opt)}`;
+}
+
+function MonthGrid({ pageDate, rows, selectedKey, today, counts, onSelect, animateRows }) {
+  const gridStart = monthGridStart(pageDate);
+  const cells = Array.from({ length: 42 }, (_, i) => addDays(gridStart, i));
+  const weekIndex = weekIndexInMonth(pageDate, pageDate);
+  const collapsed = rows === 1;
+
+  return (
+    <div
+      className="overflow-hidden motion-reduce:transition-none"
+      style={{
+        height: rows * ROW_H,
+        transition: 'height 300ms cubic-bezier(0.22, 1, 0.36, 1)',
+      }}
+    >
+      <div
+        className="motion-reduce:transition-none"
+        style={{
+          transform: collapsed ? `translateY(-${weekIndex * ROW_H}px)` : 'translateY(0px)',
+          transition: animateRows ? 'transform 300ms cubic-bezier(0.22, 1, 0.36, 1)' : 'none',
+        }}
+      >
+        {Array.from({ length: 6 }, (_, row) => (
+          <div
+            key={row}
+            className={`grid grid-cols-7 ${rows === 6 && row === weekIndex ? 'bg-neya-orange/[0.06]' : ''}`}
+            style={{ height: ROW_H }}
+          >
+            {cells.slice(row * 7, row * 7 + 7).map(d => {
+              const key = localISODate(d);
+              const active = key === selectedKey;
+              const isToday = key === today;
+              const faded = rows === 6 && d.getMonth() !== pageDate.getMonth();
+              const count = counts[key] || 0;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={active}
+                  aria-label={d.toLocaleDateString('fr-CA', { weekday: 'long', day: 'numeric', month: 'long' })}
+                  onClick={() => onSelect(key)}
+                  className="flex h-full flex-col items-center justify-center gap-1"
+                >
+                  <span className={`grid h-9 w-9 place-items-center rounded-full text-[15px] font-semibold tabular-nums ${
+                    active
+                      ? 'bg-neya-orange text-white'
+                      : faded
+                        ? 'text-neya-muted/50'
+                        : isToday
+                          ? 'text-neya-orange ring-1 ring-neya-orange'
+                          : 'text-neya-ink'
+                  }`}>
+                    {d.getDate()}
+                  </span>
+                  <span className={`h-1.5 w-1.5 rounded-full ${count ? 'bg-neya-orange' : 'bg-transparent'}`} />
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function shiftTask(task, dateKey) {
   const start = new Date(task.start);
   const end = task.end ? new Date(task.end) : new Date(start.getTime() + 3600000);
@@ -144,11 +329,24 @@ export default function PersonalAgenda({ initialDate }) {
   const suppressClickRef = useRef(false);
   const swipeRef = useRef(null);
   const mobileScrollRef = useRef(null);
+  const handleY = useRef(null);
+  const handleDragged = useRef(false);
+  const rowTimer = useRef(null);
+  /** 6 = mois, 1 = semaine ancrée sur le jour choisi (modèle JTAppleCalendar). */
+  const [calendarRows, setCalendarRows] = useState(1);
+  const [rowAnim, setRowAnim] = useState(false);
 
   const weekStart = useMemo(() => startOfWeek(anchor), [anchor]);
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
-  const from = localISODate(days[0]);
-  const to = localISODate(days[6]);
+  const range = useMemo(() => {
+    const prev = monthGridStart(new Date(anchor.getFullYear(), anchor.getMonth() - 1, 1, 12));
+    const nextEnd = addDays(monthGridStart(new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1, 12)), 41);
+    const weekEnd = addDays(weekStart, 6);
+    const start = prev < weekStart ? prev : weekStart;
+    const end = nextEnd > weekEnd ? nextEnd : weekEnd;
+    return { from: localISODate(start), to: localISODate(end) };
+  }, [anchor, weekStart]);
+  const { from, to } = range;
   const today = localISODate();
 
   const load = useCallback(async () => {
@@ -270,18 +468,16 @@ export default function PersonalAgenda({ initialDate }) {
   }
 
   function onSwipeStart(e) {
-    const t = e.changedTouches?.[0];
-    if (!t) return;
-    swipeRef.current = { x: t.clientX, y: t.clientY };
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    swipeRef.current = { x: e.clientX, y: e.clientY, id: e.pointerId };
   }
 
   function onSwipeEnd(e) {
     const start = swipeRef.current;
     swipeRef.current = null;
-    const t = e.changedTouches?.[0];
-    if (!start || !t) return;
-    const dx = t.clientX - start.x;
-    const dy = t.clientY - start.y;
+    if (!start || (e.pointerId != null && e.pointerId !== start.id)) return;
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
     if (Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
     shiftDay(dx < 0 ? 1 : -1);
   }
@@ -298,12 +494,74 @@ export default function PersonalAgenda({ initialDate }) {
   const selectedDate = new Date(`${selected}T12:00:00`);
   const countsByDay = useMemo(() => {
     const map = {};
-    for (const d of days) {
-      const key = localISODate(d);
-      map[key] = dayItems(key, blocks, tasks);
+    const add = (key) => {
+      if (!key) return;
+      map[key] = (map[key] || 0) + 1;
+    };
+    for (const block of blocks) add(blockView(block).date);
+    for (const task of tasks) {
+      if (task.start) add(localISODate(new Date(task.start)));
     }
     return map;
-  }, [days, blocks, tasks]);
+  }, [blocks, tasks]);
+
+  function dateForOffset(offset) {
+    if (calendarRows === 6) return shiftMonthKeepingDay(selected, offset);
+    return addDays(new Date(`${selected}T12:00:00`), offset * 7);
+  }
+
+  function commitPage(delta) {
+    if (calendarRows === 6) goToDay(localISODate(shiftMonthKeepingDay(selected, delta)));
+    else goToDay(localISODate(addDays(new Date(`${selected}T12:00:00`), delta * 7)));
+  }
+
+  const pager = useCalendarPager(commitPage);
+
+  function toggleRows() {
+    setRowAnim(true);
+    window.clearTimeout(rowTimer.current);
+    rowTimer.current = window.setTimeout(() => setRowAnim(false), 340);
+    setCalendarRows(rows => (rows === 6 ? 1 : 6));
+    pager.reset();
+  }
+
+  function onChevron(delta) {
+    if (calendarRows === 6) goToDay(localISODate(shiftMonthKeepingDay(selected, delta)));
+    else shiftDay(delta);
+  }
+
+  function selectFromGrid(dateKey) {
+    if (pager.suppressTap.current) return;
+    goToDay(dateKey);
+  }
+
+  function onHandleStart(e) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    handleY.current = e.clientY;
+    handleDragged.current = false;
+  }
+
+  function onHandleMove(e) {
+    if (handleY.current == null) return;
+    if (Math.abs(e.clientY - handleY.current) > 12) handleDragged.current = true;
+  }
+
+  function onHandleEnd(e) {
+    if (handleY.current == null) return;
+    const dy = e.clientY - handleY.current;
+    handleY.current = null;
+    if (Math.abs(dy) > 12) handleDragged.current = true;
+    if (dy > 36 && calendarRows === 1) toggleRows();
+    else if (dy < -36 && calendarRows === 6) toggleRows();
+  }
+
+  function onHandleClick() {
+    if (handleDragged.current) {
+      handleDragged.current = false;
+      return;
+    }
+    toggleRows();
+  }
 
   return (
     <div className="space-y-4">
@@ -315,19 +573,33 @@ export default function PersonalAgenda({ initialDate }) {
       </p>
 
       <div className="lg:hidden -mx-4">
-        <div className="px-4 pb-2 flex items-center gap-2">
-          <button type="button" className="grid h-11 w-11 place-items-center rounded-full border border-neya-border bg-white" aria-label="Jour précédent" onClick={() => shiftDay(-1)}>
+        <div className="px-4 pb-1 flex items-center gap-2">
+          <button
+            type="button"
+            className="grid h-11 w-11 place-items-center rounded-full border border-neya-border bg-white"
+            aria-label={calendarRows === 6 ? 'Mois précédent' : 'Jour précédent'}
+            onClick={() => onChevron(-1)}
+          >
             <ChevronLeft className="h-5 w-5" />
           </button>
           <button type="button" className="flex-1 text-center min-w-0" onClick={() => goToDay(today)}>
             <p className="text-[11px] font-semibold uppercase tracking-wider text-neya-muted">
-              {selected === today ? "Aujourd’hui" : selectedDate.toLocaleDateString('fr-CA', { weekday: 'long' })}
+              {calendarRows === 6
+                ? 'Mois'
+                : (selected === today ? "Aujourd’hui" : selectedDate.toLocaleDateString('fr-CA', { weekday: 'long' }))}
             </p>
             <p className="font-display text-[17px] font-semibold text-neya-ink capitalize truncate">
-              {selectedDate.toLocaleDateString('fr-CA', { day: 'numeric', month: 'long' })}
+              {calendarRows === 6
+                ? selectedDate.toLocaleDateString('fr-CA', { month: 'long', year: 'numeric' })
+                : selectedDate.toLocaleDateString('fr-CA', { day: 'numeric', month: 'long' })}
             </p>
           </button>
-          <button type="button" className="grid h-11 w-11 place-items-center rounded-full border border-neya-border bg-white" aria-label="Jour suivant" onClick={() => shiftDay(1)}>
+          <button
+            type="button"
+            className="grid h-11 w-11 place-items-center rounded-full border border-neya-border bg-white"
+            aria-label={calendarRows === 6 ? 'Mois suivant' : 'Jour suivant'}
+            onClick={() => onChevron(1)}
+          >
             <ChevronRight className="h-5 w-5" />
           </button>
           <button
@@ -340,36 +612,78 @@ export default function PersonalAgenda({ initialDate }) {
           </button>
         </div>
 
-        <div className="grid grid-cols-7 px-2">
-          {days.map((d, i) => {
-            const key = localISODate(d);
-            const active = key === selected;
-            const isToday = key === today;
-            const count = (countsByDay[key]?.colBlocks.length || 0) + (countsByDay[key]?.colTasks.length || 0);
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => goToDay(key)}
-                className="flex flex-col items-center gap-1 py-1.5 min-h-[64px]"
-              >
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-neya-muted">{DAYS[i]}</span>
-                <span className={`grid h-9 w-9 place-items-center rounded-full text-[15px] font-semibold tabular-nums ${
-                  active ? 'bg-neya-orange text-white' : isToday ? 'text-neya-orange ring-1 ring-neya-orange' : 'text-neya-ink'
-                }`}>
-                  {d.getDate()}
-                </span>
-                <span className={`h-1.5 w-1.5 rounded-full ${count ? 'bg-neya-orange' : 'bg-transparent'}`} />
-              </button>
-            );
-          })}
+        <div className="grid grid-cols-7 px-1 pb-0.5">
+          {DAYS.map(label => (
+            <span key={label} className="text-center text-[10px] font-semibold uppercase tracking-wide text-neya-muted">{label}</span>
+          ))}
         </div>
 
         <div
+          ref={pager.boxRef}
+          className="overflow-hidden touch-pan-y"
+          onPointerDown={pager.onPointerDown}
+          onPointerMove={pager.onPointerMove}
+          onPointerUp={pager.onPointerEnd}
+          onPointerCancel={pager.onPointerEnd}
+        >
+          <div
+            className="flex w-[300%] motion-reduce:transition-none"
+            style={{
+              transform: `translateX(calc(-33.333333% + ${pager.dx}px))`,
+              transition: pager.animate ? 'transform 280ms cubic-bezier(0.22, 1, 0.36, 1)' : 'none',
+            }}
+            onTransitionEnd={pager.onTransitionEnd}
+          >
+            {[-1, 0, 1].map(offset => {
+              const pageDate = dateForOffset(offset);
+              return (
+                <div key={offset} className="w-1/3">
+                  <p className="h-5 px-2 text-center text-[11px] font-semibold capitalize tracking-wide text-neya-muted truncate">
+                    {pageCaption(pageDate, calendarRows)}
+                  </p>
+                  <MonthGrid
+                    pageDate={pageDate}
+                    rows={calendarRows}
+                    selectedKey={localISODate(pageDate)}
+                    today={today}
+                    counts={countsByDay}
+                    animateRows={rowAnim}
+                    onSelect={selectFromGrid}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <button
+          type="button"
+          aria-expanded={calendarRows === 6}
+          onClick={onHandleClick}
+          onPointerDown={onHandleStart}
+          onPointerMove={onHandleMove}
+          onPointerUp={onHandleEnd}
+          className="flex w-full flex-col items-center gap-1 py-2"
+        >
+          <span className="h-1 w-9 rounded-full bg-neya-border" />
+          <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-neya-muted">
+            {calendarRows === 6 ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            {calendarRows === 6 ? 'Semaine' : 'Mois'}
+          </span>
+        </button>
+
+        {calendarRows === 6 && (
+          <p className="px-4 pb-1 text-[13px] font-semibold capitalize text-neya-ink">
+            {selectedDate.toLocaleDateString('fr-CA', { weekday: 'long', day: 'numeric', month: 'long' })}
+          </p>
+        )}
+
+        <div
           ref={mobileScrollRef}
-          className="mt-1 max-h-[62vh] overflow-y-auto overscroll-contain border-y border-neya-border bg-white"
-          onTouchStart={onSwipeStart}
-          onTouchEnd={onSwipeEnd}
+          className={`${calendarRows === 6 ? 'max-h-[40vh]' : 'max-h-[62vh]'} overflow-y-auto overscroll-contain border-y border-neya-border bg-white`}
+          onPointerDown={onSwipeStart}
+          onPointerUp={onSwipeEnd}
+          onPointerCancel={onSwipeEnd}
         >
           <div className="grid grid-cols-[52px_1fr]">
             <div className="relative" style={{ height: (END_HOUR - START_HOUR) * HOUR_PX_MOBILE }}>
@@ -391,7 +705,11 @@ export default function PersonalAgenda({ initialDate }) {
           </div>
           {loading && <p className="px-4 py-3 text-sm text-neya-muted">Chargement…</p>}
         </div>
-        <p className="px-4 pt-2 text-[12px] text-neya-muted">Glissez à gauche ou à droite pour changer de jour. Touchez une heure vide pour poser un bloc.</p>
+        <p className="px-4 pt-2 text-[12px] text-neya-muted">
+          {calendarRows === 6
+            ? 'Glissez pour changer de mois. Touchez un jour, puis une heure vide pour poser un bloc.'
+            : 'Glissez le calendrier pour changer de semaine, la journée pour changer de jour. Touchez « Mois » pour déplier les 6 rangées.'}
+        </p>
       </div>
 
       <div className="hidden lg:flex flex-wrap items-center gap-2 neya-enter">

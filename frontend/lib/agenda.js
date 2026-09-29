@@ -31,6 +31,30 @@ export function startOfWeek(d) {
   return c;
 }
 
+/** Lundi de la semaine qui contient le 1er du mois (grille 6 × 7, comme JTAppleCalendar). */
+export function monthGridStart(d) {
+  const first = new Date(d.getFullYear(), d.getMonth(), 1, 12, 0, 0, 0);
+  return startOfWeek(first);
+}
+
+/** Rangée 0–5 de la semaine de `date` dans la grille du mois. */
+export function weekIndexInMonth(date, monthDate) {
+  const start = monthGridStart(monthDate);
+  const week = startOfWeek(date instanceof Date ? date : new Date(`${date}T12:00:00`));
+  const diff = Math.round((week.getTime() - start.getTime()) / 86400000);
+  const idx = Math.round(diff / 7);
+  if (idx < 0 || idx > 5) return 0;
+  return idx;
+}
+
+export function shiftMonthKeepingDay(date, deltaMonths) {
+  const src = date instanceof Date ? date : new Date(`${date}T12:00:00`);
+  const day = src.getDate();
+  const base = new Date(src.getFullYear(), src.getMonth() + deltaMonths, 1, 12, 0, 0, 0);
+  const dim = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
+  return new Date(base.getFullYear(), base.getMonth(), Math.min(day, dim), 12, 0, 0, 0);
+}
+
 export function slotPayload({ date, start, end, project_id, label, notes, employee_id, id }) {
   const started = combineLocal(date, start);
   const ended = combineLocal(date, end);
