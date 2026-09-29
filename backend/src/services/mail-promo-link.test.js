@@ -143,8 +143,8 @@ describe('classifyMailMessage promotions', () => {
   it('garde un mail marqué important hors promotions', () => {
     const cat = classifyMailMessage({
       from: 'Client <info@atelier.ca>',
-      subject: 'Livraison gratuite ?',
-      snippet: 'Est-ce que vous offrez la livraison gratuite',
+      subject: 'Question sur le délai de livraison',
+      snippet: 'Pouvez-vous me confirmer la date ?',
       isUnread: true,
       labelIds: ['UNREAD', 'IMPORTANT'],
     });
@@ -159,6 +159,7 @@ describe('classifyMailMessage promotions', () => {
       isUnread: true,
       preferStored: true,
       labelIds: ['IMPORTANT', 'UNREAD'],
+      clientEmails: new Set(['marie@client.ca']),
       thread: {
         mail_category: 'promotions',
         mail_category_manual: false,
@@ -166,6 +167,28 @@ describe('classifyMailMessage promotions', () => {
         link_source: 'client_email',
         link_confidence: 0.95,
       },
+    });
+    assert.equal(cat, 'a_repondre');
+  });
+
+  it('ne met pas une newsletter Gmail-IMPORTANT en À répondre', () => {
+    const cat = classifyMailMessage({
+      from: 'POP Montréal <info@popmontreal.com>',
+      subject: 'Dernier jour du festival POP Montréal 2026!',
+      snippet: 'Viens découvrir plus de 100 créateurs',
+      isUnread: true,
+      labelIds: ['UNREAD', 'IMPORTANT', 'CATEGORY_PROMOTIONS'],
+    });
+    assert.equal(cat, 'promotions');
+  });
+
+  it('étoile manuelle → À répondre même si promo', () => {
+    const cat = classifyMailMessage({
+      from: 'POP Montréal <info@popmontreal.com>',
+      subject: 'Festival',
+      snippet: 'newsletter unsubscribe',
+      isUnread: true,
+      labelIds: ['STARRED', 'CATEGORY_PROMOTIONS'],
     });
     assert.equal(cat, 'a_repondre');
   });

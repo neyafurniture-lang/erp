@@ -303,7 +303,8 @@ export function classifyMailMessage({
   );
   const matchedClientEmail = addresses.some(e => emails.has(e));
   const labels = Array.isArray(labelIds) ? labelIds : [];
-  const gmailImportant = labels.includes('IMPORTANT') || labels.includes('STARRED');
+  const manuallyStarred = labels.includes('STARRED');
+  const gmailImportant = labels.includes('IMPORTANT') || manuallyStarred;
   const gmailNoise = labels.some(id => GMAIL_NOISE_LABELS.has(id));
   const promo = isPromotion(from, subject, snippet, { labelIds: labels });
   const weakLink = isWeakAutoLink(thread);
@@ -327,6 +328,14 @@ export function classifyMailMessage({
     REPLY_NEEDED_RE.test(`${subject} ${snippet}`)
     || /\?\s*$/.test(String(subject || '').trim())
   );
+  // IMPORTANT Gmail auto sur une newsletter ≠ « doit passer par moi » ; STARRED oui.
+  const mustPassHuman = !isOutbound && (
+    manuallyStarred
+    || needsResponse
+    || replyHint
+    || (hasStrongClient && !promo)
+    || (gmailImportant && !promo && !gmailNoise)
+  );
 
   // Catégorie verrouillée manuellement
   if (thread?.mail_category_manual && isValidMailCategory(thread?.mail_category)) {
@@ -336,28 +345,24 @@ export function classifyMailMessage({
   // Dernier message = client (lu ou non) → À répondre. Ouvert ≠ répondu.
   if (inboundNeedsReply && !isOutbound && hasStrongClient && !promo) return 'a_repondre';
 
-  // Important / réponse requise : ne pas rester coincé dans promotions ou une vieille catégorie stockée
-  const forceResurface = !isOutbound && (
-    gmailImportant
-    || needsResponse
-    || replyHint
-    || (isUnread && hasStrongClient && !promo)
-  );
-
-  if (!forceResurface) {
+  // Réponse / étoile / client réel : ne pas rester coincé dans promotions stockées
+  if (!mustPassHuman) {
     if (preferStored && isValidMailCategory(thread?.mail_category)) {
       return thread.mail_category;
     }
     if (isValidMailCategory(gmailCategory)) return gmailCategory;
   }
 
-  // Newsletters : Gmail Promotions / domaines marketing — jamais un mail marqué important
-  if (promo && !matchedClientEmail && !hardInvoice && !gmailImportant) return 'promotions';
+  // Newsletters : même marquées IMPORTANT par Gmail, sauf étoile manuelle / vrai client
+  if (promo && !matchedClientEmail && !hardInvoice && !manuallyStarred) return 'promotions';
+  if (gmailNoise && !manuallyStarred && !matchedClientEmail && !hardInvoice && !replyHint && !needsResponse) {
+    return 'promotions';
+  }
   if (isSupplierInvoice) return 'fournisseurs';
-  if (needsResponse || replyHint || gmailImportant) return 'a_repondre';
+  if (mustPassHuman) return 'a_repondre';
   if (isUnread && hasStrongClient && !isOutbound) return 'a_repondre';
   if (detectSupplier(from, subject, snippet)) return 'fournisseurs';
-  if (isUnread && !isOutbound && !promo && (gmailImportant || !gmailNoise)) return 'a_repondre';
+  if (isUnread && !isOutbound && !promo && !gmailNoise) return 'a_repondre';
   if (hasProject) return 'projets';
   if (hasClient || CLIENT_INTENTS.has(clientIntent)) return 'clients';
   return 'autres';
