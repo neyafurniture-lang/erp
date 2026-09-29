@@ -44,7 +44,7 @@ const NAV = [
   { href: '/production', label: 'Production', section: 'principal', permission: 'production', icon: Hammer },
   { href: '/projects', label: 'Projets', section: 'principal', permission: 'projects', icon: FolderKanban },
   { href: '/team', label: 'Quarts', section: 'principal', permission: 'team', icon: Users },
-  { href: '/calendar', label: 'Calendrier', section: 'principal', permission: 'calendar', icon: Calendar },
+  { href: '/calendar', label: 'Agenda', section: 'principal', permission: 'calendar', icon: Calendar },
   { href: '/mes-heures', label: 'Mes heures', section: 'principal', permission: 'hours', icon: Clock },
   { href: '/cutting-plans', label: 'Plans de coupe', section: 'principal', permission: 'production', icon: Scissors },
   { href: '/sauna-cloud', label: 'Sauna Cloud', section: 'principal', permission: 'production', icon: Cloud },

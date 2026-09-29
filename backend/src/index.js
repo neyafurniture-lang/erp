@@ -47,6 +47,7 @@ import emailThreadsRoutes from './routes/email-threads.js';
 import deployRoutes from './routes/deploy.js';
 import timeOffRoutes from './routes/time-off.js';
 import timeEntriesRoutes from './routes/time-entries.js';
+import agendaRoutes from './routes/agenda.js';
 import financeSyncRoutes from './routes/finance-sync.js';
 import saunaCloudRoutes from './routes/sauna-cloud.js';
 import cuttingPlansRoutes from './routes/cutting-plans.js';
@@ -153,6 +154,7 @@ protectedRouter.use('/employees', requireAnyPermission('team', 'payroll'), emplo
 protectedRouter.use('/shifts', requireAnyPermission('team', 'calendar'), shiftsRoutes);
 protectedRouter.use('/time-off', requireAnyPermission('team', 'calendar'), timeOffRoutes);
 protectedRouter.use('/time-entries', requireAnyPermission('team', 'calendar', 'payroll'), timeEntriesRoutes);
+protectedRouter.use('/agenda', requireAnyPermission('calendar', 'team', 'projects'), agendaRoutes);
 protectedRouter.use('/finance-sync', financeSyncRoutes);
 protectedRouter.use('/analytics', analyticsRoutes);
 protectedRouter.use('/integrations', integrationsRoutes);

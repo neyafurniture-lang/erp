@@ -1,4 +1,5 @@
 import pool from '../db/pool.js';
+import { isLogbookRowLinked, projectLaborUsesLogbook } from './agenda-blocks.js';
 
 function parseMeta(meta) {
   if (typeof meta === 'string') {
@@ -15,13 +16,14 @@ function normalizeName(name) {
     .trim();
 }
 
-async function laborFromHoursLogbook(project, rateMap) {
+async function laborFromHoursLogbook(project, rateMap, { skipLinked = false } = {}) {
   const log = parseMeta(project.meta).hours_logbook;
   if (!log || !Array.isArray(log.rows)) return { cost: 0, hours: 0 };
 
   let cost = 0;
   let hours = 0;
   for (const row of log.rows) {
+    if (skipLinked && isLogbookRowLinked(row)) continue;
     const hoursMap = row.hours && typeof row.hours === 'object' ? row.hours : null;
     if (hoursMap) {
       for (const [person, hrs] of Object.entries(hoursMap)) {
@@ -101,11 +103,14 @@ export async function computeProjectCosts(projectId) {
   }
 
   const logbook = await laborFromHoursLogbook(project, rateMap);
+  const unlinked = await laborFromHoursLogbook(project, rateMap, { skipLinked: true });
   const entriesCost = laborEntries.rows[0]?.total || 0;
   const entriesHours = laborEntries.rows[0]?.hours || 0;
-  // Carnet d’heures = source principale si présent ; sinon time_entries (évite double comptage)
-  const laborCost = logbook.hours > 0 ? logbook.cost : entriesCost;
-  const laborHours = logbook.hours > 0 ? logbook.hours : entriesHours;
+  // Carnet historique = source si des heures non liées existent (évite d’ajouter les pointages).
+  // Un carnet qui ne contient que des blocs d’agenda liés reste compté via time_entries.
+  const useLogbook = projectLaborUsesLogbook(unlinked.hours);
+  const laborCost = useLogbook ? logbook.cost : entriesCost;
+  const laborHours = useLogbook ? logbook.hours : entriesHours;
 
   const materialsCost = materials.rows[0]?.total || 0;
   const expensesCost = expenses.rows[0]?.total || 0;

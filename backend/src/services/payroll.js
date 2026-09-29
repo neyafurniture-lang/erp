@@ -1,4 +1,5 @@
 import pool from '../db/pool.js';
+import { isLogbookRowLinked } from './agenda-blocks.js';
 import { ensurePayStubSchema, lockPeriodBreakdowns, unlockPeriodBreakdowns, refreshLineBreakdown } from './payroll-stub.js';
 
 function num(v) {
@@ -123,6 +124,7 @@ async function hoursFromLogbook(start, end) {
     const log = parseMeta(project.meta).hours_logbook;
     if (!log || !Array.isArray(log.rows)) continue;
     for (const row of log.rows) {
+      if (isLogbookRowLinked(row)) continue;
       const dateKey = String(row.dateKey || row.date_iso || row.date || '').slice(0, 10);
       if (!dateKey || dateKey < start || dateKey > end) continue;
       const hoursMap = row.hours && typeof row.hours === 'object' ? row.hours : null;
