@@ -287,28 +287,76 @@ function isTextMime(mimeType) {
   return m === 'text/plain' || m === 'text/html';
 }
 
-/** Fichiers joints (PDF, images, etc.) — pas le corps MIME text. */
-export function extractFileAttachments(payload, acc = []) {
+function contentDisposition(part) {
+  return String(getHeader(part?.headers, 'Content-Disposition') || '');
+}
+
+function contentId(part) {
+  return String(getHeader(part?.headers, 'Content-ID') || '').trim();
+}
+
+function isImageMime(mimeType) {
+  return String(mimeType || '').toLowerCase().startsWith('image/');
+}
+
+/** Logos / signatures CID — pas des vraies PJ à classer. */
+export function isSignatureOrInlineNoise(part, { filename, mimeType, size } = {}) {
+  const fn = String(filename || partFilename(part) || '');
+  const mime = String(mimeType || part?.mimeType || '');
+  const sz = Number(size ?? part?.body?.size) || 0;
+  const cd = contentDisposition(part).toLowerCase();
+  const cid = contentId(part);
+  const isInline = /\binline\b/i.test(cd) || Boolean(cid);
+  const isAttDisposition = /\battachment\b/i.test(cd);
+
+  if (isAttDisposition) return false;
+
+  // image001.png / logo / signature classiques
+  if (/^(image|img|logo|signature|banner|icon)\d*\.(png|jpe?g|gif|bmp|webp)$/i.test(fn)) {
+    return true;
+  }
+  if (cid && isImageMime(mime)) return true;
+  if (isInline && isImageMime(mime) && sz > 0 && sz < 80_000) return true;
+  if (isInline && isImageMime(mime) && !fn) return true;
+  return false;
+}
+
+/** Fichiers joints (PDF, images, etc.) — pas le corps MIME text ni les signatures CID. */
+export function extractFileAttachments(payload, acc = [], { includeNoise = false } = {}) {
   if (!payload) return acc;
   const filename = partFilename(payload);
   const attachmentId = payload.body?.attachmentId;
+  const mimeType = payload.mimeType || 'application/octet-stream';
+  const size = Number(payload.body?.size) || 0;
+
   if (filename && attachmentId) {
-    acc.push({
-      id: attachmentId,
-      filename,
-      mimeType: payload.mimeType || 'application/octet-stream',
-      size: Number(payload.body?.size) || 0,
-    });
-  } else if (filename && payload.body?.data && !isTextMime(payload.mimeType)) {
-    acc.push({
-      id: attachmentId || `inline:${filename}`,
-      filename,
-      mimeType: payload.mimeType || 'application/octet-stream',
-      size: Number(payload.body?.size) || 0,
-      inline: !attachmentId,
-    });
+    const noise = isSignatureOrInlineNoise(payload, { filename, mimeType, size });
+    if (!noise || includeNoise) {
+      acc.push({
+        id: attachmentId,
+        filename,
+        mimeType,
+        size,
+        ...(noise ? { noise: true, inline: true } : {}),
+        ...( /\binline\b/i.test(contentDisposition(payload)) ? { inline: true } : {}),
+      });
+    }
+  } else if (filename && payload.body?.data && !isTextMime(mimeType)) {
+    const noise = isSignatureOrInlineNoise(payload, { filename, mimeType, size });
+    if (!noise || includeNoise) {
+      acc.push({
+        id: attachmentId || `inline:${filename}`,
+        filename,
+        mimeType,
+        size,
+        inline: true,
+        ...(noise ? { noise: true } : {}),
+      });
+    }
   }
-  for (const part of payload.parts || []) extractFileAttachments(part, acc);
+  for (const part of payload.parts || []) {
+    extractFileAttachments(part, acc, { includeNoise });
+  }
   return acc;
 }
 
@@ -366,10 +414,13 @@ function findAttachmentPartByFilename(payload, filename) {
   return null;
 }
 
-/** Résout une PJ dans l'arbre MIME (ID, nom de fichier, PJ unique). */
+/** Résout une PJ dans l'arbre MIME (ID, nom de fichier). Pas de fallback « unique » risqué. */
 export function resolveAttachmentPart(payload, { attachmentId, filename } = {}) {
-  const listed = extractFileAttachments(payload);
+  const listed = extractFileAttachments(payload, [], { includeNoise: true });
+  const realListed = listed.filter(a => !a.noise);
   const idCandidates = normalizeAttachmentIdCandidates(attachmentId);
+  const hasId = idCandidates.length > 0;
+  const hasFilename = Boolean(String(filename || '').trim());
 
   for (const id of idCandidates) {
     const part = findAttachmentPart(payload, id);
@@ -390,7 +441,8 @@ export function resolveAttachmentPart(payload, { attachmentId, filename } = {}) 
   ].filter(Boolean);
 
   for (const fn of filenameCandidates) {
-    const match = listed.find(a => normalizeFilename(a.filename) === normalizeFilename(fn));
+    const pool = realListed.length ? realListed : listed;
+    const match = pool.find(a => normalizeFilename(a.filename) === normalizeFilename(fn));
     if (match) {
       const part = findAttachmentPart(payload, match.id)
         || findAttachmentPartByFilename(payload, match.filename);
@@ -400,8 +452,9 @@ export function resolveAttachmentPart(payload, { attachmentId, filename } = {}) 
     }
   }
 
-  if (listed.length === 1) {
-    const only = listed[0];
+  // Uniquement si on n’a PAS fourni d’ID (sinon risquer le mauvais fichier / signature)
+  if (!hasId && !hasFilename && realListed.length === 1) {
+    const only = realListed[0];
     const part = findAttachmentPart(payload, only.id)
       || findAttachmentPartByFilename(payload, only.filename);
     if (part) {
@@ -585,11 +638,15 @@ export async function getMessage(messageId) {
 }
 
 /** Télécharge une pièce jointe fichier (par attachmentId Gmail ou nom de fichier). */
-export async function getAttachment(messageId, attachmentId, { filename } = {}) {
-  const msg = await gmailFetch(`/messages/${messageId}?format=full`);
-  const resolved = resolveAttachmentPart(msg?.payload, { attachmentId, filename });
+export async function getAttachment(messageId, attachmentId, { filename, messagePayload = null } = {}) {
+  let payload = messagePayload;
+  if (!payload) {
+    const msg = await gmailFetch(`/messages/${messageId}?format=full`);
+    payload = msg?.payload;
+  }
+  const resolved = resolveAttachmentPart(payload, { attachmentId, filename });
   if (!resolved) {
-    const names = extractFileAttachments(msg?.payload).map(a => a.filename).filter(Boolean);
+    const names = extractFileAttachments(payload).map(a => a.filename).filter(Boolean);
     throw new Error(
       names.length
         ? `Pièce jointe introuvable (disponibles : ${names.join(', ')})`
@@ -620,6 +677,7 @@ export async function getAttachment(messageId, attachmentId, { filename } = {}) 
     throw new Error(`Pièce jointe introuvable (disponibles : ${resolvedFilename})`);
   }
 
+  // ID Gmail dans le path Google : encoder pour les caractères spéciaux
   const att = await gmailFetch(`/messages/${messageId}/attachments/${encodeURIComponent(resolvedId)}`);
   if (!att?.data) throw new Error('Contenu pièce jointe vide');
   const buffer = decodeAttachmentData(att.data);

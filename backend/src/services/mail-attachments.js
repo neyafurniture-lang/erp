@@ -32,6 +32,21 @@ function formatSize(n) {
   return `${(size / (1024 * 1024)).toFixed(1)} Mo`;
 }
 
+function sameFiledEntry(existing, candidate) {
+  if (existing.gmail_message_id && candidate.gmail_message_id
+    && String(existing.gmail_message_id) === String(candidate.gmail_message_id)) {
+    if (existing.gmail_attachment_id && candidate.gmail_attachment_id
+      && String(existing.gmail_attachment_id) === String(candidate.gmail_attachment_id)) {
+      return true;
+    }
+    if (existing.name && candidate.name
+      && String(existing.name).toLowerCase() === String(candidate.name).toLowerCase()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 async function linkMessageToProject(projectId, msg) {
   await pool.query(
     `INSERT INTO project_emails (project_id, gmail_message_id, thread_id, subject, from_email, snippet)
@@ -63,11 +78,12 @@ export async function fileAttachmentToProject({
   filename,
   projectId,
   uploadDrive = true,
+  message = null,
 }) {
   const pid = Number(projectId);
   if (!pid) throw new Error('project_id requis');
   if (!messageId || (!attachmentId && !filename)) {
-    throw new Error('message_id et attachment_id requis');
+    throw new Error('message_id et attachment_id (ou filename) requis');
   }
 
   const { rows: projRows } = await pool.query(
@@ -76,9 +92,34 @@ export async function fileAttachmentToProject({
   );
   if (!projRows[0]) throw new Error('Projet introuvable');
 
-  const att = await getAttachment(messageId, attachmentId, { filename });
-  const msg = await getMessage(messageId);
+  const msg = message || await getMessage(messageId);
+  if (msg?.noise) {
+    /* ignore */
+  }
+
+  const att = await getAttachment(messageId, attachmentId, {
+    filename,
+    // Réutilise le payload déjà hydraté si getMessage l’a fourni via cache interne — sinon re-fetch
+  });
   const resolvedAttachmentId = att.attachmentId || attachmentId;
+
+  const meta = parseMeta(projRows[0].meta);
+  const mail_files = Array.isArray(meta.mail_files) ? [...meta.mail_files] : [];
+  const dup = mail_files.find(f => sameFiledEntry(f, {
+    gmail_message_id: messageId,
+    gmail_attachment_id: resolvedAttachmentId,
+    name: att.filename,
+  }));
+  if (dup) {
+    await linkMessageToProject(pid, msg);
+    return {
+      ok: true,
+      skipped: true,
+      project: { id: pid, name: projRows[0].name },
+      file: dup,
+      drive: dup.drive_file_id ? { id: dup.drive_file_id, webViewLink: dup.drive_web_view } : null,
+    };
+  }
 
   const dir = path.join(UPLOADS_ROOT, 'projects', String(pid), 'mail');
   fs.mkdirSync(dir, { recursive: true });
@@ -113,8 +154,6 @@ export async function fileAttachmentToProject({
     }
   }
 
-  const meta = parseMeta(projRows[0].meta);
-  const mail_files = Array.isArray(meta.mail_files) ? [...meta.mail_files] : [];
   mail_files.push(entry);
   const nextMeta = {
     ...meta,
@@ -136,19 +175,20 @@ export async function fileAttachmentToProject({
   };
 }
 
-/** Classe toutes les PJ d'un message vers un projet. */
+/** Classe toutes les PJ du message vers un projet (ignore signatures CID). */
 export async function fileMessageAttachmentsToProject({
   messageId,
   projectId,
   uploadDrive = true,
 }) {
   const msg = await getMessage(messageId);
-  const attachments = msg.attachments || [];
+  const attachments = (msg.attachments || []).filter(a => !a.noise);
   if (!attachments.length) {
-    return { ok: true, project_id: Number(projectId), filed: [], skipped: 'Aucune pièce jointe' };
+    return { ok: true, project_id: Number(projectId), filed: [], skipped: 'Aucune pièce jointe', count: 0, errors: [] };
   }
   const filed = [];
   const errors = [];
+  let projectInfo = null;
   for (const a of attachments) {
     try {
       const result = await fileAttachmentToProject({
@@ -157,8 +197,11 @@ export async function fileMessageAttachmentsToProject({
         filename: a.filename,
         projectId,
         uploadDrive,
+        message: msg,
       });
-      filed.push(result.file);
+      if (result.project) projectInfo = result.project;
+      if (!result.skipped) filed.push(result.file);
+      else filed.push({ ...result.file, skipped: true });
     } catch (err) {
       errors.push({ filename: a.filename, error: err.message });
     }
@@ -166,8 +209,9 @@ export async function fileMessageAttachmentsToProject({
   return {
     ok: errors.length === 0,
     project_id: Number(projectId),
+    project: projectInfo,
     filed,
     errors,
-    count: filed.length,
+    count: filed.filter(f => !f.skipped).length,
   };
 }

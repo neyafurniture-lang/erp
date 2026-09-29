@@ -401,7 +401,8 @@ function MailAttachments({
     setPickProjectId(defaultProjectId || '');
   }, [defaultProjectId, messageId]);
 
-  if (!attachments.length) return null;
+  const realAttachments = (attachments || []).filter(a => !a.noise);
+  if (!realAttachments.length) return null;
 
   function attachmentUrl(att, { download = false } = {}) {
     const params = new URLSearchParams();
@@ -413,8 +414,8 @@ function MailAttachments({
 
   async function openAttachment(att, { download = false } = {}) {
     const isSkp = /\.skp$/i.test(att.filename || '') || /sketchup/i.test(att.mimeType || '');
+    const isPdf = /\.pdf$/i.test(att.filename || '') || /pdf/i.test(att.mimeType || '');
     const forceDownload = download || isSkp;
-    // Ouvrir la fenêtre tout de suite (sinon bloqué après le fetch async)
     const previewWin = !forceDownload ? window.open('about:blank', '_blank') : null;
     try {
       const token = getToken();
@@ -427,7 +428,10 @@ function MailAttachments({
         throw new Error(err.error || `Erreur ${res.status}`);
       }
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
+      const typed = isPdf && !forceDownload
+        ? new Blob([blob], { type: 'application/pdf' })
+        : blob;
+      const url = URL.createObjectURL(typed);
 
       if (forceDownload || !previewWin || previewWin.closed) {
         if (previewWin && !previewWin.closed) previewWin.close();
@@ -448,7 +452,8 @@ function MailAttachments({
           window.open(url, '_blank', 'noopener,noreferrer');
         }
       }
-      setTimeout(() => URL.revokeObjectURL(url), 180000);
+      // Ne pas révoquer trop tôt (lecteur PDF lent)
+      setTimeout(() => URL.revokeObjectURL(url), 10 * 60 * 1000);
     } catch (e) {
       if (previewWin && !previewWin.closed) {
         try { previewWin.close(); } catch { /* ignore */ }
@@ -466,12 +471,13 @@ function MailAttachments({
     setFilingId(att.id);
     try {
       const result = await api(
-        `/gmail/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(att.id)}/file-to-project`,
+        `/gmail/messages/${encodeURIComponent(messageId)}/file-attachment-to-project`,
         {
           method: 'POST',
           body: JSON.stringify({
             project_id: Number(projectId),
             upload_drive: true,
+            attachmentId: att.id,
             filename: att.filename || undefined,
           }),
         }
@@ -503,6 +509,13 @@ function MailAttachments({
       );
       setPickFor(null);
       onFiled?.(result);
+      if (result.errors?.length) {
+        onError?.(
+          `${result.count || 0} classée(s), ${result.errors.length} échec(s) : ${
+            result.errors[0].filename || ''
+          } — ${result.errors[0].error || ''}`
+        );
+      }
     } catch (e) {
       onError?.(e.message);
     } finally {
@@ -518,7 +531,7 @@ function MailAttachments({
     <div className="mail-attachments">
       <div className="mail-attachments__head">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-neya-muted">
-          Pièces jointes ({attachments.length})
+          Pièces jointes ({realAttachments.length})
         </p>
         <button
           type="button"
@@ -535,13 +548,13 @@ function MailAttachments({
       </div>
 
       <ul className="mail-attachments__list">
-        {attachments.map(att => (
-          <li key={att.id} className="mail-attachments__item">
+        {realAttachments.map(att => (
+          <li key={`${att.id}-${att.filename}`} className="mail-attachments__item">
             <button
               type="button"
               className="mail-attachments__open"
               onClick={() => openAttachment(att)}
-              title="Ouvrir"
+              title={`Ouvrir ${att.filename || ''}`}
             >
               <span className="text-base leading-none" aria-hidden>{attIcon(att.mimeType, att.filename)}</span>
               <span className="min-w-0 flex-1 text-left">
@@ -556,7 +569,7 @@ function MailAttachments({
                 type="button"
                 className="mail-icon-btn"
                 title="Télécharger"
-                aria-label="Télécharger"
+                aria-label={`Télécharger ${att.filename || ''}`}
                 onClick={() => openAttachment(att, { download: true })}
               >
                 ↓
@@ -565,7 +578,7 @@ function MailAttachments({
                 type="button"
                 className="mail-icon-btn"
                 title={projectLabel ? `Classer dans ${projectLabel}` : 'Classer dans un projet'}
-                aria-label="Classer dans un projet"
+                aria-label={`Classer ${att.filename || ''}`}
                 disabled={filingId === att.id}
                 onClick={() => fileOne(att, defaultProjectId)}
               >
@@ -599,7 +612,7 @@ function MailAttachments({
               onClick={() => {
                 if (pickFor === '__all__') fileAll(pickProjectId);
                 else {
-                  const att = attachments.find(a => a.id === pickFor);
+                  const att = realAttachments.find(a => a.id === pickFor);
                   if (att) fileOne(att, pickProjectId);
                 }
               }}
@@ -1768,14 +1781,18 @@ export default function GmailInbox({
                       }
                       defaultProjectName={thread?.project_name || ''}
                       onFiled={(result) => {
-                        const n = result.count || (result.file ? 1 : result.filed?.length) || 0;
+                        const n = result.count ?? (result.file && !result.skipped ? 1 : result.filed?.filter(f => !f.skipped).length) ?? 0;
                         const name = result.project?.name || thread?.project_name || 'projet';
-                        showUndo(
-                          n > 1
-                            ? `${n} pièces classées dans « ${name} »`
-                            : `Pièce classée dans « ${name} »`,
-                          null
-                        );
+                        if (result.skipped) {
+                          showUndo(`Déjà classée dans « ${name} »`, null);
+                        } else {
+                          showUndo(
+                            n > 1
+                              ? `${n} pièces classées dans « ${name} »`
+                              : `Pièce classée dans « ${name} »`,
+                            null
+                          );
+                        }
                         if (result.project?.id) {
                           setLinkProjId(String(result.project.id));
                         }

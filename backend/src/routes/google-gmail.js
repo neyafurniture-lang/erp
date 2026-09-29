@@ -268,12 +268,43 @@ router.get('/messages/:id/attachments/:attachmentId', async (req, res) => {
   }
 });
 
-/** Classer une PJ dans un projet (local + Drive si dispo). */
+/** Classer une PJ dans un projet — attachmentId dans le body (évite troncature path). */
+router.post('/messages/:id/file-attachment-to-project', async (req, res) => {
+  try {
+    const projectId = req.body?.project_id || req.body?.projectId;
+    if (!projectId) return res.status(400).json({ error: 'project_id requis' });
+    const attachmentId = req.body?.attachmentId || req.body?.attachment_id || '';
+    const filename = req.body?.filename || req.body?.name || '';
+    if (!attachmentId && !filename) {
+      return res.status(400).json({ error: 'attachmentId ou filename requis' });
+    }
+    const { fileAttachmentToProject } = await import('../services/mail-attachments.js');
+    const result = await fileAttachmentToProject({
+      messageId: req.params.id,
+      attachmentId,
+      filename,
+      projectId,
+      uploadDrive: req.body?.upload_drive !== false,
+    });
+    await logAgentAction({
+      agent: 'mail',
+      action: 'file_attachment_to_project',
+      resource: String(projectId),
+      details: { message_id: req.params.id, filename: result.file?.name, skipped: result.skipped || false },
+    });
+    res.status(result.skipped ? 200 : 201).json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/** Compatibilité : ID de PJ dans le chemin (peut être tronqué). */
 router.post('/messages/:id/attachments/:attachmentId/file-to-project', async (req, res) => {
   try {
     const projectId = req.body?.project_id || req.body?.projectId;
     if (!projectId) return res.status(400).json({ error: 'project_id requis' });
-    const { attachmentId, filename } = attachmentRequestParams(req);
+    const attachmentId = req.body?.attachmentId || req.body?.attachment_id || req.params.attachmentId || '';
+    const filename = req.body?.filename || req.query.filename || '';
     const { fileAttachmentToProject } = await import('../services/mail-attachments.js');
     const result = await fileAttachmentToProject({
       messageId: req.params.id,
@@ -288,7 +319,7 @@ router.post('/messages/:id/attachments/:attachmentId/file-to-project', async (re
       resource: String(projectId),
       details: { message_id: req.params.id, filename: result.file?.name },
     });
-    res.status(201).json(result);
+    res.status(result.skipped ? 200 : 201).json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
