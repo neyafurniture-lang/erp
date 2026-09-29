@@ -24,6 +24,23 @@ export async function initDb() {
   await pool.query(`ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS suggested_client_name TEXT`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_email_threads_category ON email_threads(mail_category)`);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS mail_sender_profiles (
+      id SERIAL PRIMARY KEY,
+      sender_email TEXT NOT NULL UNIQUE,
+      domain TEXT NOT NULL,
+      mail_category TEXT NOT NULL,
+      hit_count INT NOT NULL DEFAULT 1,
+      user_pinned BOOLEAN NOT NULL DEFAULT false,
+      confidence NUMERIC(5,3) NOT NULL DEFAULT 0.850,
+      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_mail_sender_profiles_domain ON mail_sender_profiles(domain)
+  `);
+
   // Mes heures : shift_id manquant sur les bases déjà créées (sinon pending-shifts / insert cassent)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS time_entries (

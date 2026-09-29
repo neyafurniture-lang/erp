@@ -398,6 +398,57 @@ export function classifyMailMessage({
   return 'autres';
 }
 
+/** Tier 3 via pipeline (cache → headers → heuristiques). */
+export async function classifyMailMessagePipelined(fields = {}) {
+  const {
+    from = '',
+    to = '',
+    cc = '',
+    subject = '',
+    snippet = '',
+    isOutbound = false,
+    thread = null,
+    clientEmails = null,
+    ownEmails = null,
+    labelIds = null,
+    headers = null,
+    headerMap = null,
+  } = fields;
+
+  const emails = clientEmails || new Set();
+  const addresses = collectAddresses(
+    { from, to, cc, participants: thread?.participant_emails },
+    ownEmails
+  );
+  const matchedClientEmail = addresses.some(e => emails.has(e));
+  const labels = Array.isArray(labelIds) ? labelIds : [];
+  const promo = isPromotion(from, subject, snippet, { labelIds: labels });
+  const hardInvoice = /\b(facture|invoice|receipt|re[cç]u|ticket|order confirmation|confirmation de commande)\b/i
+    .test(`${subject} ${snippet}`);
+  const replyHint = !isOutbound && !promo && (
+    REPLY_NEEDED_RE.test(`${subject} ${snippet}`)
+    || /\?\s*$/.test(String(subject || '').trim())
+  );
+  const needsResponse = !isOutbound && !promo && (
+    thread?.needs_response === true || thread?.latest_needs_response === true
+  );
+  const manuallyStarred = labels.includes('STARRED');
+  const mustPassHuman = manuallyStarred || needsResponse || replyHint;
+
+  const { resolveMailCategory } = await import('./mail-sort-pipeline.js');
+  return resolveMailCategory(
+    {
+      ...fields,
+      headers: headerMap || headers,
+      manuallyStarred,
+      matchedClientEmail,
+      hardInvoice,
+      mustPassHuman,
+    },
+    classifyMailMessage
+  );
+}
+
 export async function findClientByEmails(emails = []) {
   const cleaned = [...new Set(
     (emails || []).map(e => String(e || '').trim().toLowerCase()).filter(e => e.includes('@'))
@@ -413,13 +464,17 @@ export async function findClientByEmails(emails = []) {
   return rows[0] || null;
 }
 
-export function computeMailCategoryForThread(threadRow, synthesis = null, { ownEmails = null, clientEmails = null } = {}) {
+export async function computeMailCategoryForThread(
+  threadRow,
+  synthesis = null,
+  { ownEmails = null, clientEmails = null, headerMap = null } = {}
+) {
   const participants = Array.isArray(threadRow.participant_emails) ? threadRow.participant_emails : [];
   // From ≈ premier participant non-interne si possible
   const own = ownEmails || new Set();
   const external = participants.find(e => e && !own.has(String(e).toLowerCase()));
   const fromHint = external || participants[0] || '';
-  return classifyMailMessage({
+  const { category } = await classifyMailMessagePipelined({
     from: fromHint,
     to: participants.join(', '),
     subject: threadRow.subject || '',
@@ -439,7 +494,9 @@ export function computeMailCategoryForThread(threadRow, synthesis = null, { ownE
     },
     clientEmails,
     ownEmails,
+    headerMap,
   });
+  return category;
 }
 
 /**
@@ -534,7 +591,7 @@ export async function enrichInboxMessages(messages = []) {
     }
 
     const gmailCategory = categoryFromLabelIds(m.labelIds || [], idToCategory);
-    const mailCategory = classifyMailMessage({
+    const pipelined = await classifyMailMessagePipelined({
       from: m.from,
       to: m.to,
       cc: m.cc,
@@ -549,7 +606,9 @@ export async function enrichInboxMessages(messages = []) {
       preferStored: true,
       gmailCategory,
       inboundNeedsReply: true,
+      headerMap: m.headerMap,
     });
+    const mailCategory = pipelined.category;
     const supplier = detectSupplier(m.from, m.subject, m.snippet);
     const invoiceKind = mailDocKind({
       subject: m.subject,
@@ -575,6 +634,7 @@ export async function enrichInboxMessages(messages = []) {
     enriched.push({
       ...m,
       mailCategory,
+      mailCategorySource: pipelined.source,
       erpFolder: mailCategory,
       folder: mailCategory,
       section: mailCategory,
@@ -814,11 +874,16 @@ export async function classifyAndStoreThread(threadDbId, { force = false, applyG
     threadRow = await autoLinkThreadFromAddresses(threadRow, addresses);
   }
 
-  const category = computeMailCategoryForThread(
+  const category = await computeMailCategoryForThread(
     threadRow,
     { needs_response: rows[0].needs_response, client_intent: rows[0].client_intent },
     { ownEmails, clientEmails }
   );
+
+  try {
+    const { recordSenderObservation } = await import('./mail-sort-pipeline.js');
+    await recordSenderObservation(fromHint, category, { pinned: false });
+  } catch { /* optional */ }
 
   await pool.query(
     `UPDATE email_threads SET
@@ -864,6 +929,13 @@ export async function setThreadMailCategory(threadDbId, category) {
       console.warn('Gmail label:', err.message);
     }
   }
+
+  try {
+    const participants = Array.isArray(rows[0].participant_emails) ? rows[0].participant_emails : [];
+    const fromHint = participants.find(e => e && e.includes('@')) || '';
+    const { recordSenderObservation } = await import('./mail-sort-pipeline.js');
+    await recordSenderObservation(fromHint, category, { pinned: true });
+  } catch { /* optional */ }
 
   return rows[0];
 }

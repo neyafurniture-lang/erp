@@ -499,8 +499,30 @@ async function hydrateBodyAttachments(messageId, payload) {
   return payload;
 }
 
+const METADATA_HEADERS_FOR_SORT = [
+  'Subject',
+  'From',
+  'To',
+  'Cc',
+  'Date',
+  'List-Unsubscribe',
+  'Precedence',
+  'Auto-Submitted',
+  'Return-Path',
+  'X-Mailer',
+  'X-Campaign-ID',
+  'X-Auto-Response-Suppress',
+];
+
+export function metadataHeadersQueryString() {
+  return METADATA_HEADERS_FOR_SORT.map(h => `metadataHeaders=${encodeURIComponent(h)}`).join('&');
+}
+
 export function formatMessage(msg) {
   const headers = msg.payload?.headers || [];
+  const headerMap = Object.fromEntries(
+    headers.map(h => [String(h.name).toLowerCase(), String(h.value ?? '')])
+  );
   const { text, html } = extractBodies(msg.payload);
   const attachments = extractFileAttachments(msg.payload);
   return {
@@ -513,6 +535,7 @@ export function formatMessage(msg) {
     date: getHeader(headers, 'Date'),
     snippet: decodeHtmlEntities(msg.snippet),
     labelIds: msg.labelIds || [],
+    headerMap,
     body: text,
     bodyHtml: html || null,
     isUnread: (msg.labelIds || []).includes('UNREAD'),
@@ -534,12 +557,11 @@ export async function listMessages({ label = 'INBOX', max = 30, pageToken = null
   const list = await gmailFetch(`/messages?${params}`);
   if (!list.messages?.length) return { messages: [], nextPageToken: null };
 
+  const metaQs = metadataHeadersQueryString();
   const slice = list.messages.slice(0, Math.min(max, 30));
   const messages = await mapPool(slice, 2, async (m) => {
     try {
-      const raw = await gmailFetch(
-        `/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Date`
-      );
+      const raw = await gmailFetch(`/messages/${m.id}?format=metadata&${metaQs}`);
       return formatMessage(raw);
     } catch {
       return { id: m.id, subject: '(erreur)', from: '', to: '', snippet: '', threadId: m.threadId || null, labelIds: [] };
