@@ -47,7 +47,7 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     if (loading || !user) return;
-    if (pathname === '/login') return;
+    if (pathname === '/login' || pathname.startsWith('/partage/')) return;
     if (!canAccessPath(user, pathname)) {
       const fallback = firstAllowedPath(user);
       router.replace(fallback || '/login');

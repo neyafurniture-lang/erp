@@ -200,8 +200,8 @@ export const PRIORITY_TASKS = [
   { source_key: 'prio_p2_son', title: 'Faire la facture Son', category: 'facturation', priority_tier: 'p2', sort_order: 7, link_href: '/invoices' },
   { source_key: 'prio_p2_enns_relance', title: 'Relancer ENNS pour le paiement', category: 'facturation', priority_tier: 'p2', sort_order: 8, link_href: '/invoices' },
   { source_key: 'prio_p2_enns_devis', title: 'Modifier le devis ENNS (caissons + table)', category: 'facturation', priority_tier: 'p2', sort_order: 9, link_href: '/invoices' },
-  { source_key: 'prio_p2_sonacloud_plan', title: 'Préparer le plan de production Sonacloud', category: 'gestion', priority_tier: 'p2', sort_order: 10, link_href: '/production' },
-  { source_key: 'prio_p3_rp_pdf', title: 'Ajouter le PDF Sonacloud dans le RP', category: 'site_web', priority_tier: 'p3', sort_order: 11, link_href: '/web' },
+  { source_key: 'prio_p2_sonacloud_plan', title: 'Préparer le plan de production Saunacloud', category: 'gestion', priority_tier: 'p2', sort_order: 10, link_href: '/production' },
+  { source_key: 'prio_p3_rp_pdf', title: 'Ajouter le PDF Saunacloud dans le RP', category: 'site_web', priority_tier: 'p3', sort_order: 11, link_href: '/web' },
   { source_key: 'prio_p3_rp_online', title: 'Mettre le RP en ligne', category: 'marketing', priority_tier: 'p3', sort_order: 12, link_href: '/web' },
   { source_key: 'prio_p3_site', title: 'Finir le site web', category: 'site_web', priority_tier: 'p3', sort_order: 13, link_href: '/web' },
 ];
