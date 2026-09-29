@@ -166,6 +166,7 @@ const PROMO_STRONG_RE = /livraison\s+gratuite|free\s+shipping|last\s+chance|dern
 const PROMO_WEAK_RE = /\bunsubscribe\b|d[ée]sinscription|\bnewsletter\b|\binfolettre\b|\bpromotions?\b|\bmarketing\b|\brabais\b|\bpromo\b/i;
 const PROMO_DOMAIN_RE = /\b(leevalley|leevalleynews|mailchimp|klaviyo|sendgrid|shopifyemail|exacttarget|cmail|campaign-archive|list-manage|hubspotemail|beehiiv|mailgun|postmarkapp|createsend|constantcontact)\b/i;
 const NOT_PROMO_FROM_RE = /github\.com|gitlab\.com|bitbucket\.org|cursor\.com|google\.com|accounts\.google/i;
+const MASS_MAIL_LOCAL_RE = /^(info|noreply|no-?reply|newsletter|updates|bonjourhi|mailer|notifications|news|promo|marketing|hello|bonjour|contact)@/i;
 const GMAIL_PROMO_LABELS = new Set(['CATEGORY_PROMOTIONS', 'CATEGORY_SOCIAL', 'CATEGORY_FORUMS']);
 const GMAIL_NOISE_LABELS = new Set([...GMAIL_PROMO_LABELS, 'CATEGORY_UPDATES']);
 const CLIENT_INTENTS = new Set(['devis', 'suivi', 'plainte', 'confirmation']);
@@ -186,7 +187,7 @@ const VALID_CATEGORIES = new Set(MAIL_SECTIONS.map(s => s.id).filter(id => id !=
 export function isPromotion(from, subject, snippet, { labelIds } = {}) {
   if (NOT_PROMO_FROM_RE.test(String(from || ''))) return false;
   const labels = Array.isArray(labelIds) ? labelIds : [];
-  if (labels.includes('IMPORTANT') || labels.includes('STARRED')) return false;
+  if (labels.includes('STARRED')) return false;
   if (labels.includes('CATEGORY_PROMOTIONS')) return true;
   const fromStr = String(from || '');
   const hay = `${from} ${subject} ${snippet}`;
@@ -195,6 +196,13 @@ export function isPromotion(from, subject, snippet, { labelIds } = {}) {
   // Pied « unsubscribe » seul (GitHub, banques, clients) ≠ newsletter
   const weakHits = (hay.match(PROMO_WEAK_RE) || []).length;
   return weakHits >= 2;
+}
+
+function isMassMarketingFrom(from = '') {
+  if (NOT_PROMO_FROM_RE.test(String(from || ''))) return false;
+  const emailMatch = String(from || '').match(/[\w.+-]+@[\w.-]+\.\w+/i);
+  if (!emailMatch) return false;
+  return MASS_MAIL_LOCAL_RE.test(`${emailMatch[0].split('@')[0]}@`);
 }
 
 function isWeakAutoLink(thread) {
@@ -328,13 +336,12 @@ export function classifyMailMessage({
     REPLY_NEEDED_RE.test(`${subject} ${snippet}`)
     || /\?\s*$/.test(String(subject || '').trim())
   );
-  // IMPORTANT Gmail auto sur une newsletter ≠ « doit passer par moi » ; STARRED oui.
+  // IMPORTANT Gmail auto ≠ « doit passer par moi ». Étoile / client / réponse oui.
   const mustPassHuman = !isOutbound && (
     manuallyStarred
     || needsResponse
     || replyHint
-    || (hasStrongClient && !promo)
-    || (gmailImportant && !promo && !gmailNoise)
+    || (hasStrongClient && !promo && !gmailNoise)
   );
 
   // Catégorie verrouillée manuellement
@@ -348,7 +355,12 @@ export function classifyMailMessage({
   // Réponse / étoile / client réel : ne pas rester coincé dans promotions stockées
   if (!mustPassHuman) {
     if (preferStored && isValidMailCategory(thread?.mail_category)) {
-      return thread.mail_category;
+      // Ne pas figer une fausse « À répondre » sur du bruit / newsletter
+      const stickyWrongReply = thread.mail_category === 'a_repondre'
+        && !manuallyStarred
+        && !hasStrongClient
+        && (promo || gmailNoise || isMassMarketingFrom(from));
+      if (!stickyWrongReply) return thread.mail_category;
     }
     if (isValidMailCategory(gmailCategory)) return gmailCategory;
   }
@@ -359,10 +371,22 @@ export function classifyMailMessage({
     return 'promotions';
   }
   if (isSupplierInvoice) return 'fournisseurs';
+  if (detectSupplier(from, subject, snippet)) return 'fournisseurs';
+  // info@ / noreply@ de masse sans client ERP → promotions (ex. festivals marqués IMPORTANT)
+  if (
+    isMassMarketingFrom(from)
+    && !manuallyStarred
+    && !matchedClientEmail
+    && !hardInvoice
+    && !replyHint
+    && !needsResponse
+    && !hasStrongClient
+  ) {
+    return 'promotions';
+  }
   if (mustPassHuman) return 'a_repondre';
   if (isUnread && hasStrongClient && !isOutbound) return 'a_repondre';
-  if (detectSupplier(from, subject, snippet)) return 'fournisseurs';
-  if (isUnread && !isOutbound && !promo && !gmailNoise) return 'a_repondre';
+  if (isUnread && !isOutbound && !promo && !gmailNoise && !isMassMarketingFrom(from)) return 'a_repondre';
   if (hasProject) return 'projets';
   if (hasClient || CLIENT_INTENTS.has(clientIntent)) return 'clients';
   return 'autres';

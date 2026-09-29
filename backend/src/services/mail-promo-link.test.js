@@ -177,7 +177,22 @@ describe('classifyMailMessage promotions', () => {
       subject: 'Dernier jour du festival POP Montréal 2026!',
       snippet: 'Viens découvrir plus de 100 créateurs',
       isUnread: true,
+      preferStored: true,
       labelIds: ['UNREAD', 'IMPORTANT', 'CATEGORY_PROMOTIONS'],
+      thread: { mail_category: 'a_repondre', mail_category_manual: false },
+    });
+    assert.equal(cat, 'promotions');
+  });
+
+  it('info@ de masse IMPORTANT sans client → promotions', () => {
+    const cat = classifyMailMessage({
+      from: 'POP Montréal <info@popmontreal.com>',
+      subject: 'POP Montréal 2026 – Jour 4!',
+      snippet: 'Programme du jour',
+      isUnread: true,
+      preferStored: true,
+      labelIds: ['UNREAD', 'IMPORTANT'],
+      thread: { mail_category: 'a_repondre', mail_category_manual: false },
     });
     assert.equal(cat, 'promotions');
   });
