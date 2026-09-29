@@ -191,6 +191,7 @@ describe('classifyMailMessage promotions', () => {
       snippet: 'Programme du jour',
       isUnread: true,
       preferStored: true,
+      gmailCategory: 'a_repondre',
       labelIds: ['UNREAD', 'IMPORTANT'],
       thread: { mail_category: 'a_repondre', mail_category_manual: false },
     });

@@ -354,15 +354,21 @@ export function classifyMailMessage({
 
   // Réponse / étoile / client réel : ne pas rester coincé dans promotions stockées
   if (!mustPassHuman) {
+    const stickyWrongReply = !manuallyStarred
+      && !hasStrongClient
+      && (promo || gmailNoise || isMassMarketingFrom(from));
     if (preferStored && isValidMailCategory(thread?.mail_category)) {
       // Ne pas figer une fausse « À répondre » sur du bruit / newsletter
-      const stickyWrongReply = thread.mail_category === 'a_repondre'
-        && !manuallyStarred
-        && !hasStrongClient
-        && (promo || gmailNoise || isMassMarketingFrom(from));
-      if (!stickyWrongReply) return thread.mail_category;
+      if (!(thread.mail_category === 'a_repondre' && stickyWrongReply)) {
+        return thread.mail_category;
+      }
     }
-    if (isValidMailCategory(gmailCategory)) return gmailCategory;
+    if (isValidMailCategory(gmailCategory)) {
+      // Idem si un ancien label NEYA/À répondre a été posé à tort
+      if (!(gmailCategory === 'a_repondre' && stickyWrongReply)) {
+        return gmailCategory;
+      }
+    }
   }
 
   // Newsletters : même marquées IMPORTANT par Gmail, sauf étoile manuelle / vrai client
