@@ -308,12 +308,11 @@ function totalsBlock(doc, subtotal, startY, co, label, ctx, {
   y = ty + 18;
 
   if (depositNote) {
-    // Acomptes sur le HT (prix mis en avant du devis)
-    const half = emphasize === 'ht' ? subtotal / 2 : total / 2;
-    const suffix = emphasize === 'ht' ? ' HT' : '';
+    // Acompte / solde toujours TTC (montant réellement à encaisser, taxes incluses)
+    const half = roundMoney(total / 2);
     doc.fillColor(C.muted).font('Helvetica').fontSize(8.5)
       .text(
-        `Acompte 50 % à la commande : ${money(half)}${suffix}   ·   Solde à la livraison : ${money(half)}${suffix}`,
+        `Acompte 50 % à la commande : ${money(half)} TTC   ·   Solde à la livraison : ${money(half)} TTC`,
         bx - 60, y, { width: bw + 60, align: 'right' }
       );
     y += 16;
