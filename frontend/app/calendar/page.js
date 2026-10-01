@@ -735,7 +735,7 @@ function CalendarPageInner() {
     <AuthGuard>
       <AppShell
         title="Agenda"
-        subtitle="Agenda personnel : blocs d’heures, projets et quarts. Les données déjà inscrites restent en place."
+        subtitle="Mois ou semaine, comme un calendrier. Les heures déjà inscrites restent en place."
         wide
       >
         <div className="flex items-center gap-2 mb-3 lg:mb-5 neya-enter overflow-x-auto">
